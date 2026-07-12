@@ -1,19 +1,16 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
-import { PlexPinButton } from "@/components/plex-pin-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
-import type { ProbeCheck, ProbeResult } from "@/lib/types";
+import type { PlexServer, ProbeCheck, ProbeResult } from "@/lib/types";
 
 import type { StepProps } from "./step-props";
-
-const DEFAULT_PLEX_URL = "http://localhost:32400";
 
 function CheckLine({ label, check }: { label: string; check: ProbeCheck }) {
   return (
@@ -37,27 +34,50 @@ function CheckLine({ label, check }: { label: string; check: ProbeCheck }) {
   );
 }
 
+function connectionLabel(connection: PlexServer["connections"][number]) {
+  if (connection.relay) return "relay";
+  return connection.local ? "local" : "remote";
+}
+
 /**
- * Step 1 — Login with Plex (PIN), probe the server with a live checklist,
- * then link it. The scoped Plex token lives in component state only.
+ * Step 1 — pick the server, check it, link it.
+ *
+ * You are already signed in (that happened at the door), and your Plex token never leaves the
+ * backend — so this step opens straight onto the servers your account can see, with every
+ * address Plex advertises for them already tried. Only your network knows which one works from
+ * where Rowarr runs, so we test rather than guess. The URL stays editable regardless.
  */
 export function StepConnect({ data, update }: StepProps) {
-  // Memory only — never persisted (rules/plex-safety.md #9). A page refresh
-  // before linking simply asks for the Plex login again.
-  const [token, setToken] = useState<string | null>(null);
-  const [plexUrl, setPlexUrl] = useState(data.plex_url ?? DEFAULT_PLEX_URL);
+  const [plexUrl, setPlexUrl] = useState(data.plex_url ?? "");
   const urlId = useId();
 
+  const servers = useQuery({
+    queryKey: ["setup", "servers"],
+    queryFn: api.getServers,
+    enabled: !data.linked,
+    staleTime: 30_000,
+  });
+
+  // Preselect the first address that actually answered — the common case is one click.
+  useEffect(() => {
+    if (plexUrl || !servers.data) return;
+    for (const server of servers.data) {
+      const working = server.connections.find((connection) => connection.ok);
+      if (working) {
+        setPlexUrl(working.uri);
+        return;
+      }
+    }
+  }, [servers.data, plexUrl]);
+
   const probe = useMutation({
-    mutationFn: () =>
-      api.setupProbe({ plex_url: plexUrl, plex_token: token ?? "" }),
+    mutationFn: () => api.setupProbe({ plex_url: plexUrl }),
   });
 
   const link = useMutation({
     mutationFn: (result: ProbeResult) =>
       api.setupLink({
         plex_url: plexUrl,
-        plex_token: token ?? "",
         machine_id: result.machine_id,
         server_name: result.server_name,
         version: result.checks.pms_version.value ?? "",
@@ -96,115 +116,176 @@ export function StepConnect({ data, update }: StepProps) {
 
   return (
     <div className="space-y-6">
-      {!token && (
-        <PlexPinButton
-          onLinked={(status) => {
-            if (status.token) setToken(status.token);
-          }}
-        />
-      )}
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">Your servers</h2>
 
-      {token && (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor={urlId}>Plex server URL</Label>
-            <Input
-              id={urlId}
-              value={plexUrl}
-              onChange={(event) => setPlexUrl(event.target.value)}
-              placeholder={DEFAULT_PLEX_URL}
-              autoComplete="off"
-            />
-            <p className="text-sm text-muted-foreground">
-              Always editable — auto-discovery never traps you. Self-signed
-              certificate? Use the http:// address, or flip the insecure toggle
-              later in Settings → Connections.
-            </p>
-          </div>
+        {servers.isPending ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Asking Plex which servers you have, and trying every address they
+            advertise…
+          </p>
+        ) : null}
 
-          <Button
-            onClick={() => probe.mutate()}
-            disabled={probe.isPending || plexUrl.trim().length === 0}
-          >
-            {probe.isPending && (
-              <Loader2 className="animate-spin" aria-hidden="true" />
-            )}
-            Run checks
-          </Button>
+        {servers.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {servers.error instanceof ApiError
+              ? servers.error.message
+              : "Could not reach plex.tv."}{" "}
+            You can still type the address yourself below.
+          </p>
+        ) : null}
 
-          {probe.isError && (
-            <p role="alert" className="text-sm text-destructive">
-              {probe.error instanceof ApiError
-                ? probe.error.message
-                : "The checks could not run. Verify the URL and try again."}
-            </p>
-          )}
+        {servers.data?.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Plex says this account owns no servers. If that&rsquo;s wrong, type
+            the address below.
+          </p>
+        ) : null}
 
-          {probe.data && (
-            <Card>
-              <CardContent className="space-y-4 pt-6">
-                <p className="font-medium">
-                  {probe.data.server_name}
-                  <Badge variant="secondary" className="ml-2">
-                    {probe.data.libraries.length} libraries
-                  </Badge>
-                </p>
-                <ul className="space-y-2">
-                  <CheckLine
-                    label="Plex version"
-                    check={probe.data.checks.pms_version}
-                  />
-                  <CheckLine
-                    label="Plex Pass"
-                    check={probe.data.checks.plex_pass}
-                  />
-                  <CheckLine
-                    label="Libraries"
-                    check={probe.data.checks.libraries}
-                  />
-                  {probe.data.checks.tautulli && (
-                    <CheckLine
-                      label="Tautulli"
-                      check={probe.data.checks.tautulli}
-                    />
-                  )}
-                </ul>
-                {probe.data.libraries.length > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {probe.data.libraries
-                      .map((lib) => `${lib.title} (${lib.count} ${lib.type}s)`)
-                      .join(" · ")}
-                  </p>
-                )}
-
-                {requiredChecksPass ? (
-                  <Button
-                    onClick={() => link.mutate(probe.data)}
-                    disabled={link.isPending}
-                  >
-                    {link.isPending && (
-                      <Loader2 className="animate-spin" aria-hidden="true" />
-                    )}
-                    Link this server
-                  </Button>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Fix the failing checks above, then run the checks again.
-                    Rowarr needs Plex ≥ 1.43.2 and Plex Pass for private rows.
-                  </p>
-                )}
-                {link.isError && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {link.error instanceof ApiError
-                      ? link.error.message
-                      : "Linking failed. Run the checks and try again."}
-                  </p>
-                )}
+        <div className="space-y-3">
+          {servers.data?.map((server) => (
+            <Card
+              key={server.machine_id}
+              data-testid={`server-${server.machine_id}`}
+            >
+              <CardContent className="space-y-2 pt-6">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{server.name}</span>
+                  {server.owned ? <Badge>owned</Badge> : null}
+                  {server.version ? (
+                    <span className="text-xs text-muted-foreground">
+                      {server.version}
+                    </span>
+                  ) : null}
+                </div>
+                <fieldset className="space-y-1">
+                  <legend className="sr-only">
+                    Addresses for {server.name}
+                  </legend>
+                  {server.connections.map((connection) => (
+                    <Button
+                      key={connection.uri}
+                      type="button"
+                      variant={
+                        plexUrl === connection.uri ? "default" : "outline"
+                      }
+                      size="sm"
+                      aria-pressed={plexUrl === connection.uri}
+                      disabled={!connection.ok}
+                      onClick={() => setPlexUrl(connection.uri)}
+                      className="mr-2 font-mono text-xs"
+                    >
+                      {connection.ok ? (
+                        <Check className="h-3 w-3" aria-hidden="true" />
+                      ) : (
+                        <X className="h-3 w-3" aria-hidden="true" />
+                      )}
+                      {connection.uri}
+                      <span className="ml-1 opacity-70">
+                        ({connectionLabel(connection)}
+                        {connection.ok ? "" : ", unreachable"})
+                      </span>
+                    </Button>
+                  ))}
+                </fieldset>
               </CardContent>
             </Card>
-          )}
-        </>
-      )}
+          ))}
+        </div>
+      </section>
+
+      <div className="space-y-2">
+        <Label htmlFor={urlId}>Plex server URL</Label>
+        <Input
+          id={urlId}
+          value={plexUrl}
+          onChange={(event) => setPlexUrl(event.target.value)}
+          placeholder="http://192.168.1.10:32400"
+          autoComplete="off"
+          className="font-mono"
+        />
+        <p className="text-sm text-muted-foreground">
+          Always editable — auto-discovery never traps you. A self-signed
+          certificate is fine: use the plain http:// address on your LAN.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => probe.mutate()}
+          disabled={!plexUrl || probe.isPending}
+        >
+          {probe.isPending ? (
+            <Loader2 className="animate-spin" aria-hidden="true" />
+          ) : null}
+          Run checks
+        </Button>
+        {requiredChecksPass && probe.data ? (
+          <Button
+            variant="default"
+            onClick={() => link.mutate(probe.data)}
+            disabled={link.isPending}
+          >
+            {link.isPending ? (
+              <Loader2 className="animate-spin" aria-hidden="true" />
+            ) : null}
+            Link this server
+          </Button>
+        ) : null}
+      </div>
+
+      {probe.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {probe.error instanceof ApiError
+            ? probe.error.message
+            : "That server did not answer."}
+        </p>
+      ) : null}
+
+      {probe.data ? (
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <ul className="space-y-2">
+              <CheckLine
+                label="Plex version"
+                check={probe.data.checks.pms_version}
+              />
+              <CheckLine
+                label="Plex Pass"
+                check={probe.data.checks.plex_pass}
+              />
+              <CheckLine
+                label="Libraries"
+                check={probe.data.checks.libraries}
+              />
+            </ul>
+            <p className="text-sm text-muted-foreground">
+              {probe.data.libraries.length} libraries:{" "}
+              {probe.data.libraries
+                .map(
+                  (library) =>
+                    `${library.title} (${library.count} ${library.type}s)`,
+                )
+                .join(", ")}
+            </p>
+            {!requiredChecksPass ? (
+              <p className="text-sm text-destructive">
+                Rowarr can&rsquo;t keep rows private on this server yet — fix
+                the failing check above, then run the checks again.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {link.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {link.error instanceof ApiError
+            ? link.error.message
+            : "Could not link that server."}
+        </p>
+      ) : null}
     </div>
   );
 }

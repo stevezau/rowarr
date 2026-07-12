@@ -22,11 +22,12 @@ export function useSession() {
   });
 }
 
-export function useSetupState() {
+export function useSetupState(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.setupState,
     queryFn: api.getSetupState,
     staleTime: 30_000,
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -92,7 +93,9 @@ export function useSaveSettings() {
 export function useRunPrivacyCheck() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: api.runPrivacyCheck,
+    // probe:false (default) = fast read-only T1/T2; probe:true = full ~90s
+    // probe with a throwaway collection (the wizard's step 5).
+    mutationFn: (opts?: { probe?: boolean }) => api.runPrivacyCheck(opts ?? {}),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.privacy }),
   });

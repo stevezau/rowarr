@@ -1,13 +1,20 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
+import {
+  Loader2,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserCard } from "@/components/user-card";
+import { ApiError } from "@/lib/api";
 import {
   formatHitRate,
   settingString,
@@ -18,6 +25,7 @@ import {
   queryKeys,
   usePatchUser,
   usePrivacyStatus,
+  useRunPrivacyCheck,
   useRuns,
   useSettings,
   useStartRun,
@@ -97,6 +105,7 @@ export function DashboardPage() {
   const settingsQuery = useSettings();
   const startRun = useStartRun();
   const patchUser = usePatchUser();
+  const privacyCheck = useRunPrivacyCheck();
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
@@ -156,12 +165,31 @@ export function DashboardPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <div className="flex flex-wrap items-center gap-3">
           <PrivacyBadge status={privacyQuery.data} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => privacyCheck.mutate({ probe: false })}
+            disabled={privacyCheck.isPending}
+          >
+            {privacyCheck.isPending && (
+              <Loader2 className="animate-spin" aria-hidden="true" />
+            )}
+            Check now
+          </Button>
           <span className="text-sm text-muted-foreground">
             Next run:{" "}
             {scheduleTime ? `tonight ${scheduleTime}` : "not scheduled yet"}
           </span>
         </div>
       </header>
+
+      {privacyCheck.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          {privacyCheck.error instanceof ApiError
+            ? privacyCheck.error.message
+            : "The Privacy Check could not run. Try again from Settings."}
+        </p>
+      )}
 
       {usersQuery.data && runsQuery.data && (
         <p className="text-sm text-muted-foreground">

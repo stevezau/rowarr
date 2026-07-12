@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/app-shell";
 import { EmptyState, ErrorState } from "@/components/query-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ApiError } from "@/lib/api";
 import { resolveArea } from "@/lib/auth";
 import { useSession, useSetupState } from "@/lib/queries";
 import { DashboardPage } from "@/pages/dashboard";
@@ -19,7 +20,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 15_000,
-      retry: 1,
+      // Retrying a 401/403 just delays the login screen behind a spinner — the answer
+      // will not change until the visitor signs in.
+      retry: (failureCount, error) =>
+        !(error instanceof ApiError && (error.status === 401 || error.status === 403)) &&
+        failureCount < 1,
     },
   },
 });
@@ -30,9 +35,12 @@ const queryClient = new QueryClient({
  */
 function RequireApp() {
   const session = useSession();
-  const setup = useSetupState();
+  // Setup state is owner-only: asking for it before we know who this is just 401s, and the
+  // visitor would sit behind a skeleton instead of being shown the login screen.
+  const authenticated = session.data?.authenticated ?? false;
+  const setup = useSetupState({ enabled: authenticated });
 
-  if (session.isPending || setup.isPending) {
+  if (session.isPending) {
     return (
       <div className="mx-auto mt-16 w-full max-w-4xl px-4">
         <Skeleton className="h-96 w-full" />
@@ -49,11 +57,16 @@ function RequireApp() {
       </div>
     );
   }
+  if (!authenticated) return <Navigate to="/login" replace />;
+  if (setup.isPending) {
+    return (
+      <div className="mx-auto mt-16 w-full max-w-4xl px-4">
+        <Skeleton className="h-96 w-full" />
+      </div>
+    );
+  }
 
-  const area = resolveArea(
-    session.data.authenticated,
-    setup.data?.completed ?? false,
-  );
+  const area = resolveArea(authenticated, setup.data?.completed ?? false);
   if (area === "login") return <Navigate to="/login" replace />;
   if (area === "setup") return <Navigate to="/setup" replace />;
   return <AppShell />;

@@ -29,17 +29,31 @@ LOAD = 20_000
 
 
 def _connect_plex(page: Page, pms_url: str) -> None:
-    """Steps 0-1: welcome -> Login with Plex -> probe the server -> link it."""
+    """Steps 0-1: welcome -> pick the server from the picker -> probe it -> link it.
+
+    You are already signed in by the time you get here (that happened at the door), so this
+    step must NOT ask for a second Plex login — it opens straight onto your servers, with every
+    address Plex advertises for them already tried from where Rowarr actually runs.
+    """
     expect(page.get_by_role("heading", name="Welcome")).to_be_visible(timeout=LOAD)
     page.get_by_role("button", name="Connect Plex").click()
-
     expect(page.get_by_role("heading", name="Connect Plex")).to_be_visible()
-    page.get_by_role("button", name="Login with Plex").click()
 
-    # The PIN is stubbed as already-linked; the SPA polls every 2s before it notices.
+    # No second sign-in. The token lives on the server; the browser never sees it.
+    expect(page.get_by_role("button", name="Login with Plex")).to_have_count(0)
+
+    # The picker lists the server and marks the address that answered. The unreachable one it
+    # also advertises must be offered but disabled — a guess would have picked the wrong one.
+    expect(page.get_by_text("FakePlex", exact=True).first).to_be_visible(timeout=LOAD)
+    working = page.locator("button", has_text=pms_url).first
+    expect(working).to_be_enabled(timeout=LOAD)
+    unreachable = page.locator("button", has_text="10.255.255.1").first
+    expect(unreachable).to_be_disabled()
+    expect(unreachable).to_contain_text("unreachable")
+
+    # It preselects the address that worked, so the common case is one click.
     url_field = page.get_by_label("Plex server URL")
-    expect(url_field).to_be_visible(timeout=LOAD)
-    url_field.fill(pms_url)
+    expect(url_field).to_have_value(pms_url, timeout=LOAD)
     page.get_by_role("button", name="Run checks").click()
 
     # The capability checklist is the whole point of this step — assert every line, and that
@@ -291,7 +305,9 @@ def test_skipping_the_privacy_check_forces_a_dry_run(
         lambda r: run_bodies.append(r.post_data or "") if r.method == "POST" and r.url.endswith("/api/runs") else None,
     )
     page.get_by_role("button", name="Preview my rows (dry run)").click()
-    expect(page.get_by_text("Rows are live on Plex")).to_be_visible(timeout=SLOW)
+    # The success panel must not claim rows are live after a dry run.
+    expect(page.get_by_text("Dry run complete — nothing was written to Plex")).to_be_visible(timeout=SLOW)
+    expect(page.get_by_text("Rows are live on Plex")).to_have_count(0)
 
     assert run_bodies == ['{"dry_run":true}'], f"the SPA must ask for a DRY run, sent: {run_bodies}"
     assert state.collections == {}, "a dry run wrote collections to Plex"

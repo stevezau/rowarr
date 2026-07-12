@@ -109,13 +109,12 @@ async def poll_pin(pin_id: int, request: Request, response: Response) -> dict:
         samesite="lax",
         secure=request.url.scheme == "https",
     )
-    # During first-time setup the authenticated account becomes the owner candidate and the
-    # token is returned ONCE so the wizard can probe/link servers. After a server is linked,
-    # the token never leaves the backend again (XSS on the SPA must not be able to steal it).
-    response_body = {"linked": True, "account_id": account_id, "username": payload["username"]}
+    # The Plex token NEVER goes to the browser. During first-time setup we hold it server-side,
+    # keyed to this session, so the wizard can enumerate/probe/link servers without the SPA ever
+    # touching it (an XSS anywhere in the UI must not be able to steal the owner's Plex token).
     if owner_id is None:
-        response_body["token"] = token
-    return response_body
+        state.pending_plex_tokens[account_id] = token
+    return {"linked": True, "account_id": account_id, "username": payload["username"]}
 
 
 @router.get("/session")

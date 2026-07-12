@@ -21,10 +21,13 @@ import { queryKeys, useSession, useSetupState } from "@/lib/queries";
  */
 export function LoginPage() {
   const session = useSession();
-  const setup = useSetupState();
+  const authenticated = session.data?.authenticated ?? false;
+  // Setup state is owner-only. Asking for it before sign-in 401s, and the visitor would sit
+  // behind this very skeleton instead of seeing the button they came here to press.
+  const setup = useSetupState({ enabled: authenticated });
   const queryClient = useQueryClient();
 
-  if (session.isPending || setup.isPending) {
+  if (session.isPending || (authenticated && setup.isPending)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Skeleton className="h-64 w-full max-w-md" />
@@ -43,7 +46,6 @@ export function LoginPage() {
     );
   }
 
-  const authenticated = session.data.authenticated;
   const completed = setup.data?.completed ?? false;
   const area = resolveArea(authenticated, completed);
   if (area !== "login") {

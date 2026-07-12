@@ -7,8 +7,6 @@ the fake, and Playwright drives a browser against it. Run with `pytest -m e2e`
 Three boundaries are faked so the suite never touches the network:
 - PMS + plex.tv          -> tests/fakes/fake_plex.py (real HTTP on loopback)
 - TMDB                   -> `_make_fake_tmdb` below (real HTTP on loopback)
-- plex.tv /api/v2/user   -> `_stub_plextv_account` (httpx patch; the setup probe hardcodes the
-                            absolute plex.tv URL, so there is no constant to repoint)
 The Plex PIN endpoints are stubbed in the BROWSER instead (`stub_plex_pin`), because that is
 the one flow whose contract is "the SPA polls until plex.tv says linked".
 """
@@ -123,6 +121,9 @@ def fake_plex() -> Iterator[tuple[str, str, FakePlexState]]:
     plextv.start()
     pms.wait_until_up("/identity")
     plextv.wait_until_up("/api/users")
+    # The server picker asks plex.tv what addresses a server advertises, so the fake plex.tv
+    # has to know where the fake PMS ended up listening.
+    state.pms_url = f"http://127.0.0.1:{pms.port}"
     yield f"http://127.0.0.1:{pms.port}", f"http://127.0.0.1:{plextv.port}", state
     pms.stop()
     plextv.stop()
@@ -195,43 +196,14 @@ def reset_fake_plex(fake_plex) -> Iterator[FakePlexState]:
     yield state
 
 
-@pytest.fixture(autouse=True)
-def stub_plextv_account(monkeypatch) -> None:
-    """Answer the ONE plex.tv URL the backend hardcodes (`/api/setup/probe` -> /api/v2/user).
-
-    Everything else — the fake PMS, fake plex.tv, fake TMDB — passes straight through to the
-    real transport, so this patch cannot hide a wrong URL anywhere else.
-    """
-    real_get = httpx.get
-
-    def get(url, **kwargs) -> httpx.Response:
-        if str(url).startswith("https://plex.tv/api/v2/user"):
-            return httpx.Response(
-                200,
-                json={
-                    "id": OWNER_ACCOUNT_ID,
-                    "uuid": "owner-uuid",
-                    "username": "owner",
-                    "title": "owner",
-                    "subscription": {"active": True},
-                },
-                request=httpx.Request("GET", str(url)),
-            )
-        return real_get(url, **kwargs)
-
-    monkeypatch.setattr(httpx, "get", get)
-
-
-# --------------------------------------------------------------------------------------
-# The app under test
-# --------------------------------------------------------------------------------------
-
-
 def _boot_app(config_dir: Path) -> tuple[FastAPI, _ThreadedServer]:
     fastapi_app = create_app(config_dir=config_dir)
     server = _ThreadedServer(fastapi_app, _free_port())
     server.start()
     server.wait_until_up("/api/system/health")
+    # The PIN flow stashes the owner's Plex token server-side (it never goes to the browser);
+    # the browser-level PIN stub can't do that, so stand in for it here.
+    fastapi_app.state.pending_plex_tokens[OWNER_ACCOUNT_ID] = "owner-token"
     return fastapi_app, server
 
 
@@ -367,7 +339,9 @@ def stub_plex_pin(page: Page, *, token: str = "owner-token", username: str = "ow
         route.fulfill(json={"id": 1234, "code": "ABCD", "client_id": "rowarr-e2e"})
 
     def poll(route: Route) -> None:
-        route.fulfill(json={"linked": True, "account_id": OWNER_ACCOUNT_ID, "username": username, "token": token})
+        # The real endpoint also stashes the Plex token server-side; the app fixture does that
+        # for us (see _seed_pending_token), because the token never travels to the browser.
+        route.fulfill(json={"linked": True, "account_id": OWNER_ACCOUNT_ID, "username": username})
 
     # Routed on the CONTEXT, not the page: the wizard opens a plex.tv popup, which is a
     # separate page — a page-scoped route would let it hit the real network.

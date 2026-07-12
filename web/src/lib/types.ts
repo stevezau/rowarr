@@ -17,6 +17,8 @@ export interface User {
   last_run_at: string | null;
   /** 0..1 fraction of recommended items watched within 30 days, or null before first measurement. */
   hit_rate: number | null;
+  /** Saved per-user overrides — the same shape PATCH accepts. */
+  prefs?: UserPrefs;
 }
 
 /** PATCH /api/users/{id} — per-user overrides. */
@@ -55,6 +57,8 @@ export interface Pick {
   rank: number;
   title: string;
   reason: string;
+  /** Which watched title produced this pick, when the pipeline knows it. */
+  seed_title?: string;
 }
 
 /**
@@ -142,14 +146,13 @@ export interface PinCreated {
 }
 
 /**
- * GET /api/auth/pin/{id}. `token` is present only briefly pre-link — keep it
- * in memory only, never in localStorage or any other persistence.
+ * GET /api/auth/pin/{id}. The Plex token is deliberately NOT here: the backend holds it
+ * server-side for the setup session, so an XSS anywhere in this UI cannot steal it.
  */
 export interface PinStatus {
   linked: boolean;
   account_id?: number;
   username?: string;
-  token?: string;
 }
 
 /** GET /api/auth/session. */
@@ -164,7 +167,6 @@ export interface Session {
 /** POST /api/setup/probe body. */
 export interface ProbeRequest {
   plex_url: string;
-  plex_token: string;
   tautulli_url?: string;
   tautulli_apikey?: string;
 }
@@ -199,7 +201,6 @@ export interface ProbeResult {
 /** POST /api/setup/link body. */
 export interface LinkRequest {
   plex_url: string;
-  plex_token: string;
   machine_id: string;
   server_name: string;
   version: string;
@@ -232,4 +233,21 @@ export interface RunFinishedEvent {
 /** Event `privacy.probe.step` — one live log line during the Privacy Check. */
 export interface PrivacyProbeStepEvent {
   message: string;
+}
+
+/**
+ * A server plex.tv says this account can reach, with every advertised address already tried
+ * from where Rowarr actually runs — only the owner's network knows which one works.
+ */
+export interface PlexServer {
+  name: string;
+  machine_id: string;
+  owned: boolean;
+  version: string;
+  connections: {
+    uri: string;
+    local: boolean;
+    relay: boolean;
+    ok: boolean;
+  }[];
 }

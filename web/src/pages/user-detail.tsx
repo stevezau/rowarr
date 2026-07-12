@@ -92,12 +92,13 @@ function UserDetailBody({ user }: { user: User }) {
   const patchUser = usePatchUser();
   const startRun = useStartRun();
 
-  // GET /api/users doesn't return prefs yet, so overrides start from defaults
-  // rather than the saved values. TODO: initialize from the API once prefs are
-  // exposed on the user read model.
-  const [rowNameTpl, setRowNameTpl] = useState("");
-  const [rowSize, setRowSize] = useState(DEFAULT_ROW_SIZE);
-  const [paused, setPaused] = useState(false);
+  // Rehydrate the override form from the saved prefs so a reload shows what
+  // was actually saved, not blank defaults.
+  const [rowNameTpl, setRowNameTpl] = useState(user.prefs?.row_name_tpl ?? "");
+  const [rowSize, setRowSize] = useState(
+    user.prefs?.row_size ?? DEFAULT_ROW_SIZE,
+  );
+  const [paused, setPaused] = useState(user.prefs?.paused ?? false);
 
   const rowNameId = useId();
   const pausedId = useId();

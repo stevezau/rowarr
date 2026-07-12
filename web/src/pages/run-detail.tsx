@@ -129,6 +129,31 @@ function UserResultCard({
                   No changes — the row was already up to date.
                 </p>
               )}
+            {result.picks.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Picks ({result.picks.length})
+                </p>
+                <ol className="mt-1 space-y-1">
+                  {result.picks
+                    .slice()
+                    .sort((a, b) => a.rank - b.rank)
+                    .map((pick) => (
+                      <li key={pick.rank} className="text-sm">
+                        <span className="font-semibold text-primary">
+                          #{pick.rank}
+                        </span>{" "}
+                        <span className="font-medium">{pick.title}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          — {pick.reason}
+                          {pick.seed_title ? ` (seed: ${pick.seed_title})` : ""}
+                        </span>
+                      </li>
+                    ))}
+                </ol>
+              </div>
+            )}
           </>
         )}
       </CardContent>

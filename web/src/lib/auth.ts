@@ -37,15 +37,15 @@ export interface PlexPinState {
   /** True when window.open was blocked — show the code-entry fallback. */
   popupBlocked: boolean;
   error: string | null;
-  /** Set once linked. The token inside stays in memory only — never persist it. */
+  /** Set once the account links. Carries no Plex token — the backend keeps that. */
   status: PinStatus | null;
   start: () => void;
 }
 
 /**
- * "Login with Plex" PIN flow: create a pin, open the plex.tv auth popup, and
- * poll every 2s until the account links (or 5 minutes pass). The scoped token
- * returned on link is handed to `onLinked` and kept in component memory only.
+ * "Login with Plex" PIN flow: create a pin, open the plex.tv auth popup, and poll every 2s
+ * until the account links (or 5 minutes pass). No Plex token ever reaches this code — the
+ * backend mints it and keeps it, which is why the wizard does not ask you to sign in twice.
  */
 export function usePlexPin(
   onLinked?: (status: PinStatus) => void,

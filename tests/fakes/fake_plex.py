@@ -82,6 +82,8 @@ class FakePlexState:
     friendly_name: str = "FakePlex"
     version: str = "1.43.3.10793"
     owner_token: str = "owner-token"
+    owner_account_id: int = 555000001
+    pms_url: str = "http://127.0.0.1:32400"  # set by the harness once the fake PMS has a port
     section_id: int = 1
     movies: dict[int, FakeMovie] = field(default_factory=dict)
     collections: dict[int, FakeCollection] = field(default_factory=dict)
@@ -523,13 +525,39 @@ def make_fake_plextv(state: FakePlexState) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"unknown home user {uuid}")
         return JSONResponse({"authToken": f"switch-{user.id}"})
 
+    @app.get("/api/v2/user")
+    def whoami(request: Request) -> JSONResponse:
+        """Who this token belongs to, and whether they have Plex Pass (the setup probe asks)."""
+        if request.headers.get("X-Plex-Token") != state.owner_token:
+            raise HTTPException(status_code=401, detail="bad token")
+        return JSONResponse(
+            {
+                "id": state.owner_account_id,
+                "username": "owner",
+                "subscription": {"active": True},
+            }
+        )
+
     @app.get("/api/v2/resources")
     def resources(request: Request) -> JSONResponse:
         token = request.headers.get("X-Plex-Token", "")
-        if not token.startswith("switch-"):
-            return JSONResponse([])
-        account_id = token.removeprefix("switch-")
-        server = {"name": state.friendly_name, "clientIdentifier": state.machine_id, "provides": "server"}
-        return JSONResponse([{**server, "accessToken": f"server-{account_id}"}])
+        server = {
+            "name": state.friendly_name,
+            "clientIdentifier": state.machine_id,
+            "provides": "server",
+            "productVersion": state.version,
+            "owned": True,
+            # What the server picker consumes: several advertised addresses, only one of which
+            # actually answers — exactly the situation the picker exists to resolve.
+            "connections": [
+                {"uri": state.pms_url, "local": True, "relay": False},
+                {"uri": "http://10.255.255.1:32400", "local": False, "relay": False},
+            ],
+        }
+        if token.startswith("switch-"):
+            # The T2 canary flow: exchange a Home-user switch token for a server access token.
+            account_id = token.removeprefix("switch-")
+            return JSONResponse([{**server, "accessToken": f"server-{account_id}"}])
+        return JSONResponse([server])
 
     return app

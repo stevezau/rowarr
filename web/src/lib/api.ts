@@ -4,6 +4,7 @@ import type {
   LinkRequest,
   PinCreated,
   PinStatus,
+  PlexServer,
   PrivacyCheckResult,
   PrivacyStatus,
   ProbeRequest,
@@ -121,6 +122,9 @@ export const api = {
   getSession: (): Promise<Session> => request("/api/auth/session"),
 
   // --- Setup wizard ---
+  /** Servers this account can see, each advertised address already probed for reachability. */
+  getServers: (): Promise<PlexServer[]> => request("/api/setup/servers"),
+
   setupProbe: (body: ProbeRequest): Promise<ProbeResult> =>
     request("/api/setup/probe", { method: "POST", body: JSON.stringify(body) }),
 

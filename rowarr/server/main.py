@@ -57,6 +57,8 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
         app.state.client_id = _instance_secret(config_dir, "client.id")[:32] or str(uuid.uuid4())
         app.state.run_service = RunService(sessions, bus, config_dir, secret_box)
         app.state.started_at = datetime.now(UTC)
+        # Plex tokens minted during setup, held server-side only (account_id -> token).
+        app.state.pending_plex_tokens = {}
 
         def owner_account_id() -> int | None:
             with sessions() as session:

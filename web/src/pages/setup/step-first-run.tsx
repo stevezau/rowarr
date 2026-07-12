@@ -158,15 +158,17 @@ export function StepFirstRun({ data, complete }: StepProps) {
         >
           <p className="inline-flex items-center gap-2 text-lg font-semibold text-success">
             <PartyPopper className="h-5 w-5" aria-hidden="true" />
-            Rows are live on Plex
+            {dryRunOnly
+              ? "Dry run complete — nothing was written to Plex"
+              : "Rows are live on Plex"}
           </p>
           <Badge variant={finishedStatus === "ok" ? "success" : "secondary"}>
             run {finishedStatus}
           </Badge>
           <p className="text-sm text-muted-foreground">
-            Tell your users to look for their new row tonight — something like:
-            "Your Plex now has a private Picked-for-You row, built from what you
-            actually watch. Enjoy."
+            {dryRunOnly
+              ? "That's what Rowarr would build for each user. When you're ready, run the Privacy Check from Settings — once it passes, the next run writes for real."
+              : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
           </p>
           <Button onClick={() => void complete()}>Finish setup</Button>
         </div>

@@ -281,11 +281,11 @@ function SettingsForm({ settings }: { settings: Settings }) {
           <CardContent className="space-y-4 pt-6">
             <p className="text-sm text-muted-foreground">
               Rowarr will not write to Plex unless a Privacy Check has passed in
-              the last seven days. The quick check reads every user&rsquo;s share
-              filters back from plex.tv and looks at a canary account&rsquo;s own
-              Home. The full probe goes further: it creates a throwaway
-              collection, proves it disappears for the canary, and removes it
-              again.
+              the last seven days. The quick check reads every user&rsquo;s
+              share filters back from plex.tv and looks at a canary
+              account&rsquo;s own Home. The full probe goes further: it creates
+              a throwaway collection, proves it disappears for the canary, and
+              removes it again.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -342,7 +342,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   {pausedAll ? "Everything is paused" : "Pause all users"}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Rows stay on Plex but stop refreshing until you resume.
+                  Stops scheduled and manual runs alike — no user stays enabled
+                  or gets disabled, and rows stay on Plex untouched until you
+                  resume.
                 </p>
               </div>
               <Button

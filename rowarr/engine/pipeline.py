@@ -84,7 +84,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     # and a pick from a library that never gets a collection could never be shown to anyone.
     seed_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
     library_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
-    for section in sections:
+    # Only when there is someone to recommend to. Both indexes walk every item in every library,
+    # and both are read only inside _run_user — so with no users this is thousands of PMS reads
+    # thrown away, in front of the sweep, on the one path (a closed gate) where the sweep is the
+    # entire point and must not be preceded by anything that can fail.
+    for section in sections if users else []:
         kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
         index = ctx.plex.build_library_index(section)
         seed_index[kind].update(index)

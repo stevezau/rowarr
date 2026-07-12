@@ -344,3 +344,44 @@ class TestEveryAccountOnTheServerIsCovered:
 
         page.goto(f"/runs/{run['id']}")
         expect(page.get_by_role("heading", name=f"Run #{run['id']}")).to_be_visible(timeout=LOAD)
+
+    def test_a_gated_run_still_writes_the_excludes_that_let_the_check_pass_again(self, app: RowarrApp, reset_fake_plex):
+        """The gate must not deadlock itself.
+
+        An account missing an exclude FAILS the Privacy Check. The failed check closes the write
+        gate. If the closed gate also blocked the share-filter sync, the only thing that writes
+        that exclude would never run — the check could never pass again, the gate could never
+        reopen, and the rows would stay visible to that account forever. A live server reached
+        exactly that state (SFLIX, 2026-07-13).
+
+        Building rows is refused, as it should be. Everything that makes the server MORE private
+        still happens: merge-only excludes cannot expose anything.
+        """
+        state = reset_fake_plex
+        build_real_rows(app)  # rows exist and everyone's filters are correct
+
+        # Someone loses their excludes — drift, a manual edit on plex.tv, a new account. They also
+        # have filter conditions of their own, which Rowarr did not put there and must not disturb.
+        state.users[202].filters["filterMovies"] = "contentRating=PG|label!=Kometa_kids"
+        state.users[202].filters["filterTelevision"] = ""
+        assert app.api("POST", "/api/privacy/check", json={}).json()["passed"] is False
+
+        created = app.api("POST", "/api/runs", json={"dry_run": False}).json()
+        run = app.wait_for_run(created["run_id"])
+
+        # Refused: no rows were built...
+        assert run["status"] == "error"
+        assert "privacy gate" in run["stats"]["error"]
+        # ...but the excludes are back, so the check can pass again and the gate can reopen.
+        movies = state.users[202].filters["filterMovies"]
+        assert "Rowarr_sarah" in movies
+        assert "Rowarr_sarah" in state.users[202].filters["filterTelevision"]
+        assert app.api("POST", "/api/privacy/check", json={}).json()["passed"] is True, (
+            "the gate deadlocked: it blocked the only thing that could reopen it"
+        )
+
+        # And it was a MERGE, not a rebuild. This is the whole reason a filter write is allowed
+        # with the gate closed: it can only ever ADD an exclude. Their own conditions survive
+        # byte-identical, and the label another tool put there is still excluded (rule 3).
+        assert movies.startswith("contentRating=PG|"), f"a foreign condition was dropped: {movies!r}"
+        assert "Kometa_kids" in movies, f"another tool's exclude was dropped: {movies!r}"

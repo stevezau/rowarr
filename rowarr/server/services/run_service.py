@@ -21,7 +21,7 @@ from rowarr.engine.clients.tautulli import TautulliClient
 from rowarr.engine.clients.tmdb import TmdbClient
 from rowarr.engine.curator import make_curator
 from rowarr.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource
-from rowarr.engine.models import EngineConfig, FilterSnapshot, MediaType, UserProfile, UserType, slugify
+from rowarr.engine.models import EngineConfig, FilterSnapshot, MediaType, RunReport, UserProfile, UserType, slugify
 from rowarr.engine.pipeline import EngineContext
 from rowarr.engine.pipeline import run as engine_run
 from rowarr.server.db.models import CacheRow, Event, PickRow, RestrictionSnapshotRow, Run, RunUser, User
@@ -275,18 +275,21 @@ class RunService:
             server = session.query(Server).first()
             return gate_error(session, server.version if server else None)
 
-    def _sweep_only(self) -> dict[str, list[str]]:
-        """Remove rows Plex cannot hide, and nothing else. Safe to run with the gate closed: it
-        only ever DELETES collections that no share filter can match, so it cannot expose anything.
-        """
-        from rowarr.engine.delivery import sweep_unhidable_rows
+    def _remedy_only(self) -> RunReport:
+        """Everything that makes the server MORE private, and nothing else.
 
-        try:
-            ctx = self.build_context(dry_run=False)
-            return sweep_unhidable_rows(ctx.plex, ctx.config)
-        except Exception:
-            logger.exception("could not sweep unhidable rows while the privacy gate was closed")
-            return {}
+        Running the engine with no users does exactly that: it sweeps rows Plex cannot hide, then
+        merges the excludes for every row that exists into every account's share filter. Nothing
+        is created, nothing is promoted — deletion and merge-only excludes cannot expose anything.
+
+        This is what a closed gate must still allow, or the gate deadlocks itself: a missing
+        exclude FAILS the Privacy Check, the failed check closes the gate, and a closed gate that
+        blocked the sync would stop the only thing that writes the exclude. The check could never
+        pass again. (Live server, SFLIX, 2026-07-13: T1 failed for 45 accounts, and the run that
+        would have fixed them was refused because T1 failed.)
+        """
+        ctx = self.build_context(dry_run=False)
+        return engine_run(ctx, [])
 
     async def _execute(self, run_id: int, dry_run: bool, user_ids: list[int] | None) -> None:
         loop = asyncio.get_running_loop()
@@ -304,30 +307,30 @@ class RunService:
                 # closes the gate, and the closed gate would then block the very sweep that removes
                 # it — so the leak could never heal. That is precisely the state a live server was
                 # left in (SFLIX, 2026-07-12).
-                swept = await loop.run_in_executor(None, self._sweep_only)
-                with self._sessions() as session:
-                    run = session.get(Run, run_id)
-                    run.status = "error"
-                    run.finished_at = datetime.now(UTC)
-                    run.stats = {
-                        "error": f"privacy gate: {gate_error}",
-                        "rows_swept": sum(len(titles) for titles in swept.values()),
-                    }
-                    if swept:
-                        session.add(
-                            Event(
-                                scope="run.sweep",
-                                level="warning",
-                                message={
-                                    "run_id": run_id,
-                                    "dry_run": False,
-                                    "reason": "row could not be hidden by any share filter (wrong "
-                                    "type for its library) — removed even though the gate is closed",
-                                    "deleted": swept,
-                                },
-                            )
-                        )
-                    session.commit()
+                remedy_error = None
+                try:
+                    report = await loop.run_in_executor(None, self._remedy_only)
+                    remedy_error = report.error  # the remedy can degrade without raising
+                    # `status` is forced: nothing was BUILT, so the run is an error whatever the
+                    # remedy did. Passing it here means the run is never momentarily recorded as a
+                    # success — a restart in that window would have left a refused run saying "ok".
+                    self._persist_report(run_id, report, status="error", error=f"privacy gate: {gate_error}")
+                except Exception as e:
+                    # A failing remedy must never leave the run stuck: the gate refusal is the
+                    # headline, and this is the footnote.
+                    remedy_error = f"{type(e).__name__}: {e}"
+                    logger.exception("the remedy pass failed while the privacy gate was closed")
+                    with self._sessions() as session:
+                        run = session.get(Run, run_id)
+                        run.status = "error"
+                        run.finished_at = datetime.now(UTC)
+                        run.stats = {"error": f"privacy gate: {gate_error}", "remedy_error": remedy_error}
+                        session.commit()
+                if remedy_error:
+                    with self._sessions() as session:
+                        run = session.get(Run, run_id)
+                        run.stats = {**(run.stats or {}), "remedy_error": remedy_error}
+                        session.commit()
                 self._bus.publish("run.finished", {"run_id": run_id, "status": "error"})
                 return
             self._bus.publish("run.progress", {"run_id": run_id, "status": "running"})
@@ -353,7 +356,9 @@ class RunService:
                 return
             self._bus.publish("run.finished", {"run_id": run_id, "status": status})
 
-    def _persist_report(self, run_id: int, report) -> None:
+    def _persist_report(self, run_id: int, report, *, status: str | None = None, error: str | None = None) -> None:
+        """Persist a run's outcome. `status`/`error` override what the report says — the gated
+        path uses them so a refused run is never even momentarily written as a success."""
         with self._sessions() as session:
             run = session.get(Run, run_id)
             users_by_slug = {u.slug: u for u in session.query(User).all()}
@@ -453,7 +458,7 @@ class RunService:
 
             # `report.ok` — not `errors == 0`. A run-level failure (the sweep could not run, so we
             # refused to write) has no per-user error to count, and must never report success.
-            run.status = "ok" if report.ok else "error"
+            run.status = status or ("ok" if report.ok else "error")
             run.finished_at = datetime.now(UTC)
             run.stats = {
                 "users_ok": ok,
@@ -461,6 +466,6 @@ class RunService:
                 "dry_run": report.dry_run,
                 "rows_swept": sum(len(titles) for titles in report.swept_rows.values()),
                 "shares_updated": len(report.filter_writes),
-                "error": report.error,
+                "error": error or report.error,
             }
             session.commit()

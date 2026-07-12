@@ -9,7 +9,13 @@ path that WRITES to a Plex server or plex.tv. The Architecture Review agent bloc
 violate them.
 
 1. **Privacy gate.** No real collection/label/visibility/filter write happens unless the instance
-   has a passing Privacy Check recorded (`privacy_checks` row). Probes are the only exception.
+   has a passing Privacy Check recorded (`privacy_checks` row). Two exceptions, and only two:
+   probes, and the **remedy pass** (`engine_run(ctx, [])` — the unhidable-row sweep plus
+   merge-only exclude writes). The remedy runs precisely BECAUSE the gate is closed: a missing
+   exclude, or a row Plex cannot hide, is what fails the check — so a gate that blocked the fix
+   would block the only thing that can reopen it, and the leak would be permanent. The remedy may
+   never create a collection, promote one, or remove an exclude; it may only make the server more
+   private. Anything else stays behind the gate.
 2. **Snapshot first.** Before the first restriction mutation for a user, persist a
    `restriction_snapshots` row with their current filters. Uninstall restores from these.
 3. **Merge, never rebuild.** Share-filter writes are read-modify-write: parse the user's current

@@ -38,7 +38,6 @@ from rowarr.engine.clients.plex import MIN_PMS_VERSION, PlexClient, PlexTvClient
 from rowarr.engine.clients.tautulli import TautulliClient
 from rowarr.engine.clients.tmdb import TmdbClient
 from rowarr.engine.curator import make_curator
-from rowarr.engine.delivery import sweep_unhidable_rows
 from rowarr.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource
 from rowarr.engine.models import EngineConfig, FilterSnapshot, MediaType, UserProfile, slugify
 from rowarr.engine.pipeline import EngineContext
@@ -302,13 +301,24 @@ def run_cmd(config_dir: Path, only: str | None, dry_run: bool, reseed: bool) -> 
         try:
             require_privacy_gate(config_dir)
         except click.ClickException:
-            # Refused — but a row Plex CANNOT hide is a leak that exists right now, and removing
-            # it is the remedy, not a new risk. Gating it would be a trap: such a row fails the
-            # Privacy Check, the failed check closes the gate, and the closed gate would block the
-            # very sweep that removes it. The leak could never heal itself.
-            swept = sweep_unhidable_rows(ctx.plex, ctx.config)
-            for slug, titles in swept.items():
-                click.echo(f"{slug:24} removed {len(titles)} row(s) Plex could not hide: {', '.join(titles)}")
+            # Refused — so nothing gets BUILT. But everything that makes the server MORE private
+            # still runs: rows Plex cannot hide are removed, and the excludes for every row that
+            # exists are merged into every account's share filter. Neither can expose anything.
+            #
+            # Gating those would be a trap. A row nobody can hide, or an account missing an
+            # exclude, FAILS the Privacy Check; the failed check closes the gate; and a closed
+            # gate that blocked the remedy would stop the only thing that fixes it. The check
+            # could never pass again, and the leak would be permanent.
+            try:
+                remedy = engine_run(ctx, [])
+                for slug, titles in remedy.swept_rows.items():
+                    click.echo(f"{slug:24} removed {len(titles)} row(s) Plex could not hide: {', '.join(titles)}")
+                if remedy.filter_writes:
+                    click.echo(f"{len(remedy.filter_writes)} share filter(s) updated so existing rows stay private")
+            except Exception:
+                # The gate refusal is what the operator needs to act on; a PMS blip in the remedy
+                # must not replace it with a stack trace.
+                logger.exception("the remedy pass failed while the privacy gate was closed")
             raise
     users = select_users(ctx, raw, only, remote_users)
     logger.info("running for {} user(s): {}", len(users), [u.slug for u in users])

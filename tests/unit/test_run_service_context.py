@@ -10,7 +10,7 @@ import pytest
 
 import rowarr.server.services.run_service as run_service_mod
 from rowarr.engine.history import FallbackHistorySource, PlexHistorySource
-from rowarr.engine.models import MediaType
+from rowarr.engine.models import MediaType, RunReport
 from rowarr.server.db.models import PickRow, PrivacyCheck, Server, User
 from rowarr.server.db.session import make_engine, make_session_factory, run_migrations
 from rowarr.server.services.run_service import RunService
@@ -164,11 +164,21 @@ class TestServerPrivacyGate:
         self._add_check(sessions)
         assert service._privacy_gate_error() is None
 
-    def test_gated_run_is_marked_error_without_touching_engine(self, service, sessions, monkeypatch):
+    def test_a_gated_run_builds_nothing_but_still_runs_the_remedy(self, service, sessions, monkeypatch):
+        """The gate refuses to BUILD rows — but it must not refuse the things that make the server
+        more private, or it deadlocks itself: a missing exclude fails the Privacy Check, the failed
+        check closes the gate, and a closed gate that blocked the sync would stop the only thing
+        that writes the exclude. The check could never pass again.
+
+        The remedy is `engine_run(ctx, [])`: with no users there is nothing to deliver and nothing
+        to promote, so all that happens is the unhidable-row sweep and the share-filter merges.
+        """
         import asyncio
 
-        called = MagicMock()
+        called = MagicMock(return_value=RunReport(started_at=datetime.now(UTC)))
         monkeypatch.setattr(run_service_mod, "engine_run", called)
+        contexts: list[dict] = []
+        monkeypatch.setattr(service, "build_context", lambda **kw: (contexts.append(kw), MagicMock())[1])
 
         async def scenario():
             run_id = await service.start_run(trigger="schedule", dry_run=False)
@@ -184,4 +194,34 @@ class TestServerPrivacyGate:
 
         stats = asyncio.run(scenario())
         assert "privacy gate" in stats["error"]
-        called.assert_not_called()
+        # The engine ran, with NO users: sweep + share-filter merges, no delivery, no promotion.
+        called.assert_called_once()
+        assert called.call_args.args[1] == [], "a gated run must not build rows for anyone"
+        # ...and for REAL. A remedy built as a dry run would log every write and make none, so the
+        # excludes would never land, the check would never pass, and the gate would stay shut.
+        assert contexts == [{"dry_run": False}]
+
+    def test_a_remedy_that_blows_up_still_finishes_the_run(self, service, sessions, monkeypatch):
+        """The gate refusal is the headline; a failing remedy is the footnote. It must never leave
+        the run stuck in `running` — a run that never finishes is one nobody can act on."""
+        import asyncio
+
+        monkeypatch.setattr(service, "build_context", lambda **kw: MagicMock())
+        monkeypatch.setattr(run_service_mod, "engine_run", MagicMock(side_effect=RuntimeError("PMS timed out")))
+
+        async def scenario():
+            run_id = await service.start_run(trigger="schedule", dry_run=False)
+            for _ in range(100):
+                with sessions() as session:
+                    from rowarr.server.db.models import Run
+
+                    run = session.get(Run, run_id)
+                    if run.status == "error":
+                        return run.stats
+                await asyncio.sleep(0.02)
+            raise AssertionError("the run never finished")
+
+        stats = asyncio.run(scenario())
+
+        assert "privacy gate" in stats["error"], "the gate refusal is still what the owner must fix"
+        assert "PMS timed out" in stats["remedy_error"]

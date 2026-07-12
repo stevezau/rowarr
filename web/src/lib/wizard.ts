@@ -15,6 +15,8 @@ export interface WizardData {
   /** Step 1 gate: the server was probed and linked. */
   linked?: boolean;
   history_source?: "tautulli" | "plex";
+  /** Step 2 gate: a working TMDB key is on file (recommendations are impossible without one). */
+  tmdb_set?: boolean;
   /** Step 3 gate: a curator card was chosen (None counts). */
   curator_provider?: CuratorProvider;
   /** Step 5 gate: the Privacy Check passed… */
@@ -75,6 +77,9 @@ export function canLeaveStep(step: number, data: WizardData): boolean {
   switch (step) {
     case 1:
       return data.linked === true;
+    // TMDB is how Rowarr finds similar titles; without a key every run dies at the first user.
+    case 2:
+      return data.tmdb_set === true;
     case 3:
       return data.curator_provider !== undefined;
     case 5:

@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Loader2, PartyPopper, Play } from "lucide-react";
+import { Loader2, PartyPopper, Play, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { QueryBoundary } from "@/components/query-boundary";
@@ -90,6 +90,7 @@ export function StepFirstRun({ data, complete }: StepProps) {
 
   const started = run.isSuccess;
   const finished = finishedStatus !== null;
+  const failed = finished && finishedStatus !== "ok";
 
   return (
     <div className="space-y-6">
@@ -154,23 +155,43 @@ export function StepFirstRun({ data, complete }: StepProps) {
       {finished && (
         <div
           role="status"
-          className="space-y-3 rounded-lg border border-success/50 bg-success/10 p-5"
+          className={
+            failed
+              ? "space-y-3 rounded-lg border border-destructive/50 bg-destructive/10 p-5"
+              : "space-y-3 rounded-lg border border-success/50 bg-success/10 p-5"
+          }
         >
-          <p className="inline-flex items-center gap-2 text-lg font-semibold text-success">
-            <PartyPopper className="h-5 w-5" aria-hidden="true" />
-            {dryRunOnly
-              ? "Dry run complete — nothing was written to Plex"
-              : "Rows are live on Plex"}
+          <p
+            className={
+              failed
+                ? "inline-flex items-center gap-2 text-lg font-semibold text-destructive"
+                : "inline-flex items-center gap-2 text-lg font-semibold text-success"
+            }
+          >
+            {failed ? (
+              <TriangleAlert className="h-5 w-5" aria-hidden="true" />
+            ) : (
+              <PartyPopper className="h-5 w-5" aria-hidden="true" />
+            )}
+            {failed
+              ? "The run failed — no rows were built"
+              : dryRunOnly
+                ? "Dry run complete — nothing was written to Plex"
+                : "Rows are live on Plex"}
           </p>
-          <Badge variant={finishedStatus === "ok" ? "success" : "secondary"}>
+          <Badge variant={finishedStatus === "ok" ? "success" : "destructive"}>
             run {finishedStatus}
           </Badge>
           <p className="text-sm text-muted-foreground">
-            {dryRunOnly
-              ? "That's what Rowarr would build for each user. When you're ready, run the Privacy Check from Settings — once it passes, the next run writes for real."
-              : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
+            {failed
+              ? "Open Runs to see exactly which user failed and why — the error is recorded per user. Nothing was half-applied: fix the cause and run it again."
+              : dryRunOnly
+                ? "That's what Rowarr would build for each user. When you're ready, run the Privacy Check from Settings — once it passes, the next run writes for real."
+                : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
           </p>
-          <Button onClick={() => void complete()}>Finish setup</Button>
+          <Button onClick={() => void complete()}>
+            {failed ? "Finish setup anyway" : "Finish setup"}
+          </Button>
         </div>
       )}
     </div>

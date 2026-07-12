@@ -2,7 +2,9 @@
 FROM node:22-alpine AS web
 WORKDIR /build
 RUN corepack enable
-COPY web/package.json web/pnpm-lock.yaml ./
+# pnpm-workspace.yaml carries the approved build scripts (esbuild); without it pnpm 10
+# refuses the install with ERR_PNPM_IGNORED_BUILDS.
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build

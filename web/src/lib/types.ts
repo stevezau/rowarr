@@ -69,6 +69,8 @@ export interface RunDiff {
   added?: string[];
   removed?: string[];
   kept?: string[];
+  /** Rows deleted because Plex could not hide them (wrong type for their library). */
+  deleted?: string[];
 }
 
 /** Per-user slice of GET /api/runs/{id}. */

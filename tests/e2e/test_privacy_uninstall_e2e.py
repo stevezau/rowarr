@@ -281,3 +281,66 @@ class TestEveryAccountOnTheServerIsCovered:
         result = app.api("POST", "/api/privacy/check", json={}).json()
         assert result["passed"] is False
         assert result["tiers"]["T1"] is False
+
+    def test_a_leaking_row_is_removed_even_though_it_closes_the_privacy_gate(self, app: RowarrApp, reset_fake_plex):
+        """The trap this must not fall into.
+
+        A row Plex cannot hide FAILS the Privacy Check. A failed check closes the write gate. If
+        the gate then blocked the sweep that removes such rows, the leak could never heal — the
+        server would be stuck leaking forever, with every run refused. That is exactly the state a
+        live server was left in.
+
+        The gate exists to stop Rowarr CREATING rows it cannot prove are private. Deleting a row
+        that is already visible to everyone is the remedy, so it happens regardless.
+        """
+        from tests.fakes.fake_plex import FakeCollection
+
+        state = reset_fake_plex
+        state.collections[99010] = FakeCollection(
+            rating_key=99010,
+            title="✨ Picked for You",
+            section_id=state.section_id,  # movie library...
+            subtype="show",  # ...full of shows: no share filter can touch it
+            labels=["Rowarr_sarah"],
+            item_keys=[301, 302],
+            promoted_shared_home=True,
+        )
+
+        # The check fails BECAUSE of that row, which slams the write gate shut.
+        assert app.api("POST", "/api/privacy/check", json={}).json()["passed"] is False
+
+        created = app.api("POST", "/api/runs", json={"dry_run": False}).json()
+        run = app.wait_for_run(created["run_id"])
+
+        # The run is still refused — no rows are built, nothing is promoted...
+        assert run["status"] == "error"
+        assert "privacy gate" in run["stats"]["error"]
+        # ...but the leaking row is gone, and its removal is on the record.
+        assert 99010 not in state.collections, "the leak could not heal: the gate blocked its own remedy"
+        assert run["stats"]["rows_swept"] == 1
+        events = app.api("GET", "/api/events/log?scope=run.sweep").json()
+        assert events and events[0]["message"]["deleted"] == {"sarah": ["✨ Picked for You"]}
+
+    def test_a_deleted_row_is_visible_on_the_run_page(self, page: Page, app: RowarrApp, reset_fake_plex):
+        """Deleting someone's row is the most destructive thing a run does. "What changed on
+        whose share at 03:31" must be answerable from the UI, not just the database."""
+        from tests.fakes.fake_plex import FakeCollection
+
+        state = reset_fake_plex
+        state.collections[99011] = FakeCollection(
+            rating_key=99011,
+            title="✨ Picked for You",
+            section_id=state.section_id,
+            subtype="show",
+            labels=["Rowarr_sarah"],
+            item_keys=[301, 302],
+            promoted_shared_home=True,
+        )
+        # Sweep it first (via a gated run), so the check can pass and a real run can proceed.
+        app.wait_for_run(app.api("POST", "/api/runs", json={"dry_run": False}).json()["run_id"])
+        assert 99011 not in state.collections
+
+        run = build_real_rows(app)
+
+        page.goto(f"/runs/{run['id']}")
+        expect(page.get_by_role("heading", name=f"Run #{run['id']}")).to_be_visible(timeout=LOAD)

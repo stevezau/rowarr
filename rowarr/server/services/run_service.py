@@ -275,16 +275,58 @@ class RunService:
             server = session.query(Server).first()
             return gate_error(session, server.version if server else None)
 
+    def _sweep_only(self) -> dict[str, list[str]]:
+        """Remove rows Plex cannot hide, and nothing else. Safe to run with the gate closed: it
+        only ever DELETES collections that no share filter can match, so it cannot expose anything.
+        """
+        from rowarr.engine.delivery import sweep_unhidable_rows
+
+        try:
+            ctx = self.build_context(dry_run=False)
+            return sweep_unhidable_rows(ctx.plex, ctx.config)
+        except Exception:
+            logger.exception("could not sweep unhidable rows while the privacy gate was closed")
+            return {}
+
     async def _execute(self, run_id: int, dry_run: bool, user_ids: list[int] | None) -> None:
         loop = asyncio.get_running_loop()
         async with self._lock:
             if not dry_run and (gate_error := self._privacy_gate_error()):
                 logger.warning("run {} refused by privacy gate: {}", run_id, gate_error)
+                # ...but still remove any row Plex cannot hide.
+                #
+                # The gate exists to stop Rowarr CREATING rows it cannot prove are private. A row
+                # of the wrong type for its library is already visible to every account on the
+                # server, right now — removing it is the remedy, not a new risk, and it is the one
+                # thing here that makes the server strictly more private.
+                #
+                # Gating it would be a trap: such a row FAILS the Privacy Check, a failed check
+                # closes the gate, and the closed gate would then block the very sweep that removes
+                # it — so the leak could never heal. That is precisely the state a live server was
+                # left in (SFLIX, 2026-07-12).
+                swept = await loop.run_in_executor(None, self._sweep_only)
                 with self._sessions() as session:
                     run = session.get(Run, run_id)
                     run.status = "error"
                     run.finished_at = datetime.now(UTC)
-                    run.stats = {"error": f"privacy gate: {gate_error}"}
+                    run.stats = {
+                        "error": f"privacy gate: {gate_error}",
+                        "rows_swept": sum(len(titles) for titles in swept.values()),
+                    }
+                    if swept:
+                        session.add(
+                            Event(
+                                scope="run.sweep",
+                                level="warning",
+                                message={
+                                    "run_id": run_id,
+                                    "dry_run": False,
+                                    "reason": "row could not be hidden by any share filter (wrong "
+                                    "type for its library) — removed even though the gate is closed",
+                                    "deleted": swept,
+                                },
+                            )
+                        )
                     session.commit()
                 self._bus.publish("run.finished", {"run_id": run_id, "status": "error"})
                 return

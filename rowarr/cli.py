@@ -38,6 +38,7 @@ from rowarr.engine.clients.plex import MIN_PMS_VERSION, PlexClient, PlexTvClient
 from rowarr.engine.clients.tautulli import TautulliClient
 from rowarr.engine.clients.tmdb import TmdbClient
 from rowarr.engine.curator import make_curator
+from rowarr.engine.delivery import sweep_unhidable_rows
 from rowarr.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource
 from rowarr.engine.models import EngineConfig, FilterSnapshot, MediaType, UserProfile, slugify
 from rowarr.engine.pipeline import EngineContext
@@ -296,9 +297,19 @@ def main(ctx: click.Context, config_dir: Path, log_level: str) -> None:
 @click.pass_obj
 def run_cmd(config_dir: Path, only: str | None, dry_run: bool, reseed: bool) -> None:
     """Run the nightly pipeline for all enabled users (or one user)."""
-    if not dry_run:
-        require_privacy_gate(config_dir)
     ctx, raw, remote_users = load_context(config_dir, dry_run, reseed=reseed)
+    if not dry_run:
+        try:
+            require_privacy_gate(config_dir)
+        except click.ClickException:
+            # Refused — but a row Plex CANNOT hide is a leak that exists right now, and removing
+            # it is the remedy, not a new risk. Gating it would be a trap: such a row fails the
+            # Privacy Check, the failed check closes the gate, and the closed gate would block the
+            # very sweep that removes it. The leak could never heal itself.
+            swept = sweep_unhidable_rows(ctx.plex, ctx.config)
+            for slug, titles in swept.items():
+                click.echo(f"{slug:24} removed {len(titles)} row(s) Plex could not hide: {', '.join(titles)}")
+            raise
     users = select_users(ctx, raw, only, remote_users)
     logger.info("running for {} user(s): {}", len(users), [u.slug for u in users])
     report = engine_run(ctx, users)

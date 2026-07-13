@@ -251,16 +251,6 @@ class TestPlexClient:
         ]
         assert mock_plex.build_library_index(section) == {42: 1}
 
-    def test_find_owned_collection_matches_label_case_insensitively(self, mock_plex: PlexClient):
-        owned = MagicMock()
-        owned.labels = [SimpleNamespace(tag="Rowarr_sarah")]
-        foreign = MagicMock()
-        foreign.labels = [SimpleNamespace(tag="Kometa")]
-        section = MagicMock()
-        section.collections.return_value = [foreign, owned]
-        assert mock_plex.find_owned_collection(section, "rowarr", "sarah") is owned
-        assert mock_plex.find_owned_collection(section, "rowarr", "mike") is None
-
     def test_stored_label_returns_existing_title_cased_form_without_write(self, mock_plex: PlexClient):
         collection = MagicMock()
         collection.labels = [SimpleNamespace(tag="Rowarr_sarah")]

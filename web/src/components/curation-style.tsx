@@ -25,68 +25,40 @@ export interface CurationStyleValue {
 export function CurationStyleFields({
   value,
   onChange,
-  perPerson = false,
-  globalDefaults,
 }: {
   value: CurationStyleValue;
   onChange: (next: CurationStyleValue) => void;
-  /** Per-person forms add a "Use default" tone and frame guidance as additive. */
-  perPerson?: boolean;
-  /** The global recipe, so a per-person preview shows the *effective* prompt (default + override). */
-  globalDefaults?: CurationStyleValue;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(Boolean(value.template));
   const guidanceId = useId();
   const templateId = useId();
 
-  // Preview the effective prompt. For a per-person form that means merging the override over the
-  // global default the same way the backend does (tone/template: override wins; guidance: additive).
-  const effective = (): CurationStyleValue => {
-    if (!perPerson || !globalDefaults) return value;
-    return {
-      tone: value.tone || globalDefaults.tone,
-      guidance: [globalDefaults.guidance, value.guidance]
-        .map((g) => g.trim())
-        .filter(Boolean)
-        .join("\n"),
-      template: value.template || globalDefaults.template,
-    };
-  };
   const preview = useMutation({
-    mutationFn: () => api.previewPrompt(effective()),
+    mutationFn: () => api.previewPrompt(value),
   });
-
-  const toneOptions = perPerson ? ["", ...PROMPT_TONES] : [...PROMPT_TONES];
 
   return (
     <div className="space-y-4">
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Tone</legend>
         <div className="flex flex-wrap gap-2">
-          {toneOptions.map((tone) => (
+          {PROMPT_TONES.map((tone) => (
             <Button
-              key={tone || "default"}
+              key={tone}
               type="button"
               size="sm"
               variant={value.tone === tone ? "default" : "outline"}
               aria-pressed={value.tone === tone}
               onClick={() => onChange({ ...value, tone })}
             >
-              {tone === "" ? "Use default" : (TONE_LABELS[tone] ?? tone)}
+              {TONE_LABELS[tone] ?? tone}
             </Button>
           ))}
         </div>
       </fieldset>
 
       <div className="space-y-2">
-        <Label htmlFor={guidanceId}>
-          Guidance{" "}
-          {perPerson && (
-            <span className="font-normal text-muted-foreground">
-              — added to the global guidance
-            </span>
-          )}
-        </Label>
+        <Label htmlFor={guidanceId}>Guidance</Label>
         <Textarea
           id={guidanceId}
           value={value.guidance}

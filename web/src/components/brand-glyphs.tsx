@@ -76,7 +76,7 @@ export function TmdbGlyph({ className }: GlyphProps) {
   );
 }
 
-export function ClaudeGlyph({ className }: GlyphProps) {
+function ClaudeGlyph({ className }: GlyphProps) {
   // Anthropic/Claude — a radial sunburst of tapered spokes.
   const spokes = Array.from({ length: 12 }, (_, i) => (
     <rect
@@ -97,7 +97,7 @@ export function ClaudeGlyph({ className }: GlyphProps) {
   );
 }
 
-export function OpenAiGlyph({ className }: GlyphProps) {
+function OpenAiGlyph({ className }: GlyphProps) {
   // OpenAI — a six-petal knot rosette (three rotated blades), in currentColor.
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
@@ -125,7 +125,7 @@ export function OpenAiGlyph({ className }: GlyphProps) {
   );
 }
 
-export function GeminiGlyph({ className }: GlyphProps) {
+function GeminiGlyph({ className }: GlyphProps) {
   // Google Gemini — a four-point spark with concave sides, blue->purple.
   const gid = useId();
   return (
@@ -144,7 +144,7 @@ export function GeminiGlyph({ className }: GlyphProps) {
   );
 }
 
-export function OllamaGlyph({ className }: GlyphProps) {
+function OllamaGlyph({ className }: GlyphProps) {
   // Ollama — a simple llama silhouette, monochrome.
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">

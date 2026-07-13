@@ -29,13 +29,6 @@ from rowarr.server.settings_store import SettingsStore
 router = APIRouter(prefix="/setup", tags=["setup"])
 
 
-def _require_session_owner_if_linked(request: Request) -> dict:
-    """Setup-wizard access. A thin alias for the shared rule — a duplicated auth check is one that
-    drifts, and an earlier copy of this did exactly that (it 401'd the wizard on a fresh install
-    long after the rest of the app stopped)."""
-    return require_setup_access(request)
-
-
 def _plex_token(request: Request, session: dict) -> str:
     """The token for this setup session: the one THIS caller minted at PIN login, or — only for the
     confirmed owner — the one already stored.
@@ -74,7 +67,7 @@ async def list_servers(request: Request) -> list[dict]:
     addresses per server (LAN, hostname, relay), and only the owner's network knows which one
     actually works from where Rowarr runs — so we try them all and report what answered.
     """
-    session = _require_session_owner_if_linked(request)
+    session = require_setup_access(request)
     token = _plex_token(request, session)
     client_id = request.app.state.client_id
 
@@ -133,7 +126,7 @@ class ProbeRequest(BaseModel):
 @router.post("/probe")
 async def probe(body: ProbeRequest, request: Request) -> dict:
     """Capability checklist for wizard step 1: version gate, Plex Pass, libraries, Tautulli."""
-    session = _require_session_owner_if_linked(request)
+    session = require_setup_access(request)
     token = _plex_token(request, session)
     client_id = request.app.state.client_id
 
@@ -204,7 +197,7 @@ class LinkRequest(BaseModel):
 @router.post("/link")
 async def link_server(body: LinkRequest, request: Request) -> dict:
     """Persist the chosen server; the authenticated account must be its owner."""
-    session_data = _require_session_owner_if_linked(request)
+    session_data = require_setup_access(request)
     if "account_id" not in session_data:
         # Claiming an instance is the one thing that MUST be attributable to a Plex account: it is
         # what decides who owns it forever.
@@ -249,7 +242,7 @@ class WizardState(BaseModel):
 
 @router.get("/state")
 async def get_state(request: Request) -> dict:
-    _require_session_owner_if_linked(request)
+    require_setup_access(request)
     with request.app.state.sessions() as db:
         store = SettingsStore(db, request.app.state.secrets)
         return {
@@ -261,7 +254,7 @@ async def get_state(request: Request) -> dict:
 
 @router.put("/state")
 async def put_state(body: WizardState, request: Request) -> dict:
-    session = _require_session_owner_if_linked(request)
+    session = require_setup_access(request)
     if "account_id" not in session:
         # Nothing worth saving happens before you connect Plex (that's step 1), and this keeps an
         # anonymous caller from scribbling wizard progress — or flipping setup.completed — on an

@@ -186,10 +186,6 @@ class PlexClient:
     def version(self) -> str:
         return self._server.version
 
-    @property
-    def owner_username(self) -> str:
-        return self._server.myPlexAccount().username
-
     def sections(self, types: tuple[str, ...] = ("movie", "show")) -> list[LibrarySection]:
         return [s for s in self._server.library.sections() if s.type in types]
 
@@ -262,17 +258,6 @@ class PlexClient:
         if subtype:
             return subtype == section.type
         return all(item.type == section.type for item in collection.items())
-
-    def find_owned_collection(self, section: LibrarySection, label_prefix: str, slug: str) -> Collection | None:
-        """Find the collection Rowarr owns for this user, matching by label (never title).
-
-        Labels are compared case-insensitively because Plex title-cases them on creation.
-        """
-        wanted = f"{label_prefix}_{slug}".lower()
-        for collection in section.collections():
-            if any(label.tag.lower() == wanted for label in collection.labels):
-                return collection
-        return None
 
     def find_owned_collections(self, section: LibrarySection, wanted_label: str) -> list[Collection]:
         """Every collection in this section carrying `wanted_label` (case-insensitive).

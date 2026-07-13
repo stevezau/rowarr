@@ -25,7 +25,6 @@ def ctx(engine_config: EngineConfig, mock_plextv, mock_tmdb, mock_curator) -> En
     # Library: watched item 900 (ratingKey 999) + candidates 10 and 20.
     plex.build_library_index.return_value = {900: 999, 10: 1010, 20: 1020}
     plex.owned_collections.return_value = {}
-    plex.find_owned_collection.return_value = None  # delivery takes the create path
     plex.find_owned_collections.return_value = []  # delivery finds by title; promotion enumerates rows
     plex.stored_label.side_effect = lambda collection, label: label.replace("rowarr", "Rowarr", 1)
     plex.fetch_items.side_effect = lambda keys: [fake_media_item(k, f"item{k}") for k in keys]

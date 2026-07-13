@@ -46,7 +46,7 @@ describe("UserCard", () => {
 
     expect(screen.getByText("Sarah")).toBeInTheDocument();
     expect(screen.getByText(/Row refreshed 6h ago/)).toBeInTheDocument();
-    expect(screen.getByText("hit rate 40%")).toBeInTheDocument();
+    expect(screen.getByText("40% watched")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run now/i })).toBeEnabled();
     expect(
       screen.getByRole("switch", { name: /rowarr row for sarah/i }),

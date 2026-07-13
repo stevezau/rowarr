@@ -74,6 +74,7 @@ export function usePlexPin(
   const timersRef = useRef<{ poll: ReturnType<typeof setInterval> | null }>({
     poll: null,
   });
+  const popupRef = useRef<Window | null>(null);
   const disposedRef = useRef(false);
 
   const stopPolling = useCallback(() => {
@@ -83,13 +84,26 @@ export function usePlexPin(
     }
   }, []);
 
+  // Close the plex.tv popup once we're done with it. It has served its purpose the moment the
+  // account links, and leaving it open makes the user close it by hand — which reads as "did that
+  // work?". Guarded because the browser may refuse .close() in some states.
+  const closePopup = useCallback(() => {
+    try {
+      popupRef.current?.close();
+    } catch {
+      /* the browser may block closing a window in some states — harmless */
+    }
+    popupRef.current = null;
+  }, []);
+
   useEffect(() => {
     disposedRef.current = false;
     return () => {
       disposedRef.current = true;
       stopPolling();
+      closePopup();
     };
-  }, [stopPolling]);
+  }, [stopPolling, closePopup]);
 
   const start = useCallback(() => {
     stopPolling();
@@ -115,12 +129,12 @@ export function usePlexPin(
       if (disposedRef.current) return;
 
       setCode(pin.code);
-      const popup = window.open(
+      popupRef.current = window.open(
         plexAuthUrl(pin.client_id, pin.code),
         "rowarr-plex-auth",
         "width=600,height=720",
       );
-      if (!popup) setPopupBlocked(true);
+      if (!popupRef.current) setPopupBlocked(true);
 
       const startedAt = Date.now();
       let inFlight = false;
@@ -139,6 +153,7 @@ export function usePlexPin(
             if (disposedRef.current) return;
             if (pinStatus.linked) {
               stopPolling();
+              closePopup();
               setStatus(pinStatus);
               setPhase("linked");
               onLinkedRef.current?.(pinStatus);
@@ -152,7 +167,7 @@ export function usePlexPin(
           });
       }, POLL_INTERVAL_MS);
     })();
-  }, [stopPolling]);
+  }, [stopPolling, closePopup]);
 
   return { phase, code, popupBlocked, error, status, start };
 }

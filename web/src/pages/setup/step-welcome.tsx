@@ -1,4 +1,4 @@
-import { Eye, RotateCcw, ShieldCheck } from "lucide-react";
+import { RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import type { StepProps } from "./step-props";
 
 const PROMISES = [
   {
-    icon: Eye,
+    icon: Sparkles,
     title: "A row of their own",
     body: "Every user gets a “✨ Picked for You” row on their Plex Home, built from what they actually watched — and visible only to them.",
   },
@@ -31,7 +31,12 @@ export function StepWelcome({ next }: StepProps) {
         {PROMISES.map(({ icon: Icon, title, body }) => (
           <Card key={title}>
             <CardContent className="space-y-2 pt-6">
-              <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
+              <span
+                aria-hidden="true"
+                className="inline-grid h-9 w-9 place-items-center rounded-lg border bg-elevated text-primary"
+              >
+                <Icon className="h-5 w-5" />
+              </span>
               <p className="font-medium">{title}</p>
               <p className="text-sm text-muted-foreground">{body}</p>
             </CardContent>

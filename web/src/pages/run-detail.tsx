@@ -1,15 +1,18 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { BackLink } from "@/components/back-link";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
+import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { formatDate, formatDuration, runStatusVariant } from "@/lib/format";
-import { queryKeys, useRun } from "@/lib/queries";
+import { queryKeys, useRun, useUsers } from "@/lib/queries";
 import { useSSE } from "@/lib/sse";
 import type { RunDetail, RunUserResult } from "@/lib/types";
 
@@ -56,22 +59,55 @@ function CopyForGitHubButton({
   );
 }
 
-function DiffList({
+const DIFF_TONES = {
+  added: {
+    label: "text-success",
+    chip: "border-success/30 bg-success/10 text-success",
+  },
+  removed: {
+    label: "text-destructive",
+    chip: "border-destructive/30 bg-destructive/10 text-destructive",
+  },
+  kept: {
+    label: "text-muted-foreground",
+    chip: "border-border bg-muted text-muted-foreground",
+  },
+} as const;
+
+function DiffChips({
   label,
   items,
   tone,
 }: {
   label: string;
   items: string[];
-  tone: string;
+  tone: keyof typeof DIFF_TONES;
 }) {
   if (items.length === 0) return null;
+  const styles = DIFF_TONES[tone];
   return (
-    <div>
-      <p className={`text-xs font-semibold uppercase tracking-wide ${tone}`}>
+    <div className="space-y-1.5">
+      <p
+        className={cn(
+          "text-xs font-semibold uppercase tracking-wide",
+          styles.label,
+        )}
+      >
         {label} ({items.length})
       </p>
-      <p className="text-sm text-muted-foreground">{items.join(" · ")}</p>
+      <ul className="flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <li
+            key={item}
+            className={cn(
+              "rounded-md border px-2 py-0.5 text-xs font-medium",
+              styles.chip,
+            )}
+          >
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -79,9 +115,12 @@ function DiffList({
 function UserResultCard({
   run,
   result,
+  userId,
 }: {
   run: RunDetail;
   result: RunUserResult;
+  /** Numeric id of this user for a deep-link, or null when they're no longer on the server. */
+  userId: number | null;
 }) {
   const failed = result.error !== null;
   // A user the run left alone comes back with `diff: {}` — not three empty lists.
@@ -94,10 +133,18 @@ function UserResultCard({
   return (
     <Card className={failed ? "border-destructive/50" : ""}>
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="flex items-center gap-2">
-          <Link to="/users" className="rounded-sm hover:underline">
-            {result.username}
-          </Link>
+        <CardTitle className="flex items-center gap-2.5">
+          <UserAvatar name={result.username} size="sm" />
+          {userId !== null ? (
+            <Link
+              to={`/users/${userId}`}
+              className="rounded-sm hover:text-primary hover:underline"
+            >
+              {result.username}
+            </Link>
+          ) : (
+            result.username
+          )}
           <Badge
             variant={failed ? "destructive" : runStatusVariant(result.status)}
           >
@@ -122,14 +169,10 @@ function UserResultCard({
           </div>
         ) : (
           <>
-            <DiffList label="Added" items={added} tone="text-success" />
-            <DiffList label="Removed" items={removed} tone="text-destructive" />
-            <DiffList label="Kept" items={kept} tone="text-muted-foreground" />
-            <DiffList
-              label="Rows deleted"
-              items={deleted}
-              tone="text-destructive"
-            />
+            <DiffChips label="Added" items={added} tone="added" />
+            <DiffChips label="Removed" items={removed} tone="removed" />
+            <DiffChips label="Kept" items={kept} tone="kept" />
+            <DiffChips label="Rows deleted" items={deleted} tone="removed" />
             {added.length === 0 &&
               removed.length === 0 &&
               kept.length === 0 &&
@@ -174,7 +217,14 @@ export function RunDetailPage() {
   const { id } = useParams();
   const runId = Number(id);
   const runQuery = useRun(runId, Number.isFinite(runId));
+  const usersQuery = useUsers();
   const queryClient = useQueryClient();
+
+  // Run results carry slug/username but no user id, so map slug → id to deep-link each result to
+  // its user page. Users removed from Plex since the run won't be in the map — those stay plain text.
+  const idBySlug = new Map(
+    (usersQuery.data ?? []).map((user) => [user.slug, user.id]),
+  );
 
   // Keep an in-flight run's page live: refetch on every stage/finish event.
   // run.user.stage carries no run_id, so any stage event refreshes this page
@@ -193,13 +243,7 @@ export function RunDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        to="/runs"
-        className="inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        All runs
-      </Link>
+      <BackLink to="/runs" label="All runs" />
 
       <QueryBoundary
         query={runQuery}
@@ -237,9 +281,21 @@ export function RunDetailPage() {
               />
             ) : (
               <div className="space-y-4">
-                {run.users.map((result) => (
-                  <UserResultCard key={result.slug} run={run} result={result} />
-                ))}
+                {/* Failures first — when a run partly fails, the thing you opened this page to see
+                    is the error, not the twelve users that succeeded above it. */}
+                {[...run.users]
+                  .sort(
+                    (a, b) =>
+                      Number(b.error !== null) - Number(a.error !== null),
+                  )
+                  .map((result) => (
+                    <UserResultCard
+                      key={result.slug}
+                      run={run}
+                      result={result}
+                      userId={idBySlug.get(result.slug) ?? null}
+                    />
+                  ))}
               </div>
             )}
           </div>

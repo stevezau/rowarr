@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { ShieldCheck } from "lucide-react";
 import { Navigate } from "react-router-dom";
 
+import { Logo } from "@/components/brand";
 import { PlexPinButton } from "@/components/plex-pin-button";
 import { ErrorState } from "@/components/query-boundary";
 import {
@@ -59,32 +61,42 @@ export function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-2xl">
-            <span aria-hidden="true">✨</span>
-            <span className="text-primary">Rowarr</span>
-          </CardTitle>
-          <CardDescription>
+    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md animate-fade-in">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Logo size="lg" className="mb-4" />
+          <h1 className="text-3xl font-semibold tracking-tight">Rowarr</h1>
+          <p className="mt-2 max-w-xs text-sm text-muted-foreground">
             A private, AI-curated Picked-for-You row for every user on your Plex
-            server. Sign in with the Plex account that owns this server — no
-            password ever touches Rowarr.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PlexPinButton
-            onLinked={() => {
-              void queryClient.invalidateQueries({
-                queryKey: queryKeys.session,
-              });
-              void queryClient.invalidateQueries({
-                queryKey: queryKeys.setupState,
-              });
-            }}
-          />
-        </CardContent>
-      </Card>
+            server.
+          </p>
+        </div>
+
+        <Card className="shadow-elevated">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Sign in to continue</CardTitle>
+            <CardDescription>
+              Use the Plex account that owns this server.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <PlexPinButton
+              onLinked={() => {
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.session,
+                });
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.setupState,
+                });
+              }}
+            />
+            <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              No password ever touches Rowarr.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
     </main>
   );
 }

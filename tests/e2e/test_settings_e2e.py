@@ -36,18 +36,18 @@ class TestConnectionCards:
 
         plex = page.get_by_test_id("connection-plex")
         plex.get_by_role("button", name="Test").click()
-        expect(plex).to_contain_text("Connected — Connected to FakePlex (PMS 1.43.3.10793)", timeout=LOAD)
+        expect(plex).to_contain_text("Connected to FakePlex (PMS 1.43.3.10793)", timeout=LOAD)
 
         tmdb = page.get_by_test_id("connection-tmdb")
         tmdb.get_by_role("button", name="Test").click()
-        expect(tmdb).to_contain_text("Connected — TMDB key works", timeout=LOAD)
+        expect(tmdb).to_contain_text("TMDB key works", timeout=LOAD)
 
         llm = page.get_by_test_id("connection-llm")
         llm.get_by_role("button", name="Test").click()
         expect(llm).to_contain_text("Heuristic mode — nothing to test, always works", timeout=LOAD)
 
         tautulli = page.get_by_test_id("connection-tautulli")
-        expect(tautulli).to_contain_text("Not configured yet.")
+        expect(tautulli).to_contain_text("Not set up yet.")
         tautulli.get_by_role("button", name="Test").click()
         # An error, surfaced — the card must not stay silent or claim a connection it doesn't have.
         expect(tautulli).to_contain_text(re.compile("Error|error|missing"), timeout=LOAD)

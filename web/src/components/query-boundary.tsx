@@ -1,5 +1,5 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Inbox, type LucideIcon, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -31,18 +31,28 @@ export function ErrorState({
 }
 
 export function EmptyState({
+  icon: Icon = Inbox,
   title,
   hint,
   action,
 }: {
+  icon?: LucideIcon;
   title: string;
   hint: string;
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed p-6">
-      <p className="font-medium">{title}</p>
-      <p className="text-sm text-muted-foreground">{hint}</p>
+    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center">
+      <span
+        aria-hidden="true"
+        className="grid h-11 w-11 place-items-center rounded-full bg-muted text-muted-foreground"
+      >
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="space-y-1">
+        <p className="font-medium">{title}</p>
+        <p className="mx-auto max-w-sm text-sm text-muted-foreground">{hint}</p>
+      </div>
       {action}
     </div>
   );

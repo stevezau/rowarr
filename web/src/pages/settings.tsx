@@ -1,10 +1,16 @@
 import { useMutation } from "@tanstack/react-query";
-import { Loader2, PlugZap } from "lucide-react";
+import {
+  CheckCircle2,
+  PlugZap,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { useId, useState } from "react";
 
+import { PageHeader } from "@/components/page-header";
 import { QueryBoundary } from "@/components/query-boundary";
 import { UninstallDialog } from "@/components/uninstall-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,6 +32,7 @@ import {
 } from "@/lib/format";
 import { useSaveSettings, useSettings } from "@/lib/queries";
 import type { Settings, TestableService } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const CADENCES = ["nightly", "weekly"] as const;
 const ROW_SIZES = [10, 15, 20];
@@ -33,52 +40,80 @@ const ROW_SIZES = [10, 15, 20];
 function ConnectionCard({
   service,
   title,
+  purpose,
   summary,
 }: {
   service: TestableService;
   title: string;
+  /** Plain-English, non-technical explanation of what this connection is for. */
+  purpose: string;
   summary: string;
 }) {
   const test = useMutation({ mutationFn: () => api.testConnection(service) });
+  const configured = Boolean(summary);
+
+  // A colour dot by the title so a glance across the four cards tells you what's wired up, before
+  // you test anything: green = last test passed, red = last test failed, amber = configured but
+  // untested, grey = nothing set.
+  const dot = test.isSuccess
+    ? test.data.ok
+      ? "bg-success"
+      : "bg-destructive"
+    : test.isError
+      ? "bg-destructive"
+      : configured
+        ? "bg-warning"
+        : "bg-muted-foreground/40";
 
   return (
     <Card data-testid={`connection-${service}`}>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between">
-          {title}
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className={cn("h-2 w-2 rounded-full", dot)}
+            />
+            {title}
+          </span>
           <Button
             variant="outline"
             size="sm"
             onClick={() => test.mutate()}
-            disabled={test.isPending}
+            loading={test.isPending}
           >
-            {test.isPending ? (
-              <Loader2 className="animate-spin" aria-hidden="true" />
-            ) : (
-              <PlugZap aria-hidden="true" />
-            )}
+            {!test.isPending && <PlugZap aria-hidden="true" />}
             Test
           </Button>
         </CardTitle>
-        <CardDescription>{summary || "Not configured yet."}</CardDescription>
+        <CardDescription>{purpose}</CardDescription>
       </CardHeader>
       <CardContent>
+        {/* Idle: show what's on file (URL / "API key saved") or that nothing is set — the plain
+            state, not a "please test" nudge. Once tested, that line becomes the pass/fail result. */}
+        {test.isIdle && (
+          <p className="text-sm text-muted-foreground">
+            {summary || "Not set up yet."}
+          </p>
+        )}
         {test.isSuccess &&
           (test.data.ok ? (
-            <Badge variant="success">Connected — {test.data.message}</Badge>
+            <p className="flex items-center gap-1.5 text-sm text-success">
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {test.data.message}
+            </p>
           ) : (
-            <Badge variant="destructive">{test.data.message}</Badge>
+            <p className="flex items-center gap-1.5 text-sm text-destructive">
+              <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {test.data.message}
+            </p>
           ))}
         {test.isError && (
-          <Badge variant="destructive">
+          <p className="flex items-center gap-1.5 text-sm text-destructive">
+            <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
             {test.error instanceof ApiError
               ? test.error.message
               : "The test could not be completed."}
-          </Badge>
-        )}
-        {test.isIdle && (
-          <p className="text-sm text-muted-foreground">
-            Run a test to confirm this connection works.
           </p>
         )}
       </CardContent>
@@ -120,8 +155,17 @@ function SettingsForm({ settings }: { settings: Settings }) {
     mutationFn: () => api.uninstall(true),
   });
 
+  // "Save schedule" and "Save defaults" share one mutation, so track which section last saved to
+  // show its "Saved" confirmation under the right button (and clear the other's).
+  const [savedSection, setSavedSection] = useState<
+    "schedule" | "defaults" | null
+  >(null);
+
   // PUT sends only the keys being changed; the server merges into the rest.
-  const save = (values: Settings) => saveSettings.mutate(values);
+  const save = (section: "schedule" | "defaults", values: Settings) => {
+    setSavedSection(null);
+    saveSettings.mutate(values, { onSuccess: () => setSavedSection(section) });
+  };
 
   return (
     <div className="space-y-8">
@@ -133,23 +177,27 @@ function SettingsForm({ settings }: { settings: Settings }) {
           <ConnectionCard
             service="plex"
             title="Plex"
+            purpose="Your media server — where the personalized rows appear."
             summary={settingString(settings, "plex.url")}
           />
           <ConnectionCard
             service="tautulli"
             title="Tautulli"
+            purpose="Optional. A richer source of who-watched-what history."
             summary={settingString(settings, "tautulli.url")}
           />
           <ConnectionCard
             service="tmdb"
             title="TMDB"
+            purpose="Finds similar titles to suggest. Needs a free key."
             summary={
               settingString(settings, "tmdb.apikey") ? "API key saved" : ""
             }
           />
           <ConnectionCard
             service="llm"
-            title="Curator (LLM)"
+            title="AI curator"
+            purpose="Writes each row and its “why we picked this”. Optional — a no-AI mode works too."
             summary={settingString(settings, "curator.provider")}
           />
         </div>
@@ -191,21 +239,29 @@ function SettingsForm({ settings }: { settings: Settings }) {
               </fieldset>
               <Button
                 onClick={() =>
-                  save({
+                  save("schedule", {
                     "schedule.cron": cronFromTime(
                       scheduleTime,
                       cadence === "weekly",
                     ),
                   })
                 }
-                disabled={saveSettings.isPending}
+                loading={saveSettings.isPending}
               >
                 Save schedule
               </Button>
+              {savedSection === "schedule" && !saveSettings.isPending && (
+                <p
+                  role="status"
+                  className="flex items-center gap-1.5 text-sm text-success"
+                >
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Saved
+                </p>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
-              Rows refresh {cadence} at {scheduleTime} server time. Cron
-              expressions and per-user overrides are coming to this page.
+              Rows refresh {cadence} at {scheduleTime} server time.
             </p>
           </CardContent>
         </Card>
@@ -254,14 +310,28 @@ function SettingsForm({ settings }: { settings: Settings }) {
                 ))}
               </div>
             </fieldset>
-            <Button
-              onClick={() =>
-                save({ "row.name_template": rowNameTpl, "row.size": rowSize })
-              }
-              disabled={saveSettings.isPending}
-            >
-              Save defaults
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() =>
+                  save("defaults", {
+                    "row.name_template": rowNameTpl,
+                    "row.size": rowSize,
+                  })
+                }
+                loading={saveSettings.isPending}
+              >
+                Save defaults
+              </Button>
+              {savedSection === "defaults" && !saveSettings.isPending && (
+                <p
+                  role="status"
+                  className="flex items-center gap-1.5 text-sm text-success"
+                >
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Saved
+                </p>
+              )}
+            </div>
             {saveSettings.isError && (
               <p role="alert" className="text-sm text-destructive">
                 {saveSettings.error instanceof ApiError
@@ -290,11 +360,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => privacyCheck.mutate(false)}
-                disabled={privacyCheck.isPending}
+                loading={privacyCheck.isPending}
               >
-                {privacyCheck.isPending ? (
-                  <Loader2 className="animate-spin" aria-hidden="true" />
-                ) : null}
+                <ShieldCheck aria-hidden="true" />
                 Run Privacy Check
               </Button>
               <Button
@@ -349,8 +417,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
               </div>
               <Button
                 variant="outline"
-                onClick={() => save({ paused_all: !pausedAll })}
-                disabled={saveSettings.isPending}
+                onClick={() => saveSettings.mutate({ paused_all: !pausedAll })}
+                loading={saveSettings.isPending}
               >
                 {pausedAll ? "Resume all" : "Pause all"}
               </Button>
@@ -412,13 +480,12 @@ export function SettingsPage() {
   const settingsQuery = useSettings();
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Connections, schedule, defaults, and the way out.
-        </p>
-      </header>
+    <div>
+      <PageHeader
+        icon={SettingsIcon}
+        title="Settings"
+        subtitle="Connections, schedule, row defaults, privacy, and uninstall."
+      />
 
       <QueryBoundary
         query={settingsQuery}

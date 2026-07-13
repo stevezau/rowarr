@@ -68,7 +68,10 @@ export function PrivacyPanel({
             user, and verifies they truly can't see it — then cleans everything
             up. Your server is untouched either way.
           </p>
-          <Button onClick={onRun}>Run Privacy Check (~60 seconds)</Button>
+          <Button onClick={onRun}>
+            <ShieldCheck aria-hidden="true" />
+            Run Privacy Check (~90 seconds)
+          </Button>
         </div>
       )}
 

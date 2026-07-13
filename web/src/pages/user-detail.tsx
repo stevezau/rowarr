@@ -1,8 +1,10 @@
-import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { BackLink } from "@/components/back-link";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
+import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { formatHitRate, timeAgo } from "@/lib/format";
+import { formatHitRate, renderRowName, timeAgo } from "@/lib/format";
 import {
   usePatchUser,
   useRun,
@@ -28,10 +30,6 @@ import type { User } from "@/lib/types";
 
 const DEFAULT_ROW_SIZE = 15;
 const ROW_SIZES = [10, 15, 20];
-
-function renderRowName(template: string): string {
-  return template.replace("{top_seed}", "Fargo");
-}
 
 function CurrentPicks({ user }: { user: User }) {
   const runsQuery = useRuns();
@@ -99,48 +97,67 @@ function UserDetailBody({ user }: { user: User }) {
     user.prefs?.row_size ?? DEFAULT_ROW_SIZE,
   );
   const [paused, setPaused] = useState(user.prefs?.paused ?? false);
+  // The pause switch and the "Save overrides" button share one mutation but are separate actions;
+  // track the form save alone so its "Saved" tick doesn't flash when the switch is toggled.
+  const [savedOverrides, setSavedOverrides] = useState(false);
 
   const rowNameId = useId();
   const pausedId = useId();
 
   const saveOverrides = () => {
-    patchUser.mutate({
-      id: user.id,
-      patch: {
-        prefs: {
-          ...(rowNameTpl ? { row_name_tpl: rowNameTpl } : {}),
-          row_size: rowSize,
+    setSavedOverrides(false);
+    patchUser.mutate(
+      {
+        id: user.id,
+        patch: {
+          prefs: {
+            ...(rowNameTpl ? { row_name_tpl: rowNameTpl } : {}),
+            row_size: rowSize,
+          },
         },
       },
-    });
+      { onSuccess: () => setSavedOverrides(true) },
+    );
   };
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <Link
-          to="/users"
-          className="inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          All users
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {user.username}
-          </h1>
-          {user.user_type === "managed" && (
-            <Badge variant="secondary">managed</Badge>
-          )}
-          {user.user_type === "owner" && (
-            <Badge variant="outline">owner — never restricted</Badge>
-          )}
-          {user.cold_start && <Badge variant="warning">cold start</Badge>}
+      <header className="space-y-3">
+        <BackLink to="/users" label="All users" />
+        <div className="flex items-center gap-4">
+          <UserAvatar name={user.username} size="lg" />
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {user.username}
+              </h1>
+              {user.user_type === "managed" && (
+                <Badge variant="secondary">managed</Badge>
+              )}
+              {user.user_type === "owner" && (
+                <Badge
+                  variant="outline"
+                  title="Plex cannot hide rows from the server owner"
+                >
+                  owner
+                </Badge>
+              )}
+              {user.cold_start && (
+                <Badge
+                  variant="warning"
+                  title="Not enough watch history yet — starting from popular titles"
+                >
+                  cold start
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {user.history_depth} titles watched · last run{" "}
+              {timeAgo(user.last_run_at)} · {formatHitRate(user.hit_rate)} of
+              picks watched
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {user.history_depth} history items · last run{" "}
-          {timeAgo(user.last_run_at)} · hit rate {formatHitRate(user.hit_rate)}
-        </p>
       </header>
 
       <Card>
@@ -205,6 +222,7 @@ function UserDetailBody({ user }: { user: User }) {
               checked={paused}
               onCheckedChange={(next) => {
                 setPaused(next);
+                setSavedOverrides(false);
                 patchUser.mutate({
                   id: user.id,
                   patch: { prefs: { paused: next } },
@@ -215,21 +233,27 @@ function UserDetailBody({ user }: { user: User }) {
               Paused — keep the row but stop refreshing it
             </Label>
           </div>
-          <div className="flex gap-2">
-            <Button onClick={saveOverrides} disabled={patchUser.isPending}>
-              {patchUser.isPending && (
-                <Loader2 className="animate-spin" aria-hidden="true" />
-              )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={saveOverrides} loading={patchUser.isPending}>
               Save overrides
             </Button>
             <Button
               variant="secondary"
               onClick={() => startRun.mutate({ user_ids: [user.id] })}
-              disabled={startRun.isPending}
+              loading={startRun.isPending}
             >
-              <RefreshCw aria-hidden="true" />
+              {!startRun.isPending && <RefreshCw aria-hidden="true" />}
               Regenerate row now
             </Button>
+            {savedOverrides && !patchUser.isPending && (
+              <p
+                role="status"
+                className="flex items-center gap-1.5 text-sm text-success"
+              >
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                Saved
+              </p>
+            )}
           </div>
           {startRun.isSuccess && (
             <p className="text-sm text-muted-foreground">

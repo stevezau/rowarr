@@ -1,6 +1,7 @@
-import { Loader2, Play } from "lucide-react";
+import { ListChecks, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,11 +30,11 @@ function RunsSkeleton() {
 
 function RunRow({ run }: { run: Run }) {
   return (
-    <TableRow>
+    <TableRow className="group">
       <TableCell>
         <Link
           to={`/runs/${run.id}`}
-          className="rounded-sm font-medium hover:underline"
+          className="rounded-sm font-medium tabular-nums group-hover:text-primary group-hover:underline"
         >
           #{run.id}
         </Link>
@@ -69,26 +70,21 @@ export function RunsPage() {
   const startRun = useStartRun();
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Runs</h1>
-          <p className="text-sm text-muted-foreground">
-            Every time Rowarr rebuilt rows, and how it went.
-          </p>
-        </div>
-        <Button
-          onClick={() => startRun.mutate({})}
-          disabled={startRun.isPending}
-        >
-          {startRun.isPending ? (
-            <Loader2 className="animate-spin" aria-hidden="true" />
-          ) : (
-            <Play aria-hidden="true" />
-          )}
-          Run all users now
-        </Button>
-      </header>
+    <div>
+      <PageHeader
+        icon={ListChecks}
+        title="Runs"
+        subtitle="Every time Rowarr rebuilt rows, and how it went."
+        actions={
+          <Button
+            onClick={() => startRun.mutate({})}
+            loading={startRun.isPending}
+          >
+            {!startRun.isPending && <Play aria-hidden="true" />}
+            Run all users now
+          </Button>
+        }
+      />
 
       <QueryBoundary
         query={runsQuery}
@@ -102,22 +98,24 @@ export function RunsPage() {
         }
       >
         {(runs) => (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Run</TableHead>
-                <TableHead>Trigger</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Users</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {runs.map((run) => (
-                <RunRow key={run.id} run={run} />
-              ))}
-            </TableBody>
-          </Table>
+          <div className="overflow-hidden rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Run</TableHead>
+                  <TableHead>Trigger</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Users</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {runs.map((run) => (
+                  <RunRow key={run.id} run={run} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </QueryBoundary>
     </div>

@@ -3,32 +3,40 @@
 @tailwind utilities;
 
 @layer base {
-  /* Dark is Rowarr's default and only theme for now (design doc §4).
-     Accent is a Plex-adjacent amber/gold. */
+  /* Dark is Rowarr's default and only theme for now (design doc §4). The accent is a warm
+     amber/gold that echoes Plex without copying it; `--plex` is the true Plex brand gold, used
+     only on the "Sign in with Plex" affordance so it reads as the Plex button. */
   :root,
   .dark {
-    --background: 240 6% 7%;
-    --foreground: 40 8% 92%;
-    --card: 240 5% 10%;
-    --card-foreground: 40 8% 92%;
-    --popover: 240 5% 9%;
-    --popover-foreground: 40 8% 92%;
-    --primary: 43 89% 52%;
+    --background: 240 8% 6%;
+    --foreground: 40 12% 94%;
+    --card: 240 6% 9%;
+    --card-foreground: 40 12% 94%;
+    /* A surface one step above the card, for stat tiles and nested panels. */
+    --elevated: 240 6% 12%;
+    --elevated-foreground: 40 12% 94%;
+    --popover: 240 6% 9%;
+    --popover-foreground: 40 12% 94%;
+    --primary: 43 92% 55%;
     --primary-foreground: 30 90% 8%;
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 40 8% 92%;
-    --muted: 240 4% 14%;
-    --muted-foreground: 40 4% 62%;
-    --accent: 43 60% 16%;
-    --accent-foreground: 43 89% 70%;
+    --secondary: 240 5% 15%;
+    --secondary-foreground: 40 10% 92%;
+    --muted: 240 5% 13%;
+    --muted-foreground: 40 5% 64%;
+    --accent: 43 55% 15%;
+    --accent-foreground: 43 92% 72%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --success: 142 60% 42%;
-    --success-foreground: 140 80% 96%;
-    --border: 240 4% 18%;
-    --input: 240 4% 20%;
-    --ring: 43 89% 52%;
-    --radius: 0.5rem;
+    --success: 152 55% 45%;
+    --success-foreground: 150 80% 96%;
+    --warning: 38 92% 52%;
+    --warning-foreground: 30 90% 8%;
+    --plex: 40 96% 47%;
+    --plex-foreground: 40 60% 6%;
+    --border: 240 5% 17%;
+    --input: 240 5% 19%;
+    --ring: 43 92% 55%;
+    --radius: 0.625rem;
   }
 
   * {
@@ -37,6 +45,13 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    /* A faint warm glow anchored top-left, so the flat dark canvas has some depth. */
+    background-image: radial-gradient(
+      55rem 40rem at 15% -10%,
+      hsl(43 60% 20% / 0.12),
+      transparent
+    );
+    background-attachment: fixed;
   }
 
   /* Accessibility: always-visible keyboard focus */

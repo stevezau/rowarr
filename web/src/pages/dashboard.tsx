@@ -1,13 +1,20 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Loader2,
+  AlertTriangle,
+  Clock,
+  Gauge,
+  Search,
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  Target,
+  Users as UsersIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
+import { StatTile } from "@/components/stat-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -39,7 +46,7 @@ function PrivacyBadge({ status }: { status: PrivacyStatus | undefined }) {
     return (
       <Badge variant="warning">
         <ShieldQuestion className="h-3 w-3" aria-hidden="true" />
-        Privacy: not checked yet
+        Not checked yet
       </Badge>
     );
   }
@@ -47,9 +54,9 @@ function PrivacyBadge({ status }: { status: PrivacyStatus | undefined }) {
     return (
       <Badge variant="success">
         <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-        Privacy: verified{" "}
+        Private
         {status.last_check
-          ? new Date(status.last_check).toLocaleDateString()
+          ? ` · ${new Date(status.last_check).toLocaleDateString()}`
           : ""}
       </Badge>
     );
@@ -57,18 +64,14 @@ function PrivacyBadge({ status }: { status: PrivacyStatus | undefined }) {
   return (
     <Badge variant="destructive">
       <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-      Privacy: check failed — rows may be visible to others
+      Check failed
     </Badge>
   );
 }
 
-function summaryLine(users: User[], runs: Run[]): string {
+function dashboardStats(users: User[], runs: Run[]) {
   const enabled = users.filter((user) => user.enabled).length;
   const lastRun = runs[0];
-  const lastRunText = lastRun
-    ? `last run ${timeAgo(lastRun.started_at)}`
-    : "no runs yet";
-  const errorsText = lastRun ? `${lastRun.stats.users_error} errors` : "—";
   const rates = users
     .map((user) => user.hit_rate)
     .filter((rate): rate is number => rate !== null);
@@ -76,7 +79,13 @@ function summaryLine(users: User[], runs: Run[]): string {
     rates.length > 0
       ? formatHitRate(rates.reduce((a, b) => a + b, 0) / rates.length)
       : "—";
-  return `${enabled} users enabled · ${lastRunText} · ${errorsText} · hit rate ${hitRate}`;
+  return {
+    enabled,
+    total: users.length,
+    lastRunAgo: lastRun ? timeAgo(lastRun.started_at) : "never",
+    errors: lastRun ? lastRun.stats.users_error : null,
+    hitRate,
+  };
 }
 
 function DashboardSkeleton() {
@@ -159,51 +168,88 @@ export function DashboardPage() {
     return [...matched].sort((a, b) => a.username.localeCompare(b.username));
   }, [usersQuery.data, search]);
 
+  const stats =
+    usersQuery.data && runsQuery.data
+      ? dashboardStats(usersQuery.data, runsQuery.data)
+      : null;
+
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          <PrivacyBadge status={privacyQuery.data} />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => privacyCheck.mutate({ probe: false })}
-            disabled={privacyCheck.isPending}
-          >
-            {privacyCheck.isPending && (
-              <Loader2 className="animate-spin" aria-hidden="true" />
-            )}
-            Check now
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Next run:{" "}
-            {scheduleTime ? `tonight ${scheduleTime}` : "not scheduled yet"}
-          </span>
-        </div>
-      </header>
+    <div>
+      <PageHeader
+        icon={Gauge}
+        title="Dashboard"
+        subtitle={
+          scheduleTime
+            ? `Next run tonight at ${scheduleTime}`
+            : "No schedule set yet"
+        }
+        actions={
+          <>
+            <PrivacyBadge status={privacyQuery.data} />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => privacyCheck.mutate({ probe: false })}
+              loading={privacyCheck.isPending}
+            >
+              <ShieldCheck aria-hidden="true" />
+              Check now
+            </Button>
+          </>
+        }
+      />
 
       {privacyCheck.isError && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="mb-4 text-sm text-destructive">
           {privacyCheck.error instanceof ApiError
             ? privacyCheck.error.message
             : "The Privacy Check could not run. Try again from Settings."}
         </p>
       )}
 
-      {usersQuery.data && runsQuery.data && (
-        <p className="text-sm text-muted-foreground">
-          {summaryLine(usersQuery.data, runsQuery.data)}
-        </p>
+      {stats ? (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatTile
+            icon={UsersIcon}
+            label="Enabled"
+            value={stats.enabled}
+            hint={`of ${stats.total} users`}
+          />
+          <StatTile icon={Clock} label="Last run" value={stats.lastRunAgo} />
+          <StatTile
+            icon={AlertTriangle}
+            label="Errors"
+            value={stats.errors ?? "—"}
+            tone={stats.errors ? "destructive" : "default"}
+            hint="last run"
+          />
+          <StatTile
+            icon={Target}
+            label="Picks watched"
+            value={stats.hitRate}
+            hint="across all users"
+          />
+        </div>
+      ) : (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-[4.75rem] w-full rounded-lg" />
+          ))}
+        </div>
       )}
 
-      <div className="max-w-xs">
+      <div className="relative mb-4 max-w-xs">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
+        />
         <Input
           type="search"
           placeholder="Search users…"
           aria-label="Search users"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
+          className="pl-9"
         />
       </div>
 

@@ -1,0 +1,59 @@
+import { cn } from "@/lib/utils";
+
+// A small palette (Tailwind's named scales, matching the FakePlexRow precedent) so each user gets a
+// stable colour — enough variety to tell people apart in a list without a photo, muted for dark UI.
+const TINTS = [
+  "bg-amber-500/15 text-amber-300",
+  "bg-rose-500/15 text-rose-300",
+  "bg-sky-500/15 text-sky-300",
+  "bg-emerald-500/15 text-emerald-300",
+  "bg-violet-500/15 text-violet-300",
+  "bg-cyan-500/15 text-cyan-300",
+] as const;
+
+const SIZES = {
+  sm: "h-7 w-7 text-xs",
+  md: "h-9 w-9 text-sm",
+  lg: "h-12 w-12 text-base",
+} as const;
+
+/** Deterministic tint from the name so the same user is always the same colour across screens. */
+function tintFor(name: string): string {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) & 0xffffffff;
+  return TINTS[Math.abs(hash) % TINTS.length] ?? TINTS[0];
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0] ?? "";
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase() || "?";
+  const last = parts[parts.length - 1] ?? "";
+  return (first.slice(0, 1) + last.slice(0, 1)).toUpperCase() || "?";
+}
+
+/** Circular initials badge that stands in for a user's avatar. */
+export function UserAvatar({
+  name,
+  size = "md",
+  className,
+}: {
+  name: string;
+  size?: keyof typeof SIZES;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-grid shrink-0 place-items-center rounded-full font-semibold",
+        SIZES[size],
+        tintFor(name),
+        className,
+      )}
+    >
+      {initials(name)}
+    </span>
+  );
+}

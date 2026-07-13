@@ -55,7 +55,7 @@ export interface PlexPinState {
 }
 
 /**
- * "Login with Plex" PIN flow: create a pin, open the plex.tv auth popup, and poll every 2s
+ * "Sign in with Plex" PIN flow: create a pin, open the plex.tv auth popup, and poll every 2s
  * until the account links (or 5 minutes pass). No Plex token ever reaches this code — the
  * backend mints it and keeps it, which is why the wizard does not ask you to sign in twice.
  */

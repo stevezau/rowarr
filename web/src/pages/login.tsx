@@ -17,7 +17,7 @@ import { resolveArea } from "@/lib/auth";
 import { queryKeys, useSession, useSetupState } from "@/lib/queries";
 
 /**
- * "Login with Plex" is the only auth (design doc §7) — and only the server
+ * "Sign in with Plex" is the only auth (design doc §7) — and only the server
  * owner's account is authorized. After the PIN links, the backend session
  * cookie exists; refetching the session routes the owner onward.
  */

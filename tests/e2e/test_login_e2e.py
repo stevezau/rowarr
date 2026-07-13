@@ -36,9 +36,9 @@ def test_an_unauthenticated_visitor_lands_on_the_login_screen(anonymous_page: Pa
     page.goto("/")
 
     expect(page).to_have_url(f"{app.url}/login", timeout=LOAD)
-    expect(page.get_by_role("button", name="Login with Plex")).to_be_visible(timeout=LOAD)
+    expect(page.get_by_role("button", name="Sign in with Plex")).to_be_visible(timeout=LOAD)
     # The skeleton must not still be sitting there behind the login card.
-    expect(page.get_by_role("button", name="Login with Plex")).to_be_enabled()
+    expect(page.get_by_role("button", name="Sign in with Plex")).to_be_enabled()
 
 
 def test_a_fresh_install_opens_the_wizard_without_asking_anyone_to_sign_in(browser: Browser, fresh_app: RowarrApp):
@@ -54,7 +54,7 @@ def test_a_fresh_install_opens_the_wizard_without_asking_anyone_to_sign_in(brows
         expect(page).to_have_url(f"{fresh_app.url}/setup", timeout=LOAD)
         expect(page.get_by_role("heading", name="Welcome")).to_be_visible(timeout=LOAD)
         # And no login wall in front of it.
-        expect(page.get_by_role("button", name="Login with Plex")).to_have_count(0)
+        expect(page.get_by_role("button", name="Sign in with Plex")).to_have_count(0)
     finally:
         context.close()
 
@@ -64,7 +64,7 @@ def test_a_protected_route_redirects_a_stranger_to_login(anonymous_page: Page, a
     page.goto("/settings")
 
     expect(page).to_have_url(f"{app.url}/login", timeout=LOAD)
-    expect(page.get_by_role("button", name="Login with Plex")).to_be_visible()
+    expect(page.get_by_role("button", name="Sign in with Plex")).to_be_visible()
 
 
 def test_the_login_screen_does_not_hammer_the_api_with_retries(anonymous_page: Page, app: RowarrApp):
@@ -74,7 +74,7 @@ def test_the_login_screen_does_not_hammer_the_api_with_retries(anonymous_page: P
     page.on("request", lambda r: calls.append(r.url) if "/api/setup/state" in r.url else None)
 
     page.goto("/")
-    expect(page.get_by_role("button", name="Login with Plex")).to_be_visible(timeout=LOAD)
+    expect(page.get_by_role("button", name="Sign in with Plex")).to_be_visible(timeout=LOAD)
     page.wait_for_timeout(3000)
 
     assert not calls, f"owner-only setup state was fetched while signed out: {calls}"
@@ -98,7 +98,7 @@ def test_the_plex_token_never_reaches_the_browser(anonymous_page: Page, app: Row
 
     page.on("response", capture)
     page.goto("/")
-    expect(page.get_by_role("button", name="Login with Plex")).to_be_visible(timeout=LOAD)
+    expect(page.get_by_role("button", name="Sign in with Plex")).to_be_visible(timeout=LOAD)
     page.wait_for_timeout(1000)
 
     for body in bodies:

@@ -42,8 +42,8 @@ def _connect_plex(page: Page, pms_url: str) -> None:
     expect(page.get_by_role("heading", name="Connect Plex")).to_be_visible()
 
     # THE sign-in — exactly one, and it happens here, inside the step that needs it.
-    page.get_by_role("button", name="Login with Plex").click()
-    expect(page.get_by_role("button", name="Login with Plex")).to_have_count(0, timeout=LOAD)
+    page.get_by_role("button", name="Sign in with Plex").click()
+    expect(page.get_by_role("button", name="Sign in with Plex")).to_have_count(0, timeout=LOAD)
 
     # The picker lists the server and marks the address that answered. The unreachable one it
     # also advertises must be offered but disabled — a guess would have picked the wrong one.

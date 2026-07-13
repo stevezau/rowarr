@@ -278,10 +278,15 @@ class TestCollectionsApi:
         assert client.post("/api/collections", json={"name": "X", "media": "vinyl"}).status_code == 422
 
     def test_slug_collision_gets_suffixed(self, client: TestClient):
+        # Different names (duplicates are rejected) that slugify to the same base collide on slug.
         first = client.post("/api/collections", json={"name": "Date Night"}).json()
-        second = client.post("/api/collections", json={"name": "Date Night"}).json()
+        second = client.post("/api/collections", json={"name": "Date-Night!"}).json()
         assert first["slug"] == "date_night"
         assert second["slug"] == "date_night_2"
+
+    def test_duplicate_names_are_rejected(self, client: TestClient):
+        assert client.post("/api/collections", json={"name": "Movie Night"}).status_code == 201
+        assert client.post("/api/collections", json={"name": "Movie Night"}).status_code == 422
 
 
 class TestPrivacyApi:

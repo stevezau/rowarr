@@ -268,11 +268,13 @@ function RowEditor({
               <Input
                 id="min-watchers"
                 type="number"
-                min={1}
+                min={2}
                 max={50}
                 value={input.min_watchers}
                 onChange={(event) =>
-                  set({ min_watchers: Number(event.target.value) || 1 })
+                  set({
+                    min_watchers: Math.max(2, Number(event.target.value) || 2),
+                  })
                 }
                 className="w-24"
               />

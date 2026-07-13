@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 
 from rowarr.engine.models import slugify
 from rowarr.server.auth import require_owner
@@ -37,7 +38,7 @@ class CollectionIn(BaseModel):
     sort_order: int = 0
     name_template: str = ""
     source: str = "all_users"
-    min_watchers: int = Field(default=2, ge=1)
+    min_watchers: int = Field(default=2, ge=2)  # a public row must never be shaped by one person
     prompt: PromptIn = Field(default_factory=PromptIn)
 
 
@@ -52,8 +53,7 @@ def _validate(body: CollectionIn) -> None:
 
 def _serialize(session, collection: Collection) -> dict:
     audience_ids = [
-        row.user_id
-        for row in session.query(CollectionAudience).filter_by(collection_id=collection.id).all()
+        row.user_id for row in session.query(CollectionAudience).filter_by(collection_id=collection.id).all()
     ]
     return {
         "id": collection.id,
@@ -71,6 +71,19 @@ def _serialize(session, collection: Collection) -> dict:
         "min_watchers": collection.min_watchers,
         "prompt": collection.prompt or {},
     }
+
+
+def _reject_duplicate_name(session, name: str, *, exclude_id: int | None = None) -> None:
+    """Two rows with the same name render to the same Plex collection title and would collide into
+    one (silent data loss). Names must be distinct (case-insensitively)."""
+    clash = (
+        session.query(Collection)
+        .filter(func.lower(Collection.name) == name.strip().lower())
+        .filter(Collection.id != exclude_id)
+        .first()
+    )
+    if clash is not None:
+        raise HTTPException(422, f"a row named {name!r} already exists — pick a different name")
 
 
 def _unique_slug(session, base: str) -> str:
@@ -100,6 +113,7 @@ async def list_collections(request: Request) -> list[dict]:
 async def create_collection(body: CollectionIn, request: Request) -> dict:
     _validate(body)
     with request.app.state.sessions() as session:
+        _reject_duplicate_name(session, body.name)
         collection = Collection(
             slug=_unique_slug(session, slugify(body.name)),
             name=body.name,
@@ -128,6 +142,7 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
         collection = session.get(Collection, collection_id)
         if collection is None:
             raise HTTPException(404, "collection not found")
+        _reject_duplicate_name(session, body.name, exclude_id=collection_id)
         collection.name = body.name
         collection.build = body.build
         collection.audience = body.audience

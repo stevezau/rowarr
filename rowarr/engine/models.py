@@ -132,9 +132,12 @@ class UserProfile:
         return f"rowarr_{self.slug}"
 
 
-# Shared ("popular on this server") rows are labelled rowarr_shared_<slug>. This prefix marks them
-# as a distinct family the exclusion logic treats by audience rather than as one user's private row.
+# Shared ("popular on this server") rows live in a namespace no per-person label can collide with.
+# `slugify` collapses any run of non-alphanumerics to a SINGLE "_" and strips leading ones, so a
+# username can never produce a slug containing "__" — the DOUBLE underscore here makes a shared
+# label unreachable from any user slug, so a private row can never be mistaken for a shared one.
 SHARED_SLUG_PREFIX = "shared"
+SHARED_LABEL_PREFIX = "rowarr__shared_"
 
 
 @dataclass
@@ -162,7 +165,7 @@ class RowSpec:
     @property
     def label(self) -> str | None:
         """The privacy label for a shared row; per-person rows use the user's own label instead."""
-        return f"rowarr_{SHARED_SLUG_PREFIX}_{self.slug}" if self.shared else None
+        return f"{SHARED_LABEL_PREFIX}{self.slug}" if self.shared else None
 
 
 @dataclass

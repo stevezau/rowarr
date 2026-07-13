@@ -229,14 +229,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     own_slugs = {**ctx.known_slugs, **{u.plex_account_id: u.slug for u in users}}
 
     audience = _server_audience(users, roster, own_slugs)
-    # Restricted shared rows: label -> the account ids allowed to see it. Public shared rows are
-    # absent (never excluded). This makes the exclusion audience-aware: a shared-to-some row is
-    # hidden from everyone NOT in its audience, exactly like a private row.
-    shared_audiences = {
-        spec.label.lower(): spec.audience
-        for spec in ctx.config.shared_rows()
-        if spec.label and spec.audience is not None
-    }
+    # Every CONFIGURED shared row: label -> its audience (None = public, seen by all). This is the
+    # authoritative "what is a shared row", so the exclusion classifies by config, never by the
+    # label string — a private row is never mistaken for a shared one, and a stale shared collection
+    # not in the config is excluded (hidden) rather than treated as public.
+    shared_labels = {spec.label.lower(): spec.audience for spec in ctx.config.shared_rows() if spec.label}
     reports = {r.slug: r for r in report.users}
     for user in audience:
         user_report = reports.get(user.slug)
@@ -250,7 +247,7 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
                 ctx.snapshots,
                 own_label=stored_labels.get(own_slug) if own_slug else None,
                 label_prefix=ctx.config.label_prefix,
-                shared_audiences=shared_audiences,
+                shared_labels=shared_labels,
                 dry_run=ctx.config.dry_run,
             )
             if written:
@@ -527,7 +524,10 @@ def _run_shared(
             key = (tmdb_id, item.media_type)
             watchers.setdefault(key, set()).add(user.plex_account_id)
             example.setdefault(key, item)
-    agg_history = [example[key] for key, who in watchers.items() if len(who) >= spec.min_watchers]
+    # Hard floor of 2, regardless of config: a public row must never be shaped by one person's
+    # viewing, so a title needs at least two distinct watchers even if the row was set to 1.
+    threshold = max(2, spec.min_watchers)
+    agg_history = [example[key] for key, who in watchers.items() if len(who) >= threshold]
     user_report.counts.history = len(agg_history)
 
     agg = UserProfile(
@@ -540,7 +540,7 @@ def _run_shared(
     )
     if not agg_history:
         user_report.status = "skipped"
-        logger.info("shared row '{}': no title watched by >= {} people yet", spec.slug, spec.min_watchers)
+        logger.info("shared row '{}': no title watched by >= {} people yet", spec.slug, threshold)
         return None
 
     seeds = derive_seeds(agg_history, resolve, max_seeds=cfg.max_seeds)
@@ -561,8 +561,12 @@ def _run_shared(
         picks = NullCurator().curate(agg, ranked, k)
     if len(picks) < k:
         picks = _pad_picks(picks, ranked, k)
-    # Force aggregate framing regardless of curator: a shared row is nobody's "because you watched".
-    picks = [Pick(**{**pick.__dict__, "reason": "Popular on this server"}) for pick in picks]
+    # Force aggregate framing regardless of curator: a shared row is nobody's "because you watched",
+    # and the seed is dropped so a {top_seed} name template can never surface one person's title.
+    picks = [
+        Pick(**{**pick.__dict__, "reason": "Popular on this server", "seed_title": None, "seed_tmdb_id": None})
+        for pick in picks
+    ]
 
     user_report.picks = picks
     user_report.counts.picks = len(picks)

@@ -274,6 +274,15 @@ class PlexClient:
                 return collection
         return None
 
+    def find_owned_collections(self, section: LibrarySection, wanted_label: str) -> list[Collection]:
+        """Every collection in this section carrying `wanted_label` (case-insensitive).
+
+        A user can have several rows, all sharing their label and told apart by title — so delivery
+        picks the one with the matching title, and promotion promotes them all.
+        """
+        wl = wanted_label.lower()
+        return [c for c in section.collections() if any(label.tag.lower() == wl for label in c.labels)]
+
     def create_collection(self, section: LibrarySection, title: str, items: list) -> Collection:
         return self._server.createCollection(title=title, section=section, items=items)
 

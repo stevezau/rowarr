@@ -68,7 +68,7 @@ class TestDeliverRows:
         plex = MagicMock(spec=PlexClient)
         plex.sections.return_value = [movies, shows]
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies, MediaType.SHOW: shows}
-        plex.find_owned_collection.return_value = None
+        plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
         plex.stored_label.return_value = "Rowarr_sarah"
         return plex
@@ -129,7 +129,7 @@ class TestDeliverRows:
         untouched = MagicMock()
         untouched.title = "✨ Picked for You"
         plex = self._plex(movies, shows)
-        plex.find_owned_collection.side_effect = lambda section, prefix, slug: untouched if section is shows else None
+        plex.find_owned_collections.side_effect = lambda section, label: [untouched] if section is shows else []
 
         diff, _ = deliver_rows(plex, make_profile(), picks(media_type=MediaType.MOVIE), engine_config)
 
@@ -152,7 +152,7 @@ class TestDeliverRows:
         # this account's marker, so its membership is its own and it can be updated in place.
         existing.title = "Old Name" + row_marker(profile.plex_account_id)
         existing.items.return_value = [MagicMock(title="Movie 1"), MagicMock(title="Stale Movie")]
-        plex.find_owned_collection.side_effect = lambda section, prefix, slug: existing if section is movies else None
+        plex.find_owned_collections.side_effect = lambda section, label: [existing] if section is movies else []
 
         diff, _ = deliver_rows(plex, profile, picks(), engine_config)
 
@@ -184,7 +184,7 @@ class TestDeliverRows:
         plex = MagicMock(spec=PlexClient)
         plex.sections.return_value = [movies]
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
-        plex.find_owned_collection.return_value = None
+        plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
         plex.stored_label.return_value = "Rowarr_sarah"
 
@@ -200,7 +200,7 @@ class TestDeliverRows:
         mistyped = MagicMock()
         mistyped.title = "✨ Picked for You"
         plex = self._plex(movies, shows)
-        plex.find_owned_collection.side_effect = lambda section, prefix, slug: mistyped if section is movies else None
+        plex.find_owned_collections.side_effect = lambda section, label: [mistyped] if section is movies else []
         plex.matches_section.side_effect = lambda collection, section: collection is not mistyped
 
         diff, stored = deliver_rows(plex, make_profile(), picks(), engine_config)
@@ -255,7 +255,7 @@ class TestServerWithTwoLibrariesOfTheSameType:
         plex = MagicMock(spec=PlexClient)
         plex.sections.return_value = [movies_4k, movies]  # PMS lists 4K first — must not matter
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
-        plex.find_owned_collection.return_value = None
+        plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
         plex.stored_label.return_value = "Rowarr_sarah"
 
@@ -274,7 +274,7 @@ class TestServerWithTwoLibrariesOfTheSameType:
         plex = MagicMock(spec=PlexClient)
         plex.sections.return_value = [movies, movies_4k]
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
-        plex.find_owned_collection.side_effect = lambda section, prefix, slug: stray if section is movies_4k else None
+        plex.find_owned_collections.side_effect = lambda section, label: [stray] if section is movies_4k else []
         plex.matches_section.return_value = True
         plex.stored_label.return_value = "Rowarr_sarah"
 
@@ -378,7 +378,7 @@ class TestAnUnlabelledRowIsNeverLeftBehind:
         plex = MagicMock(spec=PlexClient)
         plex.sections.return_value = [movies]
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
-        plex.find_owned_collection.return_value = None
+        plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
         plex.create_collection.return_value = created
         plex.stored_label.side_effect = RuntimeError("PMS timed out")
@@ -397,7 +397,7 @@ class TestAnUnlabelledRowIsNeverLeftBehind:
         plex = MagicMock(spec=PlexClient)
         plex.sections.return_value = [movies]
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
-        plex.find_owned_collection.return_value = None
+        plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
         plex.create_collection.return_value = created
         plex.stored_label.side_effect = RuntimeError("label write failed")
@@ -429,7 +429,7 @@ class TestARowSharingItsTagWithOthers:
         legacy = MagicMock()
         legacy.title = "✨ Picked for You"  # no marker: shared with everyone else's row
         plex = self._plex(movies, shows)
-        plex.find_owned_collection.side_effect = lambda section, prefix, slug: legacy if section is movies else None
+        plex.find_owned_collections.side_effect = lambda section, label: [legacy] if section is movies else []
 
         diff, _ = deliver_rows(plex, make_profile(), picks(), engine_config)
 

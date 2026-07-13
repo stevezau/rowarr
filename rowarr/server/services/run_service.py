@@ -26,6 +26,7 @@ from rowarr.engine.models import (
     FilterSnapshot,
     MediaType,
     PromptConfig,
+    RowSpec,
     RunReport,
     UserProfile,
     UserType,
@@ -180,6 +181,7 @@ class RunService:
                 row_name_template=store.get("row.name_template"),
                 staleness_runs=int(store.get("staleness_runs")),
                 dry_run=dry_run,
+                rows=self._build_rows(session, store),
             )
             recent = self._recent_picks(session, config)
             # Every user Rowarr knows, enabled or not: the engine answers "whose row is this?"
@@ -258,6 +260,56 @@ class RunService:
                 )
             )
         return profiles
+
+    def _build_rows(self, session: Session, store: SettingsStore) -> list[RowSpec]:
+        """Build the engine's row specs from the enabled collections.
+
+        The default 'picked' row keeps an empty name_template and no recipe here, so the per-user
+        row-name and Phase-A prompt on the profile still apply to it; other rows carry their own
+        name and recipe. A subset audience is resolved from user ids to plex account ids (what the
+        engine matches on).
+        """
+        from rowarr.server.db.models import Collection, CollectionAudience
+
+        account_by_user = {u.id: u.plex_account_id for u in session.query(User).all()}
+        audience_by_collection: dict[int, set[int]] = {}
+        for row in session.query(CollectionAudience).all():
+            audience_by_collection.setdefault(row.collection_id, set()).add(row.user_id)
+
+        specs: list[RowSpec] = []
+        collections = (
+            session.query(Collection).filter_by(enabled=True).order_by(Collection.sort_order, Collection.id).all()
+        )
+        for collection in collections:
+            shared = collection.build == "shared"
+            audience: set[int] | None = None
+            if collection.audience == "subset":
+                audience = {
+                    account_by_user[uid]
+                    for uid in audience_by_collection.get(collection.id, set())
+                    if uid in account_by_user
+                }
+            prompt: PromptConfig | None = None
+            if collection.slug != "picked":
+                recipe = collection.prompt or {}
+                prompt = PromptConfig(
+                    tone=recipe.get("tone", "balanced"),
+                    guidance=recipe.get("guidance", ""),
+                    template=recipe.get("template", ""),
+                    shared=shared,
+                )
+            specs.append(
+                RowSpec(
+                    slug=collection.slug,
+                    name_template="" if collection.slug == "picked" else (collection.name_template or collection.name),
+                    size=collection.size,
+                    media=collection.media,
+                    shared=shared,
+                    audience=audience,
+                    prompt=prompt,
+                )
+            )
+        return specs
 
     @staticmethod
     def _resolve_prompt(store: SettingsStore, prefs: dict) -> PromptConfig:

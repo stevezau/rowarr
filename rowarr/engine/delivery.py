@@ -5,7 +5,15 @@ from __future__ import annotations
 from loguru import logger
 
 from rowarr.engine.clients.plex import PlexClient
-from rowarr.engine.models import CollectionDiff, EngineConfig, MediaType, Pick, UserProfile
+from rowarr.engine.models import (
+    SHARED_SLUG_PREFIX,
+    CollectionDiff,
+    EngineConfig,
+    MediaType,
+    Pick,
+    RowSpec,
+    UserProfile,
+)
 
 DEFAULT_ROW_NAME = "✨ Picked for You"
 
@@ -47,17 +55,29 @@ def render_row_name(template: str, profile: UserProfile, picks: list[Pick]) -> s
     return rendered or DEFAULT_ROW_NAME
 
 
+def _allowed_media(media: str) -> set[MediaType]:
+    """Which libraries a row writes to. 'both' -> movies and shows; else that one type."""
+    if media == "both":
+        return {MediaType.MOVIE, MediaType.SHOW}
+    return {MediaType(media)}
+
+
 def deliver_rows(
     plex: PlexClient,
     profile: UserProfile,
     picks: list[Pick],
     config: EngineConfig,
+    spec: RowSpec | None = None,
     *,
+    sole_row: bool = True,
     dry_run: bool = False,
     stored_labels: dict[str, str] | None = None,
     diff: CollectionDiff | None = None,
 ) -> tuple[CollectionDiff, str | None]:
-    """Deliver a user's picks as one collection per library. Returns (combined diff, stored label).
+    """Deliver one row's picks as one collection per targeted library. Returns (diff, stored label).
+
+    `spec` is the row being delivered; when omitted (the CLI and legacy callers) it defaults to the
+    single per-person row, whose name falls through to the profile's / config's template.
 
     `stored_labels` and `diff` are caller-owned accumulators, written the moment the PMS confirms
     each library's row. A user gets a row per library, so delivery can half-succeed: if the second
@@ -85,7 +105,19 @@ def deliver_rows(
     server-wide, before any of this ran — both the kind Plex cannot hide and the kind that shares
     a collection tag with other users' rows.
     """
+    if spec is None:  # legacy/default caller: the one per-person row, name from profile/config
+        spec = RowSpec(slug="picked", name_template="", size=config.row_size)
+    # Per-person rows carry the user's shared label; shared rows carry their own. Shared rows use a
+    # fixed marker (there's no single owner account) so they resolve to one stable membership.
+    wanted_label = spec.label or f"{config.label_prefix}_{profile.slug}"
+    marker = row_marker(0) if spec.shared else row_marker(profile.plex_account_id)
+    template = spec.name_template or (profile.row_name_template or config.row_name_template)
+    # The key `stored_labels` is filed under: per-person rows collapse to one entry per user (all
+    # their rows share one label); a shared row files under its own `shared_<slug>` key.
+    stored_key = f"{SHARED_SLUG_PREFIX}_{spec.slug}" if spec.shared else profile.slug
+
     targets = plex.sections_by_type()
+    allowed = _allowed_media(spec.media)
     by_type: dict[MediaType, list[Pick]] = {}
     for pick in picks:
         by_type.setdefault(pick.media_type, []).append(pick)
@@ -95,14 +127,18 @@ def deliver_rows(
             logger.warning("{}: no {} library on this server — dropping those picks", profile.username, kind.value)
 
     combined = diff if diff is not None else CollectionDiff()
-    combined.collection_title = render_row_name(profile.row_name_template or config.row_name_template, profile, picks)
+    combined.collection_title = render_row_name(template, profile, picks)
     stored: str | None = None
 
     for kind, section in targets.items():
+        if kind not in allowed:
+            continue
         section_picks = by_type.get(kind, [])
         if not section_picks:
             continue
-        one, stored = _deliver_one(plex, section, profile, section_picks, config, dry_run=dry_run)
+        one, stored = _deliver_one(
+            plex, section, profile, section_picks, template, wanted_label, marker, sole_row, dry_run=dry_run
+        )
         combined.added += one.added
         combined.removed += one.removed
         combined.kept += one.kept
@@ -111,7 +147,7 @@ def deliver_rows(
         # Recorded the instant the PMS confirms the label — if the NEXT library blows up, this
         # row still gets excluded on every other user's share this run.
         if stored_labels is not None and not dry_run:
-            stored_labels[profile.slug] = stored
+            stored_labels[stored_key] = stored
 
     return combined, stored
 
@@ -121,23 +157,36 @@ def _deliver_one(
     section,
     profile: UserProfile,
     picks: list[Pick],
-    config: EngineConfig,
+    template: str,
+    wanted_label: str,
+    marker: str,
+    sole_row: bool,
     *,
     dry_run: bool,
 ) -> tuple[CollectionDiff, str]:
     """Upsert one library's collection to exactly `picks`, in order. Returns (diff, stored_label).
 
-    The collection is found by label — never by title — so renames from dynamic templates can't
-    orphan it, and foreign (e.g. Kometa) collections are never touched.
+    A user can have several rows, all carrying their label and told apart by title, so the right one
+    is the labelled collection whose title matches. When this is the user's ONLY row (`sole_row`) and
+    exactly one labelled collection exists, a title mismatch is treated as an in-place rename — so a
+    changed name template updates the row rather than orphaning it. With more than one row that guess
+    is unsafe (which row was renamed?), so a mismatch builds a fresh row and the stale one, still
+    labelled, stays hidden. Foreign (e.g. Kometa) collections never carry our label, so are untouched.
     """
-    template = profile.row_name_template or config.row_name_template
     display = render_row_name(template, profile, picks)
     # What Plex is told to call it: the same thing, plus an invisible marker that makes it unique
     # in this library. Without it, every user's row is the same collection tag and holds everyone's
     # picks. Users see `display`; only the PMS ever sees the marker.
-    title = display + row_marker(profile.plex_account_id)
-    label = f"{config.label_prefix}_{profile.slug}"
-    collection = plex.find_owned_collection(section, config.label_prefix, profile.slug)
+    title = display + marker
+    label = wanted_label
+    owned = plex.find_owned_collections(section, label)
+    collection = next((c for c in owned if c.title == title), None)
+    if collection is None and sole_row and len(owned) == 1 and owned[0].title.endswith(marker):
+        # The sole row was renamed by a template change but still carries this account's marker, so
+        # its membership is its own: update it in place rather than leave a stale duplicate. Only
+        # when there's exactly one (otherwise we can't tell which row moved) and only a MARKED row —
+        # a pre-marker row shares its tag with others and must be rebuilt, never renamed.
+        collection = owned[0]
 
     if collection is not None and not plex.matches_section(collection, section):
         # The sweep already deleted this one (or, in a dry run, already reported that it would),
@@ -146,17 +195,6 @@ def _deliver_one(
         # being visible to everyone. It must be rebuilt, never edited.
         logger.info(
             "{}: rebuilding their row in '{}' — the old one was the wrong type", profile.username, section.title
-        )
-        collection = None
-    elif collection is not None and not collection.title.endswith(row_marker(profile.plex_account_id)):
-        # A row from before the marker existed: its title — and therefore its collection tag, and
-        # therefore its contents — is shared with every other user's row in this library. The sweep
-        # has already removed it (or, in a dry run, already reported that it would), so treat it as
-        # gone and build a fresh one. Renaming could not have fixed it: the items keep the old tag.
-        logger.info(
-            "{}: rebuilding their row in '{}' — the old one shared a collection tag",
-            profile.username,
-            section.title,
         )
         collection = None
 

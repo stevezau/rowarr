@@ -26,6 +26,7 @@ def ctx(engine_config: EngineConfig, mock_plextv, mock_tmdb, mock_curator) -> En
     plex.build_library_index.return_value = {900: 999, 10: 1010, 20: 1020}
     plex.owned_collections.return_value = {}
     plex.find_owned_collection.return_value = None  # delivery takes the create path
+    plex.find_owned_collections.return_value = []  # delivery finds by title; promotion enumerates rows
     plex.stored_label.side_effect = lambda collection, label: label.replace("rowarr", "Rowarr", 1)
     plex.fetch_items.side_effect = lambda keys: [fake_media_item(k, f"item{k}") for k in keys]
 
@@ -68,23 +69,20 @@ class TestRun:
         mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
         ctx.curator.curate.side_effect = curated_picks
 
-        # A collection does not exist until it is created — model that, rather than counting
-        # lookups: the run legitimately looks a user's row up several times (sweep, deliver,
-        # promote), and a stub keyed on call order silently changes meaning when it does.
-        created: dict[str, MagicMock] = {}
-        looking_up = {"slug": ""}
+        # A row does not exist until created (delivery takes the create path); capture each created
+        # collection by the label it is stored under, so promotion — which enumerates a user's rows
+        # by label — finds it.
+        created_by_label: dict[str, MagicMock] = {}
 
-        def find(section, prefix, slug):
-            looking_up["slug"] = slug
-            return created.get(slug)
+        def stored_label(collection, label):
+            created_by_label[label.lower()] = collection
+            return label.replace("rowarr", "Rowarr", 1)
 
-        def create(section, title, items):
-            collection = MagicMock()
-            created[looking_up["slug"]] = collection
-            return collection
-
-        ctx.plex.find_owned_collection.side_effect = find
-        ctx.plex.create_collection.side_effect = create
+        ctx.plex.stored_label.side_effect = stored_label
+        ctx.plex.create_collection.side_effect = lambda section, title, items: MagicMock()
+        ctx.plex.find_owned_collections.side_effect = lambda section, label: (
+            [created_by_label[label.lower()]] if label.lower() in created_by_label else []
+        )
 
         report = pipeline_mod.run(ctx, [sarah, mike])
 
@@ -118,8 +116,7 @@ class TestRun:
         existing = MagicMock()
         existing.title = "✨ Picked for You"
         existing.items.return_value = []
-        ctx.plex.find_owned_collection.side_effect = None
-        ctx.plex.find_owned_collection.return_value = existing
+        ctx.plex.find_owned_collections.return_value = [existing]
 
         pipeline_mod.run(ctx, [sarah, mike])
 

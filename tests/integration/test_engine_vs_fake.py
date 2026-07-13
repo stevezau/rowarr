@@ -20,7 +20,7 @@ from rowarr.engine.clients.plex import PlexClient, PlexTvClient
 from rowarr.engine.clients.tmdb import TmdbClient
 from rowarr.engine.curator import NullCurator
 from rowarr.engine.history import PlexHistorySource
-from rowarr.engine.models import EngineConfig, MediaType, UserProfile, UserType
+from rowarr.engine.models import EngineConfig, MediaType, RowSpec, UserProfile, UserType
 from rowarr.engine.pipeline import EngineContext
 from rowarr.engine.pipeline import run as engine_run
 from rowarr.engine.probe import run_privacy_probe
@@ -247,6 +247,62 @@ def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
     assert result.detail["hidden_after_exclusion"] is True
     assert "probe" not in plex.owned_collections()  # probe collection deleted in finally
     assert state.users[203].filters == filters_before_probe  # canary filters restored byte-identical
+
+
+def _strip_marker(title: str) -> str:
+    """Drop the invisible zero-width marker to recover the human-readable row title."""
+    return "".join(ch for ch in title if ch not in "​‌")
+
+
+def test_two_per_person_rows_share_one_label_and_are_both_hidden(fakes, tmp_path):
+    """Multiple per-person rows: each is its own collection (told apart by title) but they all
+    carry the user's single label, so one `label!=` exclude on everyone else hides the whole set —
+    and every row is promoted and filterable. This is the core of the collections feature."""
+    state, pms_url, _tmdb_app = fakes
+    plex = PlexClient(pms_url, state.owner_token)
+    plextv = PlexTvClient(state.owner_token, plex.machine_id, min_write_interval=0.0)
+    ctx = EngineContext(
+        config=EngineConfig(
+            row_size=12,
+            min_history=5,
+            candidates_pre_rank=40,
+            max_seeds=12,
+            rows=[
+                RowSpec(slug="picked", name_template="", size=12),
+                RowSpec(slug="gems", name_template="Hidden Gems", size=8),
+            ],
+        ),
+        plex=plex,
+        plextv=plextv,
+        tmdb=TmdbClient("test-key"),
+        history_source=PlexHistorySource(plex),
+        curator=NullCurator(),
+        snapshots=FileSnapshotStore(tmp_path / "snapshots"),
+    )
+    users = [
+        UserProfile(username=u.username, plex_account_id=u.id, user_type=UserType.SHARED)
+        for u in sorted(plextv.list_users(), key=lambda u: u.id)
+    ]
+
+    report = engine_run(ctx, users)
+    assert report.ok, [(u.username, u.error) for u in report.users]
+
+    owned = plex.owned_collections()
+    assert owned["sarah"].label == "Rowarr_sarah"  # one label for all of a user's rows
+    sarah_titles = {_strip_marker(state.collections[k].title) for k in owned["sarah"].rating_keys}
+    # Sarah watched movies AND shows, so each of her two rows lands in both libraries.
+    assert sarah_titles == {"✨ Picked for You", "Hidden Gems"}
+    assert len(owned["sarah"].rating_keys) == 4  # 2 rows x 2 libraries
+    for rating_key in owned["sarah"].rating_keys:
+        collection = state.collections[rating_key]
+        assert collection.item_keys
+        assert collection.promoted_shared_home and collection.promoted_own_home
+        assert state.filterable(collection)
+
+    # One exclude of the single label hides all of sarah's rows from mike (and vice-versa).
+    remote = {u.id: u for u in plextv.list_users()}
+    assert "Rowarr_sarah" in remote[202].filters["filterMovies"]
+    assert "Rowarr_mike" in remote[201].filters["filterMovies"]
 
 
 def test_a_run_heals_the_leaking_rows_a_previous_version_left_behind(fakes, tmp_path):

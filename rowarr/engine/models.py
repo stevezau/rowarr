@@ -132,6 +132,36 @@ class UserProfile:
         return f"rowarr_{self.slug}"
 
 
+# Shared ("popular on this server") rows are labelled rowarr_shared_<slug>. This prefix marks them
+# as a distinct family the exclusion logic treats by audience rather than as one user's private row.
+SHARED_SLUG_PREFIX = "shared"
+
+
+@dataclass
+class RowSpec:
+    """One curated-row definition the engine delivers, built by the adapter from a Collection row.
+
+    A per-person spec produces one private row per audience member (label ``rowarr_<userslug>``); a
+    shared spec produces one public row for the whole audience (label ``rowarr_shared_<slug>``).
+    """
+
+    slug: str
+    name_template: str
+    size: int
+    media: str = "both"  # movie | show | both
+    shared: bool = False
+    # None -> visible to everyone; otherwise the set of plex_account_ids this row is built for / seen by.
+    audience: set[int] | None = None
+    # Per-collection recipe. None on the default 'picked' row -> use the per-user prompt on the
+    # profile (the Phase A global+per-user tuning), so that behaviour is preserved exactly.
+    prompt: PromptConfig | None = None
+
+    @property
+    def label(self) -> str | None:
+        """The privacy label for a shared row; per-person rows use the user's own label instead."""
+        return f"rowarr_{SHARED_SLUG_PREFIX}_{self.slug}" if self.shared else None
+
+
 @dataclass
 class EngineConfig:
     """Static configuration for one engine run (adapters build this from settings)."""
@@ -145,6 +175,23 @@ class EngineConfig:
     max_seeds: int = 30
     staleness_runs: int = 3  # don't repeat picks recommended in the last N runs
     dry_run: bool = False
+    # The curated rows to deliver. Empty -> a single default per-person row synthesized from
+    # row_name_template/row_size, so the CLI and existing callers behave exactly as before.
+    rows: list[RowSpec] = field(default_factory=list)
+
+    def per_person_rows(self) -> list[RowSpec]:
+        """Per-person specs to deliver; a single default row when none are configured.
+
+        The default row's name_template is left empty so it falls through to the per-user override
+        (or config default) at delivery — preserving the legacy per-user row-name behaviour.
+        """
+        if not self.rows:
+            return [RowSpec(slug="picked", name_template="", size=self.row_size)]
+        return [row for row in self.rows if not row.shared]
+
+    def shared_rows(self) -> list[RowSpec]:
+        """Shared ('popular on this server') specs to deliver."""
+        return [row for row in self.rows if row.shared]
 
 
 @dataclass

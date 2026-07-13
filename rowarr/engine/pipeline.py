@@ -248,11 +248,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
             logger.warning("{}: promotion skipped — a privacy sync failed this run", user.username)
             continue
         try:
-            # Every library the user has a row in — promoting only the movie one would leave
-            # their TV row unpromoted, i.e. invisible to the one person meant to see it.
+            # Every row the user has, in every library — they can have several rows (all sharing
+            # their label), and promoting only one would leave the others invisible to the one
+            # person meant to see them.
             for section in targets.values():
-                collection = ctx.plex.find_owned_collection(section, ctx.config.label_prefix, user.slug)
-                if collection is not None:
+                for collection in ctx.plex.find_owned_collections(section, user.label):
                     ctx.plex.promote(collection, shared=True)
         except Exception as e:
             user_report.status = "error"
@@ -301,6 +301,14 @@ def _server_audience(processed: list[UserProfile], roster: dict, known_slugs: di
     return audience
 
 
+def _media_filter(items: list, media: str) -> list:
+    """Keep only items of the row's media type ('both' keeps everything)."""
+    if media == "both":
+        return list(items)
+    kind = MediaType(media)
+    return [item for item in items if item.media_type is kind]
+
+
 def _run_user(
     ctx: EngineContext,
     user: UserProfile,
@@ -309,14 +317,27 @@ def _run_user(
     stored_labels: dict[str, str],
     user_report: UserRunReport,
 ) -> bool:
-    """Run stages for one user; returns True when a row was delivered (candidate for promotion)."""
+    """Deliver every per-person row this user is in the audience of. Candidates are computed once
+    and reused across rows; each row curates and delivers with its own size/media/recipe. Returns
+    True when at least one row was delivered (a candidate for promotion)."""
     cfg = ctx.config
+    specs = [spec for spec in cfg.per_person_rows() if spec.audience is None or user.plex_account_id in spec.audience]
+    if not specs:
+        return False  # this user isn't in any per-person row's audience
+    # The adapter puts the Phase-A global+per-user recipe on the profile; a row with its own recipe
+    # overrides it for that row only.
+    base_prompt = user.prompt
+
     _emit(ctx, user.slug, "history", {})
     user.history = ctx.history_source.fetch(user, min_completion=cfg.min_completion)
     user_report.counts.history = len(user.history)
 
-    if len(user.history) < cfg.min_history:
-        picks = _cold_start_picks(ctx, user, cfg)
+    cold = len(user.history) < cfg.min_history
+    ranked: list[Candidate] = []
+    held_back: list[Candidate] = []
+    base_cold: list[Pick] = []
+    if cold:
+        base_cold = _cold_start_picks(ctx, user, cfg)
         user_report.status = "cold_start"
     else:
         # Watches resolve against EVERY library (seed_index) — what a user watched in a second
@@ -366,44 +387,57 @@ def _run_user(
             ],
             cfg.candidates_pre_rank,
         )
-
-        k = user.row_size or cfg.row_size
-        _emit(ctx, user.slug, "curating", {"candidates": len(pool), "in_library": len(in_library)})
-        try:
-            picks = ctx.curator.curate(user, ranked, k)
-            user_report.llm_tokens = getattr(ctx.curator, "last_tokens", 0)
-        except CuratorError as e:
-            logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
-            picks = NullCurator().curate(user, ranked, k)
-        if len(picks) < k:
-            picks = _pad_picks(picks, ranked + held_back, k)
         user_report.status = "ok"
-
-    user_report.picks = picks
-    user_report.counts.picks = len(picks)
-    if not picks:
-        logger.warning("{}: no picks produced — existing rows are left as they are", user.username)
 
     if not ctx.plex.sections_by_type():
         raise RuntimeError("no movie or show library found for delivery")
-    _emit(ctx, user.slug, "delivering", {"picks": len(picks)})
-    # The diff and the label map are handed to delivery rather than returned from it: a user has a
-    # row per library, so delivery can half-succeed, and a row that was created and labelled must
-    # end up in `stored_labels` even if the NEXT library's write blows up. Otherwise nobody's share
-    # filter excludes it and the row is visible to everyone — the very leak we are here to fix.
-    # Only a label the PMS actually stored is recorded: excludes are compared case-insensitively,
-    # so a wrongly-cased one would look "already present" forever and never heal.
+
+    # One diff and label map for the whole user, accumulated across their rows. Handed to delivery
+    # rather than returned from it: a row can half-succeed across libraries, and a row that was
+    # created and labelled must reach `stored_labels` even if a later write blows up — otherwise
+    # nobody's share filter excludes it and it is visible to everyone (the leak we exist to fix).
     user_report.diff = CollectionDiff()
-    deliver_rows(
-        ctx.plex,
-        user,
-        picks,
-        cfg,
-        dry_run=cfg.dry_run,
-        stored_labels=stored_labels,
-        diff=user_report.diff,
-    )
-    return bool(picks)  # nothing delivered -> nothing to promote
+    all_picks: list[Pick] = []
+    delivered_any = False
+    for spec in specs:
+        k = user.row_size or spec.size
+        if cold:
+            picks = [
+                Pick(**{**pick.__dict__, "rank": i + 1})
+                for i, pick in enumerate(_media_filter(base_cold, spec.media)[:k])
+            ]
+        else:
+            user.prompt = spec.prompt if spec.prompt is not None else base_prompt
+            pool = _media_filter(ranked, spec.media)
+            _emit(ctx, user.slug, "curating", {"candidates": len(pool)})
+            try:
+                picks = ctx.curator.curate(user, pool, k)
+                user_report.llm_tokens += getattr(ctx.curator, "last_tokens", 0)
+            except CuratorError as e:
+                logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
+                picks = NullCurator().curate(user, pool, k)
+            if len(picks) < k:
+                picks = _pad_picks(picks, pool + _media_filter(held_back, spec.media), k)
+        all_picks.extend(picks)
+        _emit(ctx, user.slug, "delivering", {"picks": len(picks)})
+        deliver_rows(
+            ctx.plex,
+            user,
+            picks,
+            cfg,
+            spec,
+            sole_row=len(specs) == 1,
+            dry_run=cfg.dry_run,
+            stored_labels=stored_labels,
+            diff=user_report.diff,
+        )
+        delivered_any = delivered_any or bool(picks)
+
+    user_report.picks = all_picks
+    user_report.counts.picks = len(all_picks)
+    if not all_picks:
+        logger.warning("{}: no picks produced — existing rows are left as they are", user.username)
+    return delivered_any  # nothing delivered -> nothing to promote
 
 
 def _pad_picks(picks: list[Pick], ranked: list[Candidate], k: int) -> list[Pick]:

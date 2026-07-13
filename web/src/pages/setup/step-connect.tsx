@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,21 @@ export function StepConnect({ data, update }: StepProps) {
   const probe = useMutation({
     mutationFn: () => api.setupProbe({ plex_url: plexUrl }),
   });
+
+  // Auto-run the deep checks the moment a reachable discovered address is chosen — discovery already
+  // proved it answers, so there's nothing for the owner to click. A manually typed address still
+  // uses the Run checks button (we can't assume an address we didn't find is real).
+  const autoChecked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!plexUrl || autoChecked.current === plexUrl) return;
+    const discovered = servers.data?.some((server) =>
+      server.connections.some((c) => c.uri === plexUrl && c.ok),
+    );
+    if (discovered) {
+      autoChecked.current = plexUrl;
+      probe.mutate();
+    }
+  }, [plexUrl, servers.data, probe]);
 
   const link = useMutation({
     mutationFn: (result: ProbeResult) =>
@@ -201,7 +216,7 @@ export function StepConnect({ data, update }: StepProps) {
                     </span>
                   ) : null}
                 </div>
-                <fieldset className="space-y-1">
+                <fieldset className="space-y-1.5">
                   <legend className="sr-only">
                     Addresses for {server.name}
                   </legend>
@@ -216,17 +231,25 @@ export function StepConnect({ data, update }: StepProps) {
                       aria-pressed={plexUrl === connection.uri}
                       disabled={!connection.ok}
                       onClick={() => setPlexUrl(connection.uri)}
-                      className="mr-2 font-mono text-xs"
+                      className="h-auto w-full items-start justify-start gap-2 whitespace-normal break-all py-1.5 text-left font-mono text-xs"
                     >
                       {connection.ok ? (
-                        <Check className="h-3 w-3" aria-hidden="true" />
+                        <Check
+                          className="mt-0.5 h-3 w-3 shrink-0"
+                          aria-hidden="true"
+                        />
                       ) : (
-                        <X className="h-3 w-3" aria-hidden="true" />
+                        <X
+                          className="mt-0.5 h-3 w-3 shrink-0"
+                          aria-hidden="true"
+                        />
                       )}
-                      {connection.uri}
-                      <span className="ml-1 opacity-70">
-                        ({connectionLabel(connection)}
-                        {connection.ok ? "" : ", unreachable"})
+                      <span className="min-w-0">
+                        {connection.uri}
+                        <span className="ml-1 opacity-70">
+                          ({connectionLabel(connection)}
+                          {connection.ok ? "" : ", unreachable"})
+                        </span>
                       </span>
                     </Button>
                   ))}
@@ -253,16 +276,21 @@ export function StepConnect({ data, update }: StepProps) {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          onClick={() => probe.mutate()}
-          disabled={!plexUrl || probe.isPending}
-        >
-          {probe.isPending ? (
-            <Loader2 className="animate-spin" aria-hidden="true" />
-          ) : null}
-          Run checks
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {probe.isPending ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Checking this server…
+          </p>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() => probe.mutate()}
+            disabled={!plexUrl}
+          >
+            {probe.data || probe.isError ? "Re-run checks" : "Run checks"}
+          </Button>
+        )}
         {requiredChecksPass && probe.data ? (
           <Button
             variant="default"
@@ -278,11 +306,29 @@ export function StepConnect({ data, update }: StepProps) {
       </div>
 
       {probe.isError ? (
-        <p className="text-sm text-destructive" role="alert">
-          {probe.error instanceof ApiError
-            ? probe.error.message
-            : "That server did not answer."}
-        </p>
+        <div className="space-y-3">
+          <p className="text-sm text-destructive" role="alert">
+            {probe.error instanceof ApiError
+              ? probe.error.message
+              : "That server did not answer."}
+          </p>
+          {/* A 409 here means the setup session lapsed — re-signing in re-mints the token so the
+              check (and Link) can run. Any other error is a server-reachability problem the owner
+              fixes via the URL above. */}
+          {probe.error instanceof ApiError && probe.error.status === 409 ? (
+            <PlexPinButton
+              onLinked={() => {
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.session,
+                });
+                void queryClient.invalidateQueries({
+                  queryKey: ["setup", "servers"],
+                });
+                probe.reset();
+              }}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       {probe.data ? (

@@ -298,11 +298,15 @@ class RunService:
                     template=recipe.get("template", ""),
                     shared=shared,
                 )
+            is_default = collection.slug == "picked"
             specs.append(
                 RowSpec(
                     slug=collection.slug,
-                    name_template="" if collection.slug == "picked" else (collection.name_template or collection.name),
-                    size=collection.size,
+                    # The default row's name and size follow the global Settings > Defaults values
+                    # (row.name_template / row.size) — that's what the wizard and Settings edit — so
+                    # they stay in sync; other rows use their own.
+                    name_template="" if is_default else (collection.name_template or collection.name),
+                    size=int(store.get("row.size")) if is_default else collection.size,
                     media=collection.media,
                     shared=shared,
                     audience=audience,

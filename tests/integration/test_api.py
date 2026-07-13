@@ -223,6 +223,21 @@ class TestCollectionsSeed:
                 True,
             )
 
+    def test_default_row_size_and_name_follow_the_global_setting(self, client: TestClient, tmp_path):
+        """The wizard/Settings set row.size and row.name_template; the default 'picked' row must
+        deliver at those values, not a size frozen into the collection at migration time."""
+        from rowarr.server.services.run_service import RunService
+        from rowarr.server.services.sse import EventBus
+        from rowarr.server.settings_store import SettingsStore
+
+        client.put("/api/settings", json={"values": {"row.size": 10}})
+        svc = RunService(client.app.state.sessions, EventBus(), tmp_path, client.app.state.secrets)
+        with client.app.state.sessions() as session:
+            specs = svc._build_rows(session, SettingsStore(session, client.app.state.secrets))
+        picked = next(spec for spec in specs if spec.slug == "picked")
+        assert picked.size == 10  # follows the setting, not the collection's seeded 15
+        assert picked.name_template == ""  # falls through to the global row name
+
 
 class TestCollectionsApi:
     def test_list_starts_with_the_seeded_default(self, client: TestClient):

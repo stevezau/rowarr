@@ -1,8 +1,8 @@
-# Rowarr Rows & Prompt Tuning — Design
+# Shortlist Rows & Prompt Tuning — Design
 
 **Status: proposal, for review. No code until approved.**
 
-Rowarr today builds exactly one kind of row — a private "Picked for You" per user. This design turns
+Shortlist today builds exactly one kind of row — a private "Picked for You" per user. This design turns
 that into one flexible concept — a **Row** — so an owner can define any number of curated rows, choose
 how each is built, who gets it, and how the AI writes it. The earlier "tune the LLM prompt" idea folds
 in as the Row's _recipe_, so nothing is wasted.

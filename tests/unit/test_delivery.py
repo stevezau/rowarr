@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from rowarr.engine.clients.plex_pms import PlexClient
-from rowarr.engine.delivery import DEFAULT_ROW_NAME, deliver_rows, render_row_name, row_marker, sweep_broken_rows
-from rowarr.engine.models import EngineConfig, MediaType, Pick
+from shortlist.engine.clients.plex_pms import PlexClient
+from shortlist.engine.delivery import DEFAULT_ROW_NAME, deliver_rows, render_row_name, row_marker, sweep_broken_rows
+from shortlist.engine.models import EngineConfig, MediaType, Pick
 from tests.conftest import make_profile
 
 

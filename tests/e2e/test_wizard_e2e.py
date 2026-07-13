@@ -16,7 +16,7 @@ import re
 import pytest
 from playwright.sync_api import Page, expect
 
-from rowarr.engine.delivery import row_marker
+from shortlist.engine.delivery import row_marker
 from tests.e2e.conftest import RowarrApp, stub_plex_pin
 from tests.fakes.fake_plex import FakePlexState
 

@@ -51,7 +51,7 @@ function Wizard() {
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-8 space-y-4">
         <p className="text-lg font-semibold tracking-tight text-primary">
-          <span aria-hidden="true">✨</span> Rowarr setup
+          <span aria-hidden="true">✨</span> Shortlist setup
         </p>
         <div
           role="progressbar"

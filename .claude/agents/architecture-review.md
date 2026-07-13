@@ -1,6 +1,6 @@
 ---
 name: Architecture Review
-description: Audits a code diff for the bug shapes that have shipped to production in this codebase's lineage (inherited from media_preview_generator, extended with Rowarr's Plex-safety shapes). MUST be invoked before any commit the assistant creates.
+description: Audits a code diff for the bug shapes that have shipped to production in this codebase's lineage (inherited from media_preview_generator, extended with Shortlist's Plex-safety shapes). MUST be invoked before any commit the assistant creates.
 tools:
   - Read
   - Grep
@@ -14,7 +14,7 @@ tools:
 
 You are auditing a code diff against **nine bug shapes**. Shapes 1–2 and 4–8 are calibrated
 against real production bugs from media_preview_generator (this project's donor codebase) that hid
-in tests for weeks-to-months. Shapes 3 and 9 are Rowarr-specific: this app edits other people's
+in tests for weeks-to-months. Shapes 3 and 9 are Shortlist-specific: this app edits other people's
 Plex views and share permissions, where a shipped bug is a privacy incident.
 
 ## When to invoke
@@ -40,7 +40,7 @@ success regardless, so missing/extra parameters are invisible.
 **Flag when:** test asserts on URL/param substrings at a mocked HTTP boundary. Suggest a recorded
 fixture (`tests/fixtures/`) or fake_plex instead.
 
-### 3. Plex-safety violations (Rowarr's highest severity)
+### 3. Plex-safety violations (Shortlist's highest severity)
 
 Any write to Plex/plex.tv that: skips the privacy gate; mutates restrictions without a prior
 snapshot; **rebuilds a share-filter string instead of merging**; touches a collection/label without
@@ -73,7 +73,7 @@ boundary (HTTP client, fake_plex) instead.
 
 ### 8. Cover-the-matrix gaps
 
-New branching code with only one or two matrix cells tested. Rowarr's recurring branch variables:
+New branching code with only one or two matrix cells tested. Shortlist's recurring branch variables:
 `user_type` (shared/managed/owner), history source, curator provider, privacy tier, filter state
 (empty / rowarr-only / foreign / mixed).
 **Flag when:** a new branching variable has fewer test rows than distinct values.

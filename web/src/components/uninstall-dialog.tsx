@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { UninstallResult } from "@/lib/types";
 
-export const UNINSTALL_CONFIRM_PHRASE = "uninstall rowarr";
+export const UNINSTALL_CONFIRM_PHRASE = "uninstall shortlist";
 
 export interface UninstallDialogProps {
   open: boolean;
@@ -55,11 +55,11 @@ export function UninstallDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Uninstall Rowarr from this server?</DialogTitle>
+          <DialogTitle>Uninstall Shortlist from this server?</DialogTitle>
           <DialogDescription>
-            This deletes every Rowarr collection, strips the rowarr_* labels,
-            and restores each user's share filters from the original pre-Rowarr
-            snapshots. Your Plex server ends up as Rowarr found it. This cannot
+            This deletes every Shortlist collection, strips the rowarr_* labels,
+            and restores each user's share filters from the original pre-Shortlist
+            snapshots. Your Plex server ends up as Shortlist found it. This cannot
             be undone.
           </DialogDescription>
         </DialogHeader>
@@ -118,7 +118,7 @@ export function UninstallDialog({
             onClick={() => handleOpenChange(false)}
             disabled={pending}
           >
-            Keep Rowarr
+            Keep Shortlist
           </Button>
           <Button
             variant="destructive"

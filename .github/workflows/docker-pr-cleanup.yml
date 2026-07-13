@@ -18,12 +18,12 @@ jobs:
             const tag = `pr-${context.payload.pull_request.number}`;
             const versions = await github.paginate(
               github.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
-              { package_type: 'container', package_name: 'rowarr', username: context.repo.owner, per_page: 100 }
+              { package_type: 'container', package_name: 'shortlist', username: context.repo.owner, per_page: 100 }
             );
             for (const v of versions) {
               if (v.metadata?.container?.tags?.includes(tag)) {
                 await github.rest.packages.deletePackageVersionForUser({
-                  package_type: 'container', package_name: 'rowarr',
+                  package_type: 'container', package_name: 'shortlist',
                   username: context.repo.owner, package_version_id: v.id,
                 });
               }

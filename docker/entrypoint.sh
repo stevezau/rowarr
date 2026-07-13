@@ -10,7 +10,7 @@ if [ "$(id -u)" = "0" ]; then
     id rowarr >/dev/null 2>&1 || adduser --uid "$PUID" --gid "$PGID" --disabled-password --gecos "" rowarr 2>/dev/null || true
     mkdir -p /config
     chown -R "$PUID:$PGID" /config
-    exec gosu "$PUID:$PGID" uvicorn rowarr.server.main:app --host 0.0.0.0 --port "${PORT:-5959}"
+    exec gosu "$PUID:$PGID" uvicorn shortlist.server.main:app --host 0.0.0.0 --port "${PORT:-5959}"
 fi
 
-exec uvicorn rowarr.server.main:app --host 0.0.0.0 --port "${PORT:-5959}"
+exec uvicorn shortlist.server.main:app --host 0.0.0.0 --port "${PORT:-5959}"

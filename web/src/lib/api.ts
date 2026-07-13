@@ -109,7 +109,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
     });
   } catch {
-    throw new ApiError(0, "Could not reach the Rowarr server. Is it running?");
+    throw new ApiError(
+      0,
+      "Could not reach the Shortlist server. Is it running?",
+    );
   }
 
   if (!response.ok) {
@@ -125,7 +128,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(
       response.status,
-      "The server returned a response Rowarr could not read.",
+      "The server returned a response Shortlist could not read.",
     );
   }
 }
@@ -138,6 +141,8 @@ export const api = {
   getPin: (id: number): Promise<PinStatus> => request(`/api/auth/pin/${id}`),
 
   getSession: (): Promise<Session> => request("/api/auth/session"),
+
+  logout: (): Promise<void> => request("/api/auth/logout", { method: "POST" }),
 
   // --- Setup wizard ---
   /** Servers this account can see, each advertised address already probed for reachability. */

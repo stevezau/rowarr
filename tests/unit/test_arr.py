@@ -14,8 +14,8 @@ import httpx
 import pytest
 import respx
 
-from rowarr.engine.clients.arr import ArrError, RadarrClient, SonarrClient
-from rowarr.engine.models import ArrTarget
+from shortlist.engine.clients.arr import ArrError, RadarrClient, SonarrClient
+from shortlist.engine.models import ArrTarget
 
 pytestmark = pytest.mark.integration
 

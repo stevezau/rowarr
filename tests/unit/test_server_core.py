@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from rowarr.server.db.models import Setting, User
-from rowarr.server.db.session import make_engine, make_session_factory, run_migrations
-from rowarr.server.services.secrets import SecretBox
-from rowarr.server.services.sse import EventBus
-from rowarr.server.settings_store import SettingsStore
+from shortlist.server.db.models import Setting, User
+from shortlist.server.db.session import make_engine, make_session_factory, run_migrations
+from shortlist.server.services.secrets import SecretBox
+from shortlist.server.services.sse import EventBus
+from shortlist.server.settings_store import SettingsStore
 
 
 @pytest.fixture

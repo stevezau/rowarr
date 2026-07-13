@@ -98,7 +98,7 @@ export function StepFirstRun({ data, complete }: StepProps) {
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
             {dryRunOnly
-              ? "You skipped the Privacy Check, so Rowarr will not write to Plex — it never does until a check passes. This is a dry run: you'll see exactly what it would build for each user. Run the Privacy Check from Settings whenever you're ready, then build the rows for real."
+              ? "You skipped the Privacy Check, so Shortlist will not write to Plex — it never does until a check passes. This is a dry run: you'll see exactly what it would build for each user. Run the Privacy Check from Settings whenever you're ready, then build the rows for real."
               : "This builds a real row for every enabled user — history → candidates → curating → collection → privacy sync — and you get to watch every stage live."}
           </p>
           <Button
@@ -186,7 +186,7 @@ export function StepFirstRun({ data, complete }: StepProps) {
             {failed
               ? "Open Runs to see exactly which user failed and why — the error is recorded per user. Nothing was half-applied: fix the cause and run it again."
               : dryRunOnly
-                ? "That's what Rowarr would build for each user. When you're ready, run the Privacy Check from Settings — once it passes, the next run writes for real."
+                ? "That's what Shortlist would build for each user. When you're ready, run the Privacy Check from Settings — once it passes, the next run writes for real."
                 : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
           </p>
           <Button onClick={() => void complete()}>

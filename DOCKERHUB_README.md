@@ -1,8 +1,8 @@
-# Rowarr
+# Shortlist
 
 **A private, AI-curated "✨ Picked for You" row for every user on your Plex server.**
 
-Rowarr watches what each of your users watches, finds similar titles you already own, has an
+Shortlist watches what each of your users watches, finds similar titles you already own, has an
 LLM (or a plain heuristic — no AI required) curate and explain the picks, and puts them on
 each user's Plex Home screen as their own private row — visible only to them.
 
@@ -11,7 +11,7 @@ each user's Plex Home screen as their own private row — visible only to them.
 - **Can't hallucinate** — the AI only ranks titles verified to exist in your library.
 - **Reversible** — every share-filter change is snapshotted; uninstall provably restores
   your server.
-- **Plays nice with Kometa** — Rowarr never touches collections it didn't create.
+- **Plays nice with Kometa** — Shortlist never touches collections it didn't create.
 
 ## Quick start
 

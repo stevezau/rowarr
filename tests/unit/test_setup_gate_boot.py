@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from rowarr.server.auth import CSRF_HEADER
-from rowarr.server.main import create_app
+from shortlist.server.auth import CSRF_HEADER
+from shortlist.server.main import create_app
 
 pytestmark = pytest.mark.integration
 

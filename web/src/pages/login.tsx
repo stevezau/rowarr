@@ -65,7 +65,7 @@ export function LoginPage() {
       <div className="w-full max-w-md animate-fade-in">
         <div className="mb-8 flex flex-col items-center text-center">
           <Logo size="lg" className="mb-4" />
-          <h1 className="text-3xl font-semibold tracking-tight">Rowarr</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Shortlist</h1>
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">
             A private, AI-curated Picked-for-You row for every user on your Plex
             server.
@@ -92,7 +92,7 @@ export function LoginPage() {
             />
             <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-              No password ever touches Rowarr.
+              No password ever touches Shortlist.
             </p>
           </CardContent>
         </Card>

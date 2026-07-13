@@ -277,7 +277,7 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
           <div className="space-y-1">
             <p className="font-medium">Fill in the gaps automatically</p>
             <p className="text-sm text-muted-foreground">
-              When a great pick isn&rsquo;t in your library yet, Rowarr can ask
+              When a great pick isn&rsquo;t in your library yet, Shortlist can ask
               Radarr or Sonarr to grab it. It stays cautious on purpose: only a
               handful per night, and only titles that are both highly rated and
               widely reviewed.

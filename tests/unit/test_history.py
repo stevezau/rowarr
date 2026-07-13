@@ -6,8 +6,8 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from rowarr.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource, derive_seeds
-from rowarr.engine.models import MediaType
+from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource, derive_seeds
+from shortlist.engine.models import MediaType
 from tests.conftest import make_profile, make_watched
 
 

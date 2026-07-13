@@ -42,7 +42,7 @@
 
 ## CLI config file (`<config-dir>/config.yml`)
 
-See the docstring in `rowarr/cli.py` — same knobs as above in YAML form, plus `users:`
+See the docstring in `shortlist/cli.py` — same knobs as above in YAML form, plus `users:`
 (list or `all`), `user_overrides:` and `canary:`.
 
 ## API
@@ -76,14 +76,14 @@ All endpoints except `/api/system/health` require the owner session; mutations r
 
 ## The write gate
 
-Rowarr refuses real (non-dry-run) writes unless **both** hold:
+Shortlist refuses real (non-dry-run) writes unless **both** hold:
 
 1. A **passing Privacy Check** is on record and is at most **7 days old** (every tier's most
    recent result must pass — a stale T2 failure can't be masked by a newer T1-only pass).
 2. The linked PMS is **≥ 1.43.2.10687**.
 
 The web app records checks in the `privacy_checks` table (Settings → Run Privacy Check, or
-the wizard). The CLI records them in `privacy_check.json` via `rowarr verify`. A refused run
+the wizard). The CLI records them in `privacy_check.json` via `shortlist verify`. A refused run
 is recorded as an errored run with a plain-English reason — it never half-applies.
 
 ## Privacy Check tiers

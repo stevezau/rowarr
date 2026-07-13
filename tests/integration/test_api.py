@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from rowarr.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
-from rowarr.server.db.models import Server, User
-from rowarr.server.main import create_app
+from shortlist.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
+from shortlist.server.db.models import Server, User
+from shortlist.server.main import create_app
 
 pytestmark = pytest.mark.integration
 
@@ -197,7 +197,7 @@ class TestSettingsApi:
         assert settings["plex.token"] == "•••••"
         client.put("/api/settings", json={"values": {"plex.token": "•••••"}})  # UI round-trip
         with client.app.state.sessions() as session:
-            from rowarr.server.settings_store import SettingsStore
+            from shortlist.server.settings_store import SettingsStore
 
             assert SettingsStore(session, client.app.state.secrets).get("plex.token") == "real-token"
 
@@ -235,7 +235,7 @@ class TestResolvePrompt:
     """The global-vs-per-person recipe merge (ContextBuilder._resolve_prompt), cell by cell."""
 
     def _resolve(self, glob: dict, prefs: dict):
-        from rowarr.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.context_builder import ContextBuilder
 
         return ContextBuilder._resolve_prompt(_FakeStore(glob), prefs)
 
@@ -270,7 +270,7 @@ class TestResolvePrompt:
 class TestCollectionsSeed:
     def test_migration_seeds_the_default_picked_row(self, client: TestClient):
         """Upgrade must be behaviour-neutral: exactly one per-person 'picked' row for everyone."""
-        from rowarr.server.db.models import Collection
+        from shortlist.server.db.models import Collection
 
         with client.app.state.sessions() as session:
             rows = session.query(Collection).all()
@@ -286,9 +286,9 @@ class TestCollectionsSeed:
     def test_default_row_size_and_name_follow_the_global_setting(self, client: TestClient, tmp_path):
         """The wizard/Settings set row.size and row.name_template; the default 'picked' row must
         deliver at those values, not a size frozen into the collection at migration time."""
-        from rowarr.server.services.context_builder import ContextBuilder
-        from rowarr.server.services.sse import EventBus
-        from rowarr.server.settings_store import SettingsStore
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
 
         client.put("/api/settings", json={"values": {"row.size": 10}})
         builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())

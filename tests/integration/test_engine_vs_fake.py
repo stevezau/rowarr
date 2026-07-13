@@ -15,17 +15,17 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, Response
 
-from rowarr.cli import FileSnapshotStore
-from rowarr.engine.clients.plex_pms import PlexClient
-from rowarr.engine.clients.plextv import PlexTvClient
-from rowarr.engine.clients.tmdb import TmdbClient
-from rowarr.engine.curator import NullCurator
-from rowarr.engine.history import PlexHistorySource
-from rowarr.engine.models import EngineConfig, MediaType, RowSpec, UserProfile, UserType
-from rowarr.engine.pipeline import EngineContext
-from rowarr.engine.pipeline import run as engine_run
-from rowarr.engine.probe import run_privacy_probe
-from rowarr.engine.verify import check_t1, check_t2, collection_id_from_hub
+from shortlist.cli import FileSnapshotStore
+from shortlist.engine.clients.plex_pms import PlexClient
+from shortlist.engine.clients.plextv import PlexTvClient
+from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.curator import NullCurator
+from shortlist.engine.history import PlexHistorySource
+from shortlist.engine.models import EngineConfig, MediaType, RowSpec, UserProfile, UserType
+from shortlist.engine.pipeline import EngineContext
+from shortlist.engine.pipeline import run as engine_run
+from shortlist.engine.probe import run_privacy_probe
+from shortlist.engine.verify import check_t1, check_t2, collection_id_from_hub
 from tests.fakes.fake_plex import (
     FakeCollection,
     FakeHistoryEntry,
@@ -126,8 +126,8 @@ def fakes(monkeypatch):
         _UvicornThread(tmdb_app).start(),
     ]
     pms, plextv, tmdb = servers
-    monkeypatch.setattr("rowarr.engine.clients.plextv.PLEXTV", plextv.url)
-    monkeypatch.setattr("rowarr.engine.clients.tmdb.API", tmdb.url)
+    monkeypatch.setattr("shortlist.engine.clients.plextv.PLEXTV", plextv.url)
+    monkeypatch.setattr("shortlist.engine.clients.tmdb.API", tmdb.url)
     yield state, pms.url, tmdb_app
     for server in servers:
         server.stop()

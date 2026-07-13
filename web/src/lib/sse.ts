@@ -27,7 +27,7 @@ function parseData<T>(raw: string): T | null {
 }
 
 /**
- * Subscribe to Rowarr's shared event stream (`GET /api/events`).
+ * Subscribe to Shortlist's shared event stream (`GET /api/events`).
  *
  * One EventSource per page: call this once at page level and fan the events
  * out via the handlers — never once per widget (rules/frontend.md).

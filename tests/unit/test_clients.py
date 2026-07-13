@@ -10,12 +10,12 @@ import httpx
 import pytest
 import respx
 
-import rowarr.engine.clients.plextv as plextv_mod
-from rowarr.engine.clients.plex_pms import MIN_PMS_VERSION, PlexClient, parse_pms_version
-from rowarr.engine.clients.plextv import PlexTvClient
-from rowarr.engine.clients.tautulli import TautulliClient
-from rowarr.engine.clients.tmdb import TmdbClient
-from rowarr.engine.models import MediaType, OwnedRow, UserType
+import shortlist.engine.clients.plextv as plextv_mod
+from shortlist.engine.clients.plex_pms import MIN_PMS_VERSION, PlexClient, parse_pms_version
+from shortlist.engine.clients.plextv import PlexTvClient
+from shortlist.engine.clients.tautulli import TautulliClient
+from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.models import MediaType, OwnedRow, UserType
 from tests.conftest import fake_media_item
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -186,7 +186,7 @@ class TestOmdbClient:
         respx.get("https://www.omdbapi.com/").mock(
             return_value=httpx.Response(200, json={"Response": "True", "imdbRating": "8.3", "imdbVotes": "2,754,113"})
         )
-        from rowarr.engine.clients.omdb import OmdbClient
+        from shortlist.engine.clients.omdb import OmdbClient
 
         assert OmdbClient("k").rating("tt0111161") == (8.3, 2754113)
 
@@ -195,7 +195,7 @@ class TestOmdbClient:
         respx.get("https://www.omdbapi.com/").mock(
             return_value=httpx.Response(200, json={"Response": "True", "imdbRating": "N/A", "imdbVotes": "N/A"})
         )
-        from rowarr.engine.clients.omdb import OmdbClient
+        from shortlist.engine.clients.omdb import OmdbClient
 
         assert OmdbClient("k").rating("tt0111161") is None
 
@@ -204,7 +204,7 @@ class TestOmdbClient:
         respx.get("https://www.omdbapi.com/").mock(
             return_value=httpx.Response(200, json={"Response": "False", "Error": "Incorrect IMDb ID."})
         )
-        from rowarr.engine.clients.omdb import OmdbClient
+        from shortlist.engine.clients.omdb import OmdbClient
 
         assert OmdbClient("k").rating("ttbad") is None
 

@@ -19,7 +19,7 @@ const PROMISES = [
   {
     icon: RotateCcw,
     title: "Reversible",
-    body: "Every share setting Rowarr touches is snapshotted first. Uninstall puts your server back exactly as Rowarr found it.",
+    body: "Every share setting Shortlist touches is snapshotted first. Uninstall puts your server back exactly as Shortlist found it.",
   },
 ];
 

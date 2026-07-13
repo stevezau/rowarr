@@ -8,17 +8,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import rowarr.server.services.context_builder as context_builder_mod
-import rowarr.server.services.run_service as run_service_mod
-from rowarr.engine.history import FallbackHistorySource, PlexHistorySource
-from rowarr.engine.models import MediaType, RunReport
-from rowarr.server.db.models import PickRow, PrivacyCheck, Server, User
-from rowarr.server.db.session import make_engine, make_session_factory, run_migrations
-from rowarr.server.services.context_builder import ContextBuilder
-from rowarr.server.services.run_service import RunService
-from rowarr.server.services.secrets import SecretBox
-from rowarr.server.services.sse import EventBus
-from rowarr.server.settings_store import SettingsStore
+import shortlist.server.services.context_builder as context_builder_mod
+import shortlist.server.services.run_service as run_service_mod
+from shortlist.engine.history import FallbackHistorySource, PlexHistorySource
+from shortlist.engine.models import MediaType, RunReport
+from shortlist.server.db.models import PickRow, PrivacyCheck, Server, User
+from shortlist.server.db.session import make_engine, make_session_factory, run_migrations
+from shortlist.server.services.context_builder import ContextBuilder
+from shortlist.server.services.run_service import RunService
+from shortlist.server.services.secrets import SecretBox
+from shortlist.server.services.sse import EventBus
+from shortlist.server.settings_store import SettingsStore
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ class TestBuildContext:
         assert ctx.curator._base_url == "http://ollama.local:11434"
 
     def test_recent_picks_window_respects_staleness_config(self, service, sessions, configured):
-        from rowarr.server.db.models import Run
+        from shortlist.server.db.models import Run
 
         with sessions() as session:
             store = SettingsStore(session, configured)
@@ -196,7 +196,7 @@ class TestServerPrivacyGate:
             run_id = await service.start_run(trigger="schedule", dry_run=False)
             for _ in range(100):
                 with sessions() as session:
-                    from rowarr.server.db.models import Run
+                    from shortlist.server.db.models import Run
 
                     run = session.get(Run, run_id)
                     if run.status == "error":
@@ -225,7 +225,7 @@ class TestServerPrivacyGate:
             run_id = await service.start_run(trigger="schedule", dry_run=False)
             for _ in range(100):
                 with sessions() as session:
-                    from rowarr.server.db.models import Run
+                    from shortlist.server.db.models import Run
 
                     run = session.get(Run, run_id)
                     if run.status == "error":

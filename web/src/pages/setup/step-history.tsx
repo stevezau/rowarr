@@ -23,7 +23,7 @@ export function StepHistory({ data, update, next }: StepProps) {
   const urlId = useId();
   const keyId = useId();
 
-  // TMDB is not optional: it is how Rowarr finds titles similar to what someone watched, which
+  // TMDB is not optional: it is how Shortlist finds titles similar to what someone watched, which
   // it then narrows down to what you actually own. Without it every run fails at the first user.
   const saveTmdb = useMutation({
     mutationFn: async () => {
@@ -60,7 +60,7 @@ export function StepHistory({ data, update, next }: StepProps) {
           autoComplete="off"
         />
         <p className="text-sm text-muted-foreground">
-          Rowarr asks TMDB which titles are similar to the ones each user
+          Shortlist asks TMDB which titles are similar to the ones each user
           watched, then keeps only the ones already in your library. A key is
           free from themoviedb.org → Settings → API.
         </p>

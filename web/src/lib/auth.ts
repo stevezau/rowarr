@@ -33,7 +33,7 @@ export function plexAuthUrl(clientId: string, code: string): string {
     "https://app.plex.tv/auth#?" +
     `clientID=${encodeURIComponent(clientId)}` +
     `&code=${encodeURIComponent(code)}` +
-    "&context%5Bdevice%5D%5Bproduct%5D=Rowarr"
+    "&context%5Bdevice%5D%5Bproduct%5D=Shortlist"
   );
 }
 

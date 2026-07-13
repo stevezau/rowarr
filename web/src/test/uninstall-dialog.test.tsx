@@ -58,7 +58,7 @@ describe("UninstallDialog", () => {
     const u = user();
     renderDialog();
 
-    await u.type(screen.getByLabelText(/type/i), "  Uninstall Rowarr ");
+    await u.type(screen.getByLabelText(/type/i), "  Uninstall Shortlist ");
 
     expect(
       screen.getByRole("button", { name: /uninstall and restore server/i }),
@@ -74,7 +74,7 @@ describe("UninstallDialog", () => {
     expect(
       screen.getByRole("button", { name: /uninstall and restore server/i }),
     ).toBeDisabled();
-    expect(screen.getByRole("button", { name: /keep rowarr/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /keep shortlist/i })).toBeDisabled();
   });
 
   it("requests a dry-run preview and renders what would change", async () => {

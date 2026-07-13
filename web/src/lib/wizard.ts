@@ -39,15 +39,15 @@ export const WIZARD_STEPS: readonly WizardStepMeta[] = [
   },
   {
     title: "Connect Plex",
-    why: "Rowarr reads watch history and writes rows on your server. No password ever touches Rowarr.",
+    why: "Shortlist reads watch history and writes rows on your server. No password ever touches Shortlist.",
   },
   {
     title: "History source",
-    why: "Tautulli gives Rowarr deeper, more reliable watch history. Optional — Plex's own history works too.",
+    why: "Tautulli gives Shortlist deeper, more reliable watch history. Optional — Plex's own history works too.",
   },
   {
     title: "Choose your curator",
-    why: "An LLM re-ranks titles you already own — it can't invent anything. Rowarr is fully functional without one.",
+    why: "An LLM re-ranks titles you already own — it can't invent anything. Shortlist is fully functional without one.",
   },
   {
     title: "Pick your users",
@@ -55,7 +55,7 @@ export const WIZARD_STEPS: readonly WizardStepMeta[] = [
   },
   {
     title: "Privacy Check",
-    why: "Proves rows stay private on your server before Rowarr writes anything real.",
+    why: "Proves rows stay private on your server before Shortlist writes anything real.",
   },
   {
     title: "Make it yours",
@@ -77,7 +77,7 @@ export function canLeaveStep(step: number, data: WizardData): boolean {
   switch (step) {
     case 1:
       return data.linked === true;
-    // TMDB is how Rowarr finds similar titles; without a key every run dies at the first user.
+    // TMDB is how Shortlist finds similar titles; without a key every run dies at the first user.
     case 2:
       return data.tmdb_set === true;
     case 3:

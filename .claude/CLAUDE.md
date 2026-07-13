@@ -1,4 +1,4 @@
-# Rowarr
+# Shortlist
 
 A private, AI-curated "Picked for You" row for every user on a Plex server. One Docker container:
 FastAPI backend + React SPA + SQLite, with a pure-Python engine (Tautulli/Plex history → TMDB
@@ -83,7 +83,7 @@ See rowarr-architecture.md §2–§4 for the full tree, DB schema, and API surfa
 
 `.claude/rules/plex-safety.md` governs every code path that writes to Plex or plex.tv. Highlights:
 snapshot before restriction writes; share filters are read-modify-write MERGES, never rebuilt;
-never touch collections/labels Rowarr didn't create (Kometa coexistence); owner never restricted;
+never touch collections/labels Shortlist didn't create (Kometa coexistence); owner never restricted;
 tokens encrypted at rest, never logged; everything supports `--dry-run`.
 
 ## Key dependencies

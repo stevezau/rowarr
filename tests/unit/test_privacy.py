@@ -6,9 +6,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from rowarr.engine import privacy
-from rowarr.engine.models import UserType
-from rowarr.engine.privacy import (
+from shortlist.engine import privacy
+from shortlist.engine.models import UserType
+from shortlist.engine.privacy import (
     FilterCondition,
     FilterParseError,
     merge_label_excludes,
@@ -294,7 +294,7 @@ class TestRestore:
     def test_restore_puts_only_diverged_fields_byte_identical(self, mock_plextv):
         from datetime import UTC, datetime
 
-        from rowarr.engine.models import FilterSnapshot
+        from shortlist.engine.models import FilterSnapshot
 
         snapshot = FilterSnapshot(
             plex_account_id=100,
@@ -332,7 +332,7 @@ class TestRestore:
         restore must FAIL loudly rather than report a clean uninstall over stale filters."""
         from datetime import UTC, datetime
 
-        from rowarr.engine.models import FilterSnapshot
+        from shortlist.engine.models import FilterSnapshot
 
         snapshot = FilterSnapshot(
             plex_account_id=100,

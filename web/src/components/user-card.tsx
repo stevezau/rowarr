@@ -55,7 +55,7 @@ export function UserCard({
           {user.hit_rate !== null && (
             <Badge
               variant="secondary"
-              title="Share of Rowarr's picks this person has watched"
+              title="Share of Shortlist's picks this person has watched"
             >
               {formatHitRate(user.hit_rate)} watched
             </Badge>
@@ -108,7 +108,7 @@ export function UserCard({
               id={switchId}
               checked={user.enabled}
               onCheckedChange={(checked) => onToggleEnabled(user, checked)}
-              aria-label={`Rowarr row for ${user.username}`}
+              aria-label={`Shortlist row for ${user.username}`}
             />
           </div>
         </div>

@@ -6,7 +6,7 @@ export function githubIssueSnippet(
   result: RunUserResult,
 ): string {
   return [
-    "### Rowarr run error",
+    "### Shortlist run error",
     "",
     `- Run: #${run.id} (${run.trigger}${run.dry_run ? ", dry-run" : ""})`,
     `- Started: ${run.started_at}`,

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rowarr"
+name = "shortlist"
 description = "A private, AI-curated 'Picked for You' row for every user on your Plex server"
 readme = "README.md"
 license = "MIT"
@@ -49,17 +49,17 @@ dev = [
 ]
 
 [project.scripts]
-rowarr = "rowarr.cli:main"
+shortlist = "shortlist.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/stevezau/rowarr"
-Issues = "https://github.com/stevezau/rowarr/issues"
+Homepage = "https://github.com/stevezau/shortlist"
+Issues = "https://github.com/stevezau/shortlist/issues"
 
 [tool.hatch.version]
-path = "rowarr/__init__.py"
+path = "shortlist/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["rowarr"]
+packages = ["shortlist"]
 
 [tool.ruff]
 line-length = 120
@@ -69,12 +69,12 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["rowarr"]
+known-first-party = ["shortlist"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # e2e needs a built SPA + a browser; it runs in its own CI job via `pytest -m e2e`.
-addopts = "-n auto -m 'not e2e' --cov=rowarr --cov-report=term-missing"
+addopts = "-n auto -m 'not e2e' --cov=shortlist --cov-report=term-missing"
 markers = [
     "integration: crosses module boundaries",
     "plex: requires a real Plex server (skipped in CI)",

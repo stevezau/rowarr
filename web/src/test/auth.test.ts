@@ -37,7 +37,7 @@ describe("plexAuthUrl", () => {
     const url = plexAuthUrl("client 1", "AB/CD");
     expect(url).toContain("clientID=client%201");
     expect(url).toContain("code=AB%2FCD");
-    expect(url).toContain("product%5D=Rowarr");
+    expect(url).toContain("product%5D=Shortlist");
   });
 });
 

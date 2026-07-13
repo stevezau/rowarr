@@ -49,7 +49,7 @@ function connectionLabel(connection: PlexServer["connections"][number]) {
  * connect the account. Your token never reaches the browser — the backend holds it — and once
  * you're connected this opens straight onto the servers your account can see, with every address
  * Plex advertises for them already tried. Only your network knows which one works from where
- * Rowarr runs, so we test rather than guess. The URL stays editable regardless.
+ * Shortlist runs, so we test rather than guess. The URL stays editable regardless.
  */
 export function StepConnect({ data, update }: StepProps) {
   const [plexUrl, setPlexUrl] = useState(data.plex_url ?? "");
@@ -121,14 +121,14 @@ export function StepConnect({ data, update }: StepProps) {
     probe.data.checks.plex_pass.ok &&
     probe.data.checks.libraries.ok;
 
-  // Nothing here is possible until Rowarr can ask Plex what servers you have — so connecting the
-  // account IS the first thing this step does. No password ever reaches Rowarr, and the token it
+  // Nothing here is possible until Shortlist can ask Plex what servers you have — so connecting the
+  // account IS the first thing this step does. No password ever reaches Shortlist, and the token it
   // gets back stays on the server.
   if (!connected) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Connect the Plex account that owns your server. Rowarr asks Plex which
+          Connect the Plex account that owns your server. Shortlist asks Plex which
           servers you have — it never sees your password, and your Plex token
           stays on the server, never in this browser.
         </p>
@@ -298,7 +298,7 @@ export function StepConnect({ data, update }: StepProps) {
             </p>
             {!requiredChecksPass ? (
               <p className="text-sm text-destructive">
-                Rowarr can&rsquo;t keep rows private on this server yet — fix
+                Shortlist can&rsquo;t keep rows private on this server yet — fix
                 the failing check above, then run the checks again.
               </p>
             ) : null}

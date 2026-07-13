@@ -4,7 +4,7 @@ globs: "rowarr/engine/{privacy,delivery,verify}*.py,rowarr/engine/clients/plex*.
 
 # Plex Safety Rules (non-negotiable)
 
-Rowarr modifies other people's Plex views and share permissions. These rules govern every code
+Shortlist modifies other people's Plex views and share permissions. These rules govern every code
 path that WRITES to a Plex server or plex.tv. The Architecture Review agent blocks commits that
 violate them.
 
@@ -21,11 +21,11 @@ violate them.
 3. **Merge, never rebuild.** Share-filter writes are read-modify-write: parse the user's current
    `filterMovies`/`filterTelevision`, union our `rowarr_*` excludes into the existing `label!=`
    values, leave every other condition byte-identical. Never construct a filter string from scratch.
-4. **Touch only what we own.** Only collections titled/labeled by Rowarr (`rowarr_*` label) may be
+4. **Touch only what we own.** Only collections titled/labeled by Shortlist (`rowarr_*` label) may be
    modified or deleted. Detect and skip anything else — Kometa and other tools manage collections
    on the same servers; coexistence is mandatory.
 5. **Owner + managed users.** The server owner is never restricted (Plex limitation — skip, don't
-   error). Managed users' restriction _profiles_ (parental controls) are never modified by Rowarr.
+   error). Managed users' restriction _profiles_ (parental controls) are never modified by Shortlist.
 6. **Throttle plex.tv.** ≤1 write/s with exponential backoff on 429; runs must be resume-safe
    (per-user transactionality — a crash mid-run never leaves a half-applied user).
 7. **Probes clean up in `finally`.** Privacy Check artifacts (probe collection, canary filter

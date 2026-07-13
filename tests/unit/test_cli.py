@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-import rowarr.cli as cli_mod
-from rowarr.cli import FileCache, FileSnapshotStore, select_users
-from rowarr.engine.models import (
+import shortlist.cli as cli_mod
+from shortlist.cli import FileCache, FileSnapshotStore, select_users
+from shortlist.engine.models import (
     CollectionDiff,
     EngineConfig,
     FilterSnapshot,
@@ -192,7 +192,7 @@ class TestRunCommand:
 
 class TestVerifyCommand:
     def test_t1_pass_records_gate_and_exits_zero(self, tmp_path: Path, monkeypatch):
-        from rowarr.engine.models import PrivacyCheckResult
+        from shortlist.engine.models import PrivacyCheckResult
 
         ctx = fake_ctx(tmp_path)
         ctx.plex.owned_collections.return_value = {"sarah": OwnedRow("Rowarr_sarah", [1])}
@@ -209,7 +209,7 @@ class TestVerifyCommand:
         assert gate["pms_version"] == [1, 43, 3, 10793]
 
     def test_t1_failure_recorded_and_blocks(self, tmp_path: Path, monkeypatch):
-        from rowarr.engine.models import PrivacyCheckResult
+        from shortlist.engine.models import PrivacyCheckResult
 
         ctx = fake_ctx(tmp_path)
         ctx.plex.owned_collections.return_value = {}

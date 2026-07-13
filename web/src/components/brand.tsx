@@ -8,7 +8,7 @@ const SIZES = {
   lg: { tile: "h-12 w-12 rounded-xl", icon: "h-6 w-6", text: "text-2xl" },
 } as const;
 
-/** The Rowarr mark: a gold gradient tile with a sparkle. A real logo, not a bare emoji. */
+/** The Shortlist mark: a gold gradient tile with a sparkle. A real logo, not a bare emoji. */
 export function Logo({
   size = "md",
   className,
@@ -43,7 +43,7 @@ export function Wordmark({
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       <Logo size={size} />
-      <span className={cn("font-semibold tracking-tight", s.text)}>Rowarr</span>
+      <span className={cn("font-semibold tracking-tight", s.text)}>Shortlist</span>
     </span>
   );
 }

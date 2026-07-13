@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from rowarr.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
-from rowarr.server.db.models import Event, RestrictionSnapshotRow, Server, User
-from rowarr.server.main import create_app
+from shortlist.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
+from shortlist.server.db.models import Event, RestrictionSnapshotRow, Server, User
+from shortlist.server.main import create_app
 
 OWNER_ID = 555000001
 

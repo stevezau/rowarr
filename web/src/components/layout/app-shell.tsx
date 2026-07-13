@@ -1,13 +1,18 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Gauge,
   ListChecks,
+  LogOut,
   Rows3,
   Settings as SettingsIcon,
   Users as UsersIcon,
 } from "lucide-react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { Wordmark } from "@/components/brand";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
+import { useSession } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -17,6 +22,44 @@ const NAV_ITEMS = [
   { to: "/runs", label: "Runs", icon: ListChecks, end: false },
   { to: "/settings", label: "Settings", icon: SettingsIcon, end: false },
 ];
+
+/** Signed-in owner + a sign-out button, pinned to the bottom of the sidebar. */
+function SessionFooter() {
+  const session = useSession();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const logout = useMutation({
+    mutationFn: api.logout,
+    onSuccess: () => {
+      queryClient.clear(); // drop every cached query so no stale owner data lingers
+      navigate("/login");
+    },
+  });
+
+  return (
+    <div className="mt-auto space-y-2 px-3 py-4 md:border-t">
+      {session.data?.username && (
+        <p className="truncate px-1 text-xs text-muted-foreground">
+          Signed in as{" "}
+          <span className="font-medium text-foreground">
+            {session.data.username}
+          </span>
+        </p>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start text-muted-foreground hover:text-foreground"
+        onClick={() => logout.mutate()}
+        loading={logout.isPending}
+      >
+        {!logout.isPending && <LogOut aria-hidden="true" />}
+        Sign out
+      </Button>
+      <p className="px-1 text-xs text-muted-foreground">Shortlist · beta</p>
+    </div>
+  );
+}
 
 export function AppShell() {
   return (
@@ -60,9 +103,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="hidden px-5 py-4 text-xs text-muted-foreground md:block">
-          Rowarr · beta
-        </div>
+        <SessionFooter />
       </aside>
       <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
         <div className="mx-auto max-w-5xl animate-fade-in">

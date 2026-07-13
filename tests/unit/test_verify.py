@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from rowarr.engine.models import OwnedRow
-from rowarr.engine.verify import check_t1, check_t2, collection_id_from_hub
+from shortlist.engine.models import OwnedRow
+from shortlist.engine.verify import check_t1, check_t2, collection_id_from_hub
 from tests.conftest import make_profile, plextv_user
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"

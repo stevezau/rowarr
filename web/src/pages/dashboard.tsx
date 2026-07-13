@@ -240,7 +240,7 @@ export function DashboardPage() {
         empty={
           <EmptyState
             title="No users yet"
-            hint="Rowarr hasn't imported any Plex users. Finish the setup wizard, or check the Plex connection under Settings."
+            hint="Shortlist hasn't imported any Plex users. Finish the setup wizard, or check the Plex connection under Settings."
           />
         }
       >

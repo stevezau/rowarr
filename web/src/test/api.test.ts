@@ -164,7 +164,7 @@ describe("api", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(0);
     expect((error as ApiError).message).toBe(
-      "Could not reach the Rowarr server. Is it running?",
+      "Could not reach the Shortlist server. Is it running?",
     );
   });
 

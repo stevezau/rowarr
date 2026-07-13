@@ -1,4 +1,4 @@
-from rowarr.engine.models import UserProfile, UserType, slugify
+from shortlist.engine.models import UserProfile, UserType, slugify
 
 
 class TestSlugify:

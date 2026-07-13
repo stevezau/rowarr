@@ -1,4 +1,4 @@
-// Brand-inspired, hand-authored SVG marks for the services Rowarr talks to. Deliberately NOT the
+// Brand-inspired, hand-authored SVG marks for the services Shortlist talks to. Deliberately NOT the
 // pixel-official logos (drop those into web/src/assets and swap these out for a launch): they're
 // clean, recognizable stand-ins so a non-technical owner spots "Plex" or "Claude" at a glance.
 // Colours are each brand's own — logos can't be theme-tinted — so they live here, not in Tailwind.

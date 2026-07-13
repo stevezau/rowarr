@@ -60,7 +60,7 @@ covering that parameter.
 ## Cover the matrix, not one cell
 
 When a function branches on the type/state of an input, write tests for **every cell** that
-produces different downstream behavior — not just the happy path. Rowarr's recurring branch
+produces different downstream behavior — not just the happy path. Shortlist's recurring branch
 variables, each of which needs its full matrix:
 
 - `user_type`: shared / managed / owner

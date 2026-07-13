@@ -1,5 +1,5 @@
-from rowarr.engine.candidates import filter_candidates, gather_candidates
-from rowarr.engine.models import MediaType, Seed
+from shortlist.engine.candidates import filter_candidates, gather_candidates
+from shortlist.engine.models import MediaType, Seed
 from tests.conftest import make_candidate
 
 

@@ -29,10 +29,10 @@ pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
 
 from playwright.sync_api import Browser, Page, sync_playwright
 
-from rowarr.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
-from rowarr.server.db.models import Server, User
-from rowarr.server.main import create_app
-from rowarr.server.settings_store import SettingsStore
+from shortlist.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
+from shortlist.server.db.models import Server, User
+from shortlist.server.main import create_app
+from shortlist.server.settings_store import SettingsStore
 from tests.fakes.fake_plex import FakeHistoryEntry, FakePlexState, make_fake_plex, make_fake_plextv, seed_state
 
 OWNER_ACCOUNT_ID = 555000001
@@ -247,9 +247,9 @@ def _boot_app(config_dir: Path) -> tuple[FastAPI, _ThreadedServer]:
 def app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> Iterator[RowarrApp]:
     """The real Rowarr app pointed at the fakes, with setup already completed."""
     pms_url, plextv_url, state = fake_plex
-    monkeypatch.setattr("rowarr.engine.clients.plextv.PLEXTV", plextv_url)  # engine uses absolute plex.tv URLs
-    monkeypatch.setattr("rowarr.server.auth.PLEXTV", plextv_url)  # the PIN flow has its own constant
-    monkeypatch.setattr("rowarr.engine.clients.tmdb.API", fake_tmdb)
+    monkeypatch.setattr("shortlist.engine.clients.plextv.PLEXTV", plextv_url)  # engine uses absolute plex.tv URLs
+    monkeypatch.setattr("shortlist.server.auth.PLEXTV", plextv_url)  # the PIN flow has its own constant
+    monkeypatch.setattr("shortlist.engine.clients.tmdb.API", fake_tmdb)
 
     fastapi_app, server = _boot_app(tmp_path)
 
@@ -300,12 +300,12 @@ def fresh_app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch
     only thing the owner can reach.
     """
     _, plextv_url, _ = fake_plex
-    monkeypatch.setattr("rowarr.engine.clients.plextv.PLEXTV", plextv_url)
+    monkeypatch.setattr("shortlist.engine.clients.plextv.PLEXTV", plextv_url)
     # The auth module has its OWN plex.tv constant (the PIN flow) — without this the real sign-in
     # would reach for the internet, and the e2e would have to forge the session cookie instead of
     # letting the product mint it.
-    monkeypatch.setattr("rowarr.server.auth.PLEXTV", plextv_url)
-    monkeypatch.setattr("rowarr.engine.clients.tmdb.API", fake_tmdb)
+    monkeypatch.setattr("shortlist.server.auth.PLEXTV", plextv_url)
+    monkeypatch.setattr("shortlist.engine.clients.tmdb.API", fake_tmdb)
 
     fastapi_app, server = _boot_app(tmp_path)
     yield RowarrApp(

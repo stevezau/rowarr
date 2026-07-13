@@ -14,7 +14,7 @@ export function WatchHistory({ userId }: { userId: number }) {
       empty={
         <EmptyState
           title="No watch history"
-          hint="Rowarr sees nothing this person has watched yet — recommendations start once they do."
+          hint="Shortlist sees nothing this person has watched yet — recommendations start once they do."
         />
       }
     >

@@ -1,7 +1,7 @@
 services:
-  rowarr:
-    image: ghcr.io/stevezau/rowarr:latest
-    container_name: rowarr
+  shortlist:
+    image: ghcr.io/stevezau/shortlist:latest
+    container_name: shortlist
     ports:
       - "5959:5959"
     volumes:

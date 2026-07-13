@@ -1,4 +1,4 @@
-# Rowarr — Architecture & Execution Plan
+# Shortlist — Architecture & Execution Plan
 
 **Status:** ready to execute (gated on Phase 0 privacy test) · **Date:** 2026-07-12 ·
 **Companions:** [`rowarr-design.md`](rowarr-design.md) (product/UX design) · media_preview_generator
@@ -11,13 +11,13 @@
 Reviewed MPG in full (July 2026): README/docs structure, `.claude/`, `.github/`, packaging, tests.
 MPG is a mature shipping app (1,321 tests, ~79% coverage, codecov, multi-arch Docker, Unraid
 templates, PR preview images). **Port the chassis wholesale; write the app fresh.** The chassis is
-framework-agnostic; the app layer (Flask+SocketIO+Jinja in MPG) is NOT what Rowarr needs (see §3).
+framework-agnostic; the app layer (Flask+SocketIO+Jinja in MPG) is NOT what Shortlist needs (see §3).
 
 ### Reuse manifest (port from MPG → rowarr)
 
 | Asset                                                                                                                                                                                | Action                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.claude/rules/{python,testing,commenting,docker,docs,shell}.md`                                                                                                                     | Port near-verbatim; add `frontend.md` (React/TS) + `plex-safety.md` (Rowarr-specific, §8)                                                   |
+| `.claude/rules/{python,testing,commenting,docker,docs,shell}.md`                                                                                                                     | Port near-verbatim; add `frontend.md` (React/TS) + `plex-safety.md` (Shortlist-specific, §8)                                                   |
 | `.claude/CLAUDE.md`                                                                                                                                                                  | Rewrite content, keep the proven section structure (Commands / Architecture / Code Style / Conventions / Security / Test Fixtures)          |
 | `.claude/agents/architecture-review.md`                                                                                                                                              | Port — pre-commit arch-review agent, blocking on HIGH findings (this caught 8 production-bug shapes in MPG; keep the discipline from day 1) |
 | `.claude/skills/release`                                                                                                                                                             | Port release skill                                                                                                                          |
@@ -32,14 +32,14 @@ framework-agnostic; the app layer (Flask+SocketIO+Jinja in MPG) is NOT what Rowa
 | `DOCKERHUB_README.md`, `docker-compose.example.yml`, `unraid-templates/`                                                                                                             | Port patterns (Unraid = big homelab reach)                                                                                                  |
 | `llms.txt`                                                                                                                                                                           | Port (AI-readable repo summary)                                                                                                             |
 | `CONTRIBUTING.md`                                                                                                                                                                    | Port + adapt                                                                                                                                |
-| Code patterns: `logging_config.py` (loguru+Rich), `version_check.py` (GitHub release check → UI banner), env-seed→persisted-config migration, PUID/PGID init, never-log-tokens rules | Reimplement in Rowarr shape                                                                                                                 |
+| Code patterns: `logging_config.py` (loguru+Rich), `version_check.py` (GitHub release check → UI banner), env-seed→persisted-config migration, PUID/PGID init, never-log-tokens rules | Reimplement in Shortlist shape                                                                                                                 |
 
 ### Deliberate deltas from MPG
 
-| MPG                                  | Rowarr                            | Why                                                                                                                   |
+| MPG                                  | Shortlist                            | Why                                                                                                                   |
 | ------------------------------------ | --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Flask 3 + Jinja2 + Flask-SocketIO    | **FastAPI + React SPA + SSE**     | Wizard-heavy, live-progress UX is SPA-shaped; typed OpenAPI for free; SSE is simpler than SocketIO and FastAPI-native |
-| `settings.json` sole source of truth | **SQLite (SQLAlchemy + Alembic)** | Rowarr's state is relational (users×runs×picks×snapshots); settings live in a `settings` table                        |
+| `settings.json` sole source of truth | **SQLite (SQLAlchemy + Alembic)** | Shortlist's state is relational (users×runs×picks×snapshots); settings live in a `settings` table                        |
 | Auth token from container logs       | **Login with Plex (PIN)**         | Better UX; owner-only authorization comes free (account id must match server owner)                                   |
 | Gunicorn gthread                     | **uvicorn**                       | FastAPI-native, async                                                                                                 |
 
@@ -91,7 +91,7 @@ rowarr/
 ├── tests/
 │   ├── conftest.py               # mock_plex, mock_tautulli, mock_tmdb, mock_curator fixtures (MPG discipline: ALL external I/O mocked)
 │   ├── unit/ · integration/
-│   ├── fakes/fake_plex.py        # FastAPI stub emulating PMS+plex.tv endpoints Rowarr touches → enables full-wizard e2e with NO real server
+│   ├── fakes/fake_plex.py        # FastAPI stub emulating PMS+plex.tv endpoints Shortlist touches → enables full-wizard e2e with NO real server
 │   └── e2e/                      # Playwright vs built image + fake_plex
 ├── docs/                         # hub: README, getting-started, guides, reference, faq (MPG structure)
 ├── unraid-templates/
@@ -199,13 +199,13 @@ GitHub Release → images.
 
 ---
 
-## 8. `.claude/rules/plex-safety.md` (new, Rowarr-specific — the rule that matters)
+## 8. `.claude/rules/plex-safety.md` (new, Shortlist-specific — the rule that matters)
 
 1. Any code path that WRITES to Plex or plex.tv (collections, labels, visibility, share filters)
    must: (a) be behind the privacy-gate check, (b) snapshot before first mutation per user,
    (c) support `--dry-run`, (d) log a structured diff to `events`.
 2. Share-filter writes are READ-MODIFY-WRITE merges. Never construct a filter string from scratch.
-   Never touch conditions Rowarr didn't add.
+   Never touch conditions Shortlist didn't add.
 3. plex.tv writes: ≤1 req/s, exponential backoff on 429, resume-safe.
 4. The owner account is never restricted; managed-user restriction profiles are never modified.
 5. Tokens: encrypted at rest, never logged, never in exceptions.
@@ -230,5 +230,5 @@ GitHub Release → images.
 
 Stack (FastAPI/React/SQLite/SSE) · MPG chassis port list (§1) · engine/server import contract (§2) ·
 DB schema v1 (§3) · API surface v1 (§4) · fake_plex e2e investment (§6) · plex-safety rules (§8).
-Remaining open (Phase-1 picks): cadence default, acquisition default. Naming: **Rowarr** (verified
+Remaining open (Phase-1 picks): cadence default, acquisition default. Naming: **Shortlist** (verified
 free 2026-07-12).

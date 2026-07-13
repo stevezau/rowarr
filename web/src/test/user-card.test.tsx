@@ -49,7 +49,7 @@ describe("UserCard", () => {
     expect(screen.getByText("40% watched")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run now/i })).toBeEnabled();
     expect(
-      screen.getByRole("switch", { name: /rowarr row for sarah/i }),
+      screen.getByRole("switch", { name: /shortlist row for sarah/i }),
     ).toBeChecked();
   });
 
@@ -85,7 +85,7 @@ describe("UserCard", () => {
     expect(screen.getByText(/turned off/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run now/i })).toBeDisabled();
     expect(
-      screen.getByRole("switch", { name: /rowarr row for sarah/i }),
+      screen.getByRole("switch", { name: /shortlist row for sarah/i }),
     ).not.toBeChecked();
   });
 
@@ -103,7 +103,7 @@ describe("UserCard", () => {
     const { onToggleEnabled, user: cardUser } = renderCard();
 
     await user.click(
-      screen.getByRole("switch", { name: /rowarr row for sarah/i }),
+      screen.getByRole("switch", { name: /shortlist row for sarah/i }),
     );
 
     expect(onToggleEnabled).toHaveBeenCalledExactlyOnceWith(cardUser, false);

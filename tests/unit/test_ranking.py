@@ -1,5 +1,5 @@
-from rowarr.engine.models import MediaType, Seed
-from rowarr.engine.ranking import pre_rank, score
+from shortlist.engine.models import MediaType, Seed
+from shortlist.engine.ranking import pre_rank, score
 from tests.conftest import make_candidate
 
 

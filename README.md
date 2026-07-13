@@ -1,4 +1,4 @@
-# Rowarr ✨
+# Shortlist ✨
 
 > A private, AI-curated **"Picked for You"** row for every user on your Plex server.
 
@@ -7,14 +7,14 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![AI-Assisted](https://img.shields.io/badge/AI-assisted%20development-8A2BE2)
 
-Rowarr watches what each of your users watches, asks an LLM to curate what they should watch
+Shortlist watches what each of your users watches, asks an LLM to curate what they should watch
 next **from what you already own**, and puts it on their Home screen — privately,
 automatically, every night. Netflix's killer feature, on Plex, without Plex's involvement.
 
 ## Why this couldn't exist before 2026
 
 Per-user private collections were impossible until Plex fixed label restrictions on
-Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Rowarr is built on that fix — and
+Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on that fix — and
 **proves it works on your server** with a built-in Privacy Check before writing anything real.
 
 ## Features
@@ -27,11 +27,11 @@ Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Rowarr is built on that f
   mode) — no keys required.
 - 💬 **Explainable** — every pick carries "Because you watched X"; every Plex write lands in
   an audit feed you can read.
-- 📥 **Fills its own gaps (optional)** — when a great pick isn't in your library yet, Rowarr can
+- 📥 **Fills its own gaps (optional)** — when a great pick isn't in your library yet, Shortlist can
   ask **Radarr/Sonarr** to grab it. Off by default and deliberately cautious: only a few per
   night, and only titles that are both highly rated and widely reviewed.
-- 🧹 **Kometa-friendly** — Rowarr never touches collections it didn't create.
-- ↩️ **Provable uninstall** — one flow restores your server exactly as Rowarr found it.
+- 🧹 **Kometa-friendly** — Shortlist never touches collections it didn't create.
+- ↩️ **Provable uninstall** — one flow restores your server exactly as Shortlist found it.
 - 📦 **Homelab-native** — one container, `/config` volume, dark UI, GHCR multi-arch,
   healthcheck, Unraid template.
 

@@ -47,7 +47,7 @@ export function UsersPage() {
         empty={
           <EmptyState
             title="No users yet"
-            hint="Rowarr hasn't imported any Plex users. Finish the setup wizard, or check the Plex connection under Settings."
+            hint="Shortlist hasn't imported any Plex users. Finish the setup wizard, or check the Plex connection under Settings."
           />
         }
       >
@@ -60,7 +60,7 @@ export function UsersPage() {
                   <TableHead>Type</TableHead>
                   <TableHead>Watch history</TableHead>
                   <TableHead>Last run</TableHead>
-                  <TableHead title="Share of Rowarr's picks this person has watched">
+                  <TableHead title="Share of Shortlist's picks this person has watched">
                     Picks watched
                   </TableHead>
                   <TableHead className="text-right">Enabled</TableHead>
@@ -107,7 +107,7 @@ export function UsersPage() {
                         onCheckedChange={(enabled) =>
                           patchUser.mutate({ id: user.id, patch: { enabled } })
                         }
-                        aria-label={`Rowarr row for ${user.username}`}
+                        aria-label={`Shortlist row for ${user.username}`}
                       />
                     </TableCell>
                   </TableRow>

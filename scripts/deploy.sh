@@ -7,7 +7,7 @@
 # Usage:  ssh plex 'bash -s' < scripts/deploy.sh
 set -uo pipefail
 
-readonly IMAGE="ghcr.io/stevezau/rowarr:dev"   # rename: bump to .../shortlist:dev in one place
+readonly IMAGE="ghcr.io/stevezau/shortlist:dev"   # rename: bump to .../shortlist:dev in one place
 readonly NAME="rowarr"
 readonly PORT="5959"
 readonly CONFIG_VOL="/config/rowarr:/config"

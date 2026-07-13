@@ -51,7 +51,7 @@ export function DangerZoneSection({ settings }: { settings: Settings }) {
             <div>
               <p className="font-medium">Full uninstall</p>
               <p className="text-sm text-muted-foreground">
-                Removes every Rowarr collection and label, and restores all
+                Removes every Shortlist collection and label, and restores all
                 share filters from the original snapshots. Preview the exact
                 changes before committing.
               </p>
@@ -60,13 +60,13 @@ export function DangerZoneSection({ settings }: { settings: Settings }) {
               variant="destructive"
               onClick={() => setUninstallOpen(true)}
             >
-              Uninstall Rowarr…
+              Uninstall Shortlist…
             </Button>
           </div>
           {uninstall.isSuccess && (
             <p role="status" className="text-sm text-success">
               {uninstall.data.message ||
-                "Uninstall complete. Your server is as Rowarr found it."}
+                "Uninstall complete. Your server is as Shortlist found it."}
             </p>
           )}
           {uninstall.isError && (

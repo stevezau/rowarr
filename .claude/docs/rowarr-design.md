@@ -1,4 +1,4 @@
-# Rowarr — Product & Technical Design
+# Shortlist — Product & Technical Design
 
 **Status:** design complete; execution gated on one live privacy test · **Date:** 2026-07-12 ·
 **Predecessors:** [`ai-recommendations-design.md`](ai-recommendations-design.md) (the personal-script design this productizes) + [`ai-recommendations-research.md`](ai-recommendations-research.md) (May research) + July 2026 deep-research re-validation (99-agent sweep, 25/25 claims verified).
@@ -7,7 +7,7 @@
 
 ## 1. Vision
 
-> **Rowarr — a private, AI-curated "Picked for You" row for every user on your Plex server.**
+> **Shortlist — a private, AI-curated "Picked for You" row for every user on your Plex server.**
 
 Self-hosted, one Docker container. The server owner logs in with Plex, picks their users, and every
 night each user's Home screen gets a personal row built from _their_ watch history — visible only to
@@ -19,7 +19,7 @@ v1.43.2.10687, public 2026-05-19). Verified July 2026: **no maintained open-sour
 this yet.** Curatarr (closest) is dormant, never promotes to Home, no LLM. Immaculaterr is
 closed-source. PlexAI_Personal_Curator is dead and playlist-only. First mover wins the niche.
 
-**Positioning sentence for the README:** _"Rowarr watches what each of your users watches, asks an
+**Positioning sentence for the README:** _"Shortlist watches what each of your users watches, asks an
 LLM to curate what they should watch next from what you already own, and puts it on their Home
 screen — privately, automatically, every night."_
 
@@ -65,9 +65,9 @@ Animated mock of a Plex Home screen gaining a "✨ Picked for You" row. One butt
   (`app.plex.tv/auth#?clientID=…&code=…`), which auto-completes the underlying
   `plex.tv/api/v2/pins` flow — no typing. Fallback for popup-blocked/headless browsers: show the
   4-char code + "enter it at plex.tv/link". Same API, two presentations. No password ever touches
-  Rowarr.
+  Shortlist.
 - On link: enumerate the account's servers via plex.tv resources; owner picks one from a **server
-  picker** (name, owned badge, local/remote). Rowarr auto-tests each advertised connection URI and
+  picker** (name, owned badge, local/remote). Shortlist auto-tests each advertised connection URI and
   shows what worked — and the chosen **URL is always editable** (manual URL field + "insecure
   (self-signed)" toggle), both here and later in Settings → Connections. Never trap the user behind
   auto-discovery.
@@ -80,7 +80,7 @@ Animated mock of a Plex Home screen gaining a "✨ Picked for You" row. One butt
 ### Step 2 — History source
 
 - Auto-detect **Tautulli** (common hosts/ports probe + manual URL/API-key fields; validated with a
-  test call). Copy: _"Tautulli gives Rowarr deeper, more reliable watch history. Optional."_
+  test call). Copy: _"Tautulli gives Shortlist deeper, more reliable watch history. Optional."_
 - Fallback (always available, zero config): Plex's own history API (`/status/sessions/history/all`
   per accountID with the owner token — works for invited users, verified in Curatarr's code and the
   May audit).
@@ -112,7 +112,7 @@ Animated mock of a Plex Home screen gaining a "✨ Picked for You" row. One butt
 
 Runs automatically, ~60 seconds, with a live log:
 
-1. Create throwaway collection `Rowarr Privacy Probe` with one item, label `rowarr_probe`,
+1. Create throwaway collection `Shortlist Privacy Probe` with one item, label `rowarr_probe`,
    promote to shared Home.
 2. Write an exclude-restriction for `rowarr_probe` to a **canary user** (owner picks from a
    dropdown; a managed/Home user is auto-suggested when one exists).
@@ -161,7 +161,7 @@ Plex-adjacent accent color, responsive (phone-usable — owners administer from 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Rowarr        ● Privacy: verified 2026-07-12   Next run: tonight 3:30│
+│ Shortlist        ● Privacy: verified 2026-07-12   Next run: tonight 3:30│
 │──────────────────────────────────────────────────────────────────────│
 │  40 users enabled · last run 6h ago · 0 errors · hit rate 31% ▲      │
 │                                                                      │
@@ -214,8 +214,8 @@ digest "your rows updated + hit rate") · **Danger zone:** pause all · full uni
 
 ### Full uninstall (trust feature)
 
-One flow, with preview: deletes all Rowarr collections, strips `rowarr_*` labels from collections,
-restores every user's share filters from the **original pre-Rowarr snapshot** (merging around any
+One flow, with preview: deletes all Shortlist collections, strips `rowarr_*` labels from collections,
+restores every user's share filters from the **original pre-Shortlist snapshot** (merging around any
 filters the owner changed since, shown as a diff before applying), then wipes local config. Ends
 with "your server is as we found it."
 
@@ -331,7 +331,7 @@ hit-rate) · `restriction_snapshots` (user, before, after, ts) · `caches` (tmdb
 
 **App auth:** "Login with Plex" only, and only the **server-owner account** is authorized (account
 id must match the linked server's owner). No local passwords to leak. Session cookie, CSRF on
-mutations. Docs firmly recommend not exposing Rowarr publicly; subpath + reverse-proxy documented.
+mutations. Docs firmly recommend not exposing Shortlist publicly; subpath + reverse-proxy documented.
 
 **Secrets:** in SQLite, encrypted at rest with a key derived from an instance secret in `/config`
 (sufficient for homelab threat model; documented honestly).
@@ -397,7 +397,7 @@ post can follow in ~a month).
 
 ## 11. Open decisions (deliberately few)
 
-1. **Name:** working title **Rowarr** (GitHub-free as of 2026-07-12; "Pickarr" is taken by an
+1. **Name:** working title **Shortlist** (GitHub-free as of 2026-07-12; "Pickarr" is taken by an
    adjacent Claude/Radarr project). Rename is trivial until Phase 4.
 2. **Steve's instance cadence:** nightly (recommended) vs weekly — pick during Phase 1.
 3. **Acquisition default for Steve's server:** suggest-only vs auto-add capped — pick during Phase 1.

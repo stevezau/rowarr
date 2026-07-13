@@ -11,15 +11,23 @@ from types import SimpleNamespace
 
 import pytest
 
-import rowarr.server.services.run_service as run_service_mod
-from rowarr.engine.models import CollectionDiff, FilterSnapshot, MediaType, Pick, RunReport, StageCounts, UserRunReport
-from rowarr.server.db.adapters import DbCache, DbSnapshotStore
-from rowarr.server.db.models import Event, PickRow, Run, RunUser, User
-from rowarr.server.db.session import make_engine, make_session_factory, run_migrations
-from rowarr.server.services.run_service import RunService
-from rowarr.server.services.secrets import SecretBox
-from rowarr.server.services.sse import EventBus
-from rowarr.server.settings_store import SettingsStore
+import shortlist.server.services.run_service as run_service_mod
+from shortlist.engine.models import (
+    CollectionDiff,
+    FilterSnapshot,
+    MediaType,
+    Pick,
+    RunReport,
+    StageCounts,
+    UserRunReport,
+)
+from shortlist.server.db.adapters import DbCache, DbSnapshotStore
+from shortlist.server.db.models import Event, PickRow, Run, RunUser, User
+from shortlist.server.db.session import make_engine, make_session_factory, run_migrations
+from shortlist.server.services.run_service import RunService
+from shortlist.server.services.secrets import SecretBox
+from shortlist.server.services.sse import EventBus
+from shortlist.server.settings_store import SettingsStore
 
 
 @pytest.fixture
@@ -210,7 +218,7 @@ class TestSnapshotsForAccountsRowarrDoesNotKnow:
     """
 
     def test_snapshotting_a_stranger_records_them_so_uninstall_can_restore_them(self, sessions):
-        from rowarr.server.db.adapters import DbSnapshotStore
+        from shortlist.server.db.adapters import DbSnapshotStore
 
         store = DbSnapshotStore(sessions)
         snapshot = FilterSnapshot(
@@ -237,7 +245,7 @@ class TestSnapshotsForAccountsRowarrDoesNotKnow:
         slugified to the same string, the second one's snapshot would fail to save — and a
         snapshot that cannot be saved means a share filter that is never written, which means
         that account goes on seeing everyone else's rows."""
-        from rowarr.server.db.adapters import DbSnapshotStore
+        from shortlist.server.db.adapters import DbSnapshotStore
 
         store = DbSnapshotStore(sessions)
         for account_id, username in ((111, "Bob Smith"), (222, "bob-smith")):

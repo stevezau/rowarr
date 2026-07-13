@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from rowarr.server.auth import (
+from shortlist.server.auth import (
     CSRF_HEADER,
     SESSION_COOKIE,
     require_owner,
@@ -146,7 +146,7 @@ class TestTheStoredTokenGoesToNobodyButTheOwner:
         )
 
     def test_an_anonymous_caller_gets_no_token(self):
-        from rowarr.server.api.setup import _plex_token
+        from shortlist.server.api.setup import _plex_token
 
         request = self._request_for(account_id=None, owner=None, pending={})
         with pytest.raises(HTTPException) as excinfo:
@@ -157,7 +157,7 @@ class TestTheStoredTokenGoesToNobodyButTheOwner:
         """The exact hole: on an unclaimed, secret-seeded instance a stranger is let through the
         setup gate, and `pending_plex_tokens` is a per-process dict routinely empty for them (a
         restart, another worker). Falling back to the stored token here would mail it to them."""
-        from rowarr.server.api.setup import _plex_token
+        from shortlist.server.api.setup import _plex_token
 
         # No owner yet, and this caller's pending entry is absent — but the token IS in settings.
         request = self._request_for(account_id=999, owner=None, pending={})
@@ -167,7 +167,7 @@ class TestTheStoredTokenGoesToNobodyButTheOwner:
         assert excinfo.value.status_code == 409
 
     def test_a_caller_always_gets_their_own_pending_token(self):
-        from rowarr.server.api.setup import _plex_token
+        from shortlist.server.api.setup import _plex_token
 
         request = self._request_for(account_id=999, owner=None, pending={999: "their-own-token"})
         assert _plex_token(request, {"account_id": 999}) == "their-own-token"

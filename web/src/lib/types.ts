@@ -5,7 +5,7 @@
 
 export type UserType = "owner" | "shared" | "managed";
 
-/** GET /api/users — one row per Plex user Rowarr knows about. */
+/** GET /api/users — one row per Plex user Shortlist knows about. */
 export interface User {
   id: number;
   username: string;
@@ -366,7 +366,7 @@ export interface PrivacyProbeStepEvent {
 
 /**
  * A server plex.tv says this account can reach, with every advertised address already tried
- * from where Rowarr actually runs — only the owner's network knows which one works.
+ * from where Shortlist actually runs — only the owner's network knows which one works.
  */
 export interface PlexServer {
   name: string;

@@ -74,7 +74,7 @@ export function RunsPage() {
       <PageHeader
         icon={ListChecks}
         title="Runs"
-        subtitle="Every time Rowarr rebuilt rows, and how it went."
+        subtitle="Every time Shortlist rebuilt rows, and how it went."
         actions={
           <Button
             onClick={() => startRun.mutate({})}
@@ -93,7 +93,7 @@ export function RunsPage() {
         empty={
           <EmptyState
             title="No runs yet"
-            hint="Rowarr hasn't built any rows so far. Start one with the button above, or wait for the nightly schedule."
+            hint="Shortlist hasn't built any rows so far. Start one with the button above, or wait for the nightly schedule."
           />
         }
       >

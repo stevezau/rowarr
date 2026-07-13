@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  /* Dark is Rowarr's default and only theme for now (design doc §4). The accent is a warm
+  /* Dark is Shortlist's default and only theme for now (design doc §4). The accent is a warm
      amber/gold that echoes Plex without copying it; `--plex` is the true Plex brand gold, used
      only on the "Sign in with Plex" affordance so it reads as the Plex button. */
   :root,

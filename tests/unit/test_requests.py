@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from rowarr.engine import requests as requests_mod
-from rowarr.engine.clients.arr import ArrError
-from rowarr.engine.models import (
+from shortlist.engine import requests as requests_mod
+from shortlist.engine.clients.arr import ArrError
+from shortlist.engine.models import (
     ArrTarget,
     Candidate,
     MediaType,

@@ -21,7 +21,7 @@ export function PrivacySection() {
       <Card>
         <CardContent className="space-y-4 pt-6">
           <p className="text-sm text-muted-foreground">
-            Rowarr will not write to Plex unless a Privacy Check has passed in
+            Shortlist will not write to Plex unless a Privacy Check has passed in
             the last seven days. The quick check reads every user&rsquo;s share
             filters back from plex.tv and looks at a canary account&rsquo;s own
             Home. The full probe goes further: it creates a throwaway
@@ -52,7 +52,7 @@ export function PrivacySection() {
             >
               {privacyCheck.data.passed
                 ? "Passed — your server keeps rows private."
-                : "Failed — rows are NOT private on this server. Rowarr will refuse to write."}
+                : "Failed — rows are NOT private on this server. Shortlist will refuse to write."}
             </p>
           ) : null}
           {privacyCheck.isError ? (

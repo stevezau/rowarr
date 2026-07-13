@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import rowarr.engine.pipeline as pipeline_mod
-from rowarr.engine.curator.base import CuratorError
-from rowarr.engine.models import EngineConfig, MediaType, OwnedRow, RowOverride
-from rowarr.engine.pipeline import EngineContext
+import shortlist.engine.pipeline as pipeline_mod
+from shortlist.engine.curator.base import CuratorError
+from shortlist.engine.models import EngineConfig, MediaType, OwnedRow, RowOverride
+from shortlist.engine.pipeline import EngineContext
 from tests.conftest import MemorySnapshotStore, fake_media_item, make_profile, make_watched, plextv_user
 
 
@@ -57,7 +57,7 @@ def ctx(engine_config: EngineConfig, mock_plextv, mock_tmdb, mock_curator) -> En
 
 
 def curated_picks(profile, ranked, k):
-    from rowarr.engine.curator.null import NullCurator
+    from shortlist.engine.curator.null import NullCurator
 
     return NullCurator().curate(profile, ranked, k)
 
@@ -282,7 +282,7 @@ class TestPerRowOverrides:
         assert len(report.users[0].picks) == 1
 
     def test_per_row_prompt_override_reaches_the_curator(self, ctx: EngineContext, mock_plextv):
-        from rowarr.engine.models import PromptConfig
+        from shortlist.engine.models import PromptConfig
 
         sarah = make_profile(
             "sarah",
@@ -304,7 +304,7 @@ class TestPerRowOverrides:
         assert seen == {"tone": "playful", "guidance": "be spooky"}  # the row override, not the base
 
     def test_muting_removes_an_already_delivered_row(self, ctx: EngineContext, mock_plextv):
-        from rowarr.engine.delivery import row_marker
+        from shortlist.engine.delivery import row_marker
 
         sarah = make_profile("sarah", account_id=100, row_overrides={"picked": RowOverride(muted=True)})
         mock_plextv.users = [plextv_user(100, "sarah")]
@@ -344,8 +344,8 @@ class TestRequestsWiring:
         assert report.requests is None
 
     def test_enabled_run_feeds_missing_titles_to_the_request_pass(self, ctx: EngineContext, mock_plextv, monkeypatch):
-        from rowarr.engine.models import ArrTarget, RequestConfig, RequestReport
-        from rowarr.engine.models import MediaType as MT
+        from shortlist.engine.models import ArrTarget, RequestConfig, RequestReport
+        from shortlist.engine.models import MediaType as MT
 
         sarah = make_profile("sarah", account_id=100)
         mock_plextv.users = [plextv_user(100, "sarah")]

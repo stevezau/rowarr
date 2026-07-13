@@ -64,7 +64,7 @@ export function PrivacyPanel({
       {phase === "idle" && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Rowarr creates a throwaway probe collection, hides it from a canary
+            Shortlist creates a throwaway probe collection, hides it from a canary
             user, and verifies they truly can't see it — then cleans everything
             up. Your server is untouched either way.
           </p>

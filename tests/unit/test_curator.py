@@ -11,8 +11,8 @@ import httpx
 import pytest
 import respx
 
-from rowarr.engine.curator import make_curator
-from rowarr.engine.curator.base import (
+from shortlist.engine.curator import make_curator
+from shortlist.engine.curator.base import (
     MAX_REASON_LEN,
     TONE_PRESETS,
     CuratorError,
@@ -20,9 +20,9 @@ from rowarr.engine.curator.base import (
     picks_schema,
     validate_picks,
 )
-from rowarr.engine.curator.null import NullCurator
-from rowarr.engine.curator.ollama import OllamaCurator
-from rowarr.engine.models import MediaType, PromptConfig, Seed
+from shortlist.engine.curator.null import NullCurator
+from shortlist.engine.curator.ollama import OllamaCurator
+from shortlist.engine.models import MediaType, PromptConfig, Seed
 from tests.conftest import make_candidate, make_profile
 
 
@@ -160,7 +160,7 @@ class TestAnthropicCurator:
     def test_sends_structured_output_request_and_validates(self, monkeypatch):
         mod = _fake_anthropic_module()
         monkeypatch.setitem(sys.modules, "anthropic", mod)
-        from rowarr.engine.curator.anthropic import AnthropicCurator
+        from shortlist.engine.curator.anthropic import AnthropicCurator
 
         client = MagicMock()
         mod.Anthropic.return_value = client
@@ -195,8 +195,8 @@ class TestAnthropicCurator:
     def test_api_error_becomes_curator_error(self, monkeypatch):
         mod = _fake_anthropic_module()
         monkeypatch.setitem(sys.modules, "anthropic", mod)
-        from rowarr.engine.curator.anthropic import AnthropicCurator
-        from rowarr.engine.curator.base import CuratorError
+        from shortlist.engine.curator.anthropic import AnthropicCurator
+        from shortlist.engine.curator.base import CuratorError
 
         client = MagicMock()
         mod.Anthropic.return_value = client
@@ -211,7 +211,7 @@ class TestOpenAICurator:
         mod.OpenAIError = type("OpenAIError", (Exception,), {})
         mod.OpenAI = MagicMock()
         monkeypatch.setitem(sys.modules, "openai", mod)
-        from rowarr.engine.curator.openai import OpenAICurator
+        from shortlist.engine.curator.openai import OpenAICurator
 
         client = MagicMock()
         mod.OpenAI.return_value = client
@@ -231,7 +231,7 @@ class TestOpenAICurator:
         mod.OpenAIError = type("OpenAIError", (Exception,), {})
         mod.OpenAI = MagicMock()
         monkeypatch.setitem(sys.modules, "openai", mod)
-        from rowarr.engine.curator.openai import OpenAICurator
+        from shortlist.engine.curator.openai import OpenAICurator
 
         client = MagicMock()
         mod.OpenAI.return_value = client
@@ -261,7 +261,7 @@ class TestGoogleCurator:
         google_pkg.genai = genai
         monkeypatch.setitem(sys.modules, "google", google_pkg)
         monkeypatch.setitem(sys.modules, "google.genai", genai)
-        from rowarr.engine.curator.google import GoogleCurator
+        from shortlist.engine.curator.google import GoogleCurator
 
         client = MagicMock()
         genai.Client.return_value = client
@@ -281,7 +281,7 @@ class TestGoogleCurator:
         google_pkg.genai = genai
         monkeypatch.setitem(sys.modules, "google", google_pkg)
         monkeypatch.setitem(sys.modules, "google.genai", genai)
-        from rowarr.engine.curator.google import GoogleCurator
+        from shortlist.engine.curator.google import GoogleCurator
 
         client = MagicMock()
         genai.Client.return_value = client

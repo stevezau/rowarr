@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 
-from rowarr.server.db import session as db_session
+from shortlist.server.db import session as db_session
 
 pytestmark = pytest.mark.integration
 

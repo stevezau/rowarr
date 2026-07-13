@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from rowarr.engine.probe import PROBE_TITLE, run_privacy_probe
+from shortlist.engine.probe import PROBE_TITLE, run_privacy_probe
 from tests.conftest import fake_media_item, make_profile, plextv_user
 
 PROBE_ID = 777001
@@ -100,7 +100,7 @@ class TestPrivacyProbe:
         """A probe run after Rowarr is live must not clobber the real pre-Rowarr snapshot."""
         from datetime import UTC, datetime
 
-        from rowarr.engine.models import FilterSnapshot
+        from shortlist.engine.models import FilterSnapshot
 
         original = FilterSnapshot(
             plex_account_id=555000100,

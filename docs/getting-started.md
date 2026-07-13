@@ -3,11 +3,11 @@
 ## Requirements
 
 - **Plex Media Server ≥ 1.43.2.10687** — earlier versions leak labeled collections on
-  Home/Recommended/Related. Rowarr checks this and refuses to write on older servers.
+  Home/Recommended/Related. Shortlist checks this and refuses to write on older servers.
 - **Plex Pass** on the server owner's account (label restrictions are a Pass feature).
 - A **TMDB API key** (free: themoviedb.org → Settings → API).
 - Optional: **Tautulli** for deeper watch history; **an LLM API key** (Anthropic/OpenAI/Google)
-  or a local **Ollama** — Rowarr is fully functional with none of these (heuristic mode).
+  or a local **Ollama** — Shortlist is fully functional with none of these (heuristic mode).
 
 ## Install (Docker)
 
@@ -20,9 +20,9 @@ docker compose up -d
 
 Open `http://your-host:5959`. A fresh install goes straight into the wizard — there is
 nothing to sign in to yet. Step 1 connects your Plex account (that's the sign-in, and it's
-what claims the instance for you); from then on Rowarr only opens for that account.
+what claims the instance for you); from then on Shortlist only opens for that account.
 
-> Don't expose an unconfigured Rowarr to the internet: until you link a server, whoever
+> Don't expose an unconfigured Shortlist to the internet: until you link a server, whoever
 > reaches it first can claim it. Once claimed, it's yours.
 
 The wizard then walks:
@@ -33,7 +33,7 @@ The wizard then walks:
 3. **Choose your curator** — Claude / GPT / Gemini / Ollama / **None**. Keys are yours,
    stored encrypted, redacted after save.
 4. **Pick your users** — everyone you share with, with history-depth and cold-start badges.
-5. **Privacy Check** — Rowarr creates a throwaway labeled collection, hides it from a canary
+5. **Privacy Check** — Shortlist creates a throwaway labeled collection, hides it from a canary
    account, and verifies with that account's own view that it's gone. ~90 seconds, fully
    cleaned up. **Nothing real is written until this passes.**
 6. **Make it yours** — row name (static or "Because you watched {top_seed}"), row size, schedule.

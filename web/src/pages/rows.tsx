@@ -24,7 +24,7 @@ export function RowsPage() {
       <PageHeader
         icon={Rows3}
         title="Rows"
-        subtitle="The curated strips Rowarr builds on your users’ Plex home screens."
+        subtitle="The curated strips Shortlist builds on your users’ Plex home screens."
         actions={
           <Button onClick={() => setEditing({ collection: null })}>
             Add a row

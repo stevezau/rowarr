@@ -207,6 +207,23 @@ class TestResolvePrompt:
         assert self._resolve({"curator.prompt_template": "G"}, {"prompt_template": "U"}).template == "U"
 
 
+class TestCollectionsSeed:
+    def test_migration_seeds_the_default_picked_row(self, client: TestClient):
+        """Upgrade must be behaviour-neutral: exactly one per-person 'picked' row for everyone."""
+        from rowarr.server.db.models import Collection
+
+        with client.app.state.sessions() as session:
+            rows = session.query(Collection).all()
+            assert len(rows) == 1
+            row = rows[0]
+            assert (row.slug, row.build, row.audience, row.enabled) == (
+                "picked",
+                "per_person",
+                "everyone",
+                True,
+            )
+
+
 class TestPrivacyApi:
     def test_status_empty(self, client: TestClient):
         r = client.get("/api/privacy/status").json()

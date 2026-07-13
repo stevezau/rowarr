@@ -68,6 +68,41 @@ class User(Base):
     run_users: Mapped[list[RunUser]] = relationship(back_populates="user")
 
 
+class Collection(Base):
+    """A curated-row definition, combining a build mode, an audience, and a recipe.
+
+    The default ``picked`` collection is seeded on migration and reproduces today's single
+    per-user "Picked for You" row, so an upgrade changes nothing until the owner adds more.
+    """
+
+    __tablename__ = "collections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    build: Mapped[str] = mapped_column(String(16), default="per_person")  # per_person | shared
+    audience: Mapped[str] = mapped_column(String(16), default="everyone")  # everyone | subset
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    size: Mapped[int] = mapped_column(Integer, default=15)
+    media: Mapped[str] = mapped_column(String(16), default="both")  # movie | show | both
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    name_template: Mapped[str] = mapped_column(String(255), default="")  # per_person display name
+    source: Mapped[str] = mapped_column(String(16), default="all_users")  # shared: all_users | opted_in
+    min_watchers: Mapped[int] = mapped_column(Integer, default=2)  # shared: aggregate-privacy threshold
+    prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig recipe
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class CollectionAudience(Base):
+    """Who a subset-audience collection is built for / visible to. Empty for audience='everyone'."""
+
+    __tablename__ = "collection_audience"
+
+    collection_id: Mapped[int] = mapped_column(ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+
+
 class Run(Base):
     __tablename__ = "runs"
 

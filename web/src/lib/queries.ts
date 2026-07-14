@@ -151,6 +151,15 @@ export function useArrOptions(service: "radarr" | "sonarr", enabled: boolean) {
   });
 }
 
+export function useLibraries() {
+  return useQuery({
+    queryKey: ["libraries"],
+    queryFn: () => api.getLibraries(),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 export function useUserRows(id: number) {
   return useQuery({
     queryKey: queryKeys.userRows(id),

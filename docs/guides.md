@@ -42,6 +42,12 @@ wider reach. Available today:
   curator searches the live web for current, well-reviewed titles to watch next, then resolves each
   against your library. Reaches beyond TMDB/Trakt to fresh releases and critics' lists.
 
+Each row also chooses **which libraries** it builds in (the row editor's Libraries picker). A Plex
+collection lives in one library, so a row builds one collection per library you tick — leave them all
+ticked (the default) to cover every library, or point a row at just one (e.g. "4K Movies") on a
+server with several libraries of a type. What the row recommends (movies, shows, or both) follows the
+libraries you pick.
+
 These are the server-wide default. Any individual row can override them: open the row's editor,
 switch **Where this row looks** to "Choose for this row," and pick its own sources (e.g. a
 Trakt-only "What to watch next" row, or an AI-from-library "Hidden gems" row). Leaving a row on

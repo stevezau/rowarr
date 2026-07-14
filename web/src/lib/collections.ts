@@ -15,6 +15,7 @@ export function blankInput(): CollectionInput {
     min_watchers: 2,
     request_tag: "",
     candidate_sources: [],
+    library_keys: [],
     prompt: { tone: "balanced", guidance: "", template: "" },
   };
 }
@@ -34,6 +35,7 @@ export function toInput(collection: Collection): CollectionInput {
     min_watchers: collection.min_watchers,
     request_tag: collection.request_tag,
     candidate_sources: collection.candidate_sources,
+    library_keys: collection.library_keys,
     prompt: {
       tone: collection.prompt.tone ?? "balanced",
       guidance: collection.prompt.guidance ?? "",

@@ -1,5 +1,6 @@
 import type {
   ArrOptions,
+  PlexLibrary,
   ConnectionTestResult,
   Health,
   LinkRequest,
@@ -236,6 +237,9 @@ export const api = {
   /** Quality profiles + root folders for a connected Sonarr/Radarr (for the request-setup dropdowns). */
   getArrOptions: (service: "radarr" | "sonarr"): Promise<ArrOptions> =>
     request(`/api/settings/arr/${service}/options`),
+
+  /** The server's Plex libraries, for the Rows editor's per-row delivery-target picker. */
+  getLibraries: (): Promise<PlexLibrary[]> => request("/api/system/libraries"),
 
   // --- Collections (rows) ---
   listCollections: (): Promise<Collection[]> => request("/api/collections"),

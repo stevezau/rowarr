@@ -286,6 +286,7 @@ class ContextBuilder:
                     min_watchers=collection.min_watchers,
                     request_tag=(collection.request_tag or "").strip(),
                     candidate_sources=list(collection.candidate_sources or []),
+                    library_keys=[str(k) for k in (collection.library_keys or [])],
                 )
             )
         return specs

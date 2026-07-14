@@ -141,7 +141,15 @@ def _run_user(
     user_report.diff = CollectionDiff()
     for spec in cfg.per_person_rows():
         if in_audience(spec) and is_muted(spec):
-            remove_row(ctx.plex, user, cfg, spec, dry_run=cfg.dry_run, diff=user_report.diff)
+            remove_row(
+                ctx.plex,
+                user,
+                cfg,
+                spec,
+                dry_run=cfg.dry_run,
+                diff=user_report.diff,
+                sections=ctx.delivery_sections,
+            )
 
     specs = [spec for spec in cfg.per_person_rows() if in_audience(spec) and not is_muted(spec)]
     if not specs:
@@ -272,6 +280,8 @@ def _run_user(
             dry_run=cfg.dry_run,
             stored_labels=stored_labels,
             diff=user_report.diff,
+            sections=ctx.delivery_sections,
+            section_index=ctx.section_index,
         )
         delivered_any = delivered_any or bool(picks)
 
@@ -425,6 +435,8 @@ def _shared_row(
         dry_run=cfg.dry_run,
         stored_labels=stored_labels,
         diff=user_report.diff,
+        sections=ctx.delivery_sections,
+        section_index=ctx.section_index,
     )
     return agg if picks else None
 

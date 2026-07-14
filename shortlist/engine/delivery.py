@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from loguru import logger
 
 from shortlist.engine.clients.plex_pms import PlexClient
@@ -56,10 +58,25 @@ def render_row_name(template: str, profile: UserProfile, picks: list[Pick]) -> s
 
 
 def _allowed_media(media: str) -> set[MediaType]:
-    """Which libraries a row writes to. 'both' -> movies and shows; else that one type."""
+    """Which media types a row writes to. 'both' -> movies and shows; else that one type."""
     if media == "both":
         return {MediaType.MOVIE, MediaType.SHOW}
     return {MediaType(media)}
+
+
+def _section_kind(section) -> MediaType:
+    return MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
+
+
+def _target_sections(sections: list, spec: RowSpec) -> list:
+    """The libraries this row delivers into: the specific ones it named (``library_keys``), else
+    every library of an allowed media type. A named key that no longer exists is simply skipped."""
+    allowed = _allowed_media(spec.media)
+    candidates = [s for s in sections if _section_kind(s) in allowed]
+    if spec.library_keys:
+        wanted = set(spec.library_keys)
+        return [s for s in candidates if s.key in wanted]
+    return candidates
 
 
 def deliver_rows(
@@ -73,6 +90,8 @@ def deliver_rows(
     dry_run: bool = False,
     stored_labels: dict[str, str] | None = None,
     diff: CollectionDiff | None = None,
+    sections: list | None = None,
+    section_index: dict[str, dict[int, int]] | None = None,
 ) -> tuple[CollectionDiff, str | None]:
     """Deliver one row's picks as one collection per targeted library. Returns (diff, stored label).
 
@@ -116,24 +135,31 @@ def deliver_rows(
     # their rows share one label); a shared row files under its own `shared_<slug>` key.
     stored_key = f"{SHARED_SLUG_PREFIX}_{spec.slug}" if spec.shared else profile.slug
 
-    targets = plex.sections_by_type()
-    allowed = _allowed_media(spec.media)
+    # The libraries this row targets: the ones it named (library_keys), else all of the allowed
+    # type. Fall back to sections_by_type() (one per type) for a legacy caller that passed neither.
+    all_sections = sections if sections is not None else list(plex.sections_by_type().values())
+    idx = section_index if section_index is not None else {}
+    targets = _target_sections(all_sections, spec)
+
     by_type: dict[MediaType, list[Pick]] = {}
     for pick in picks:
         by_type.setdefault(pick.media_type, []).append(pick)
-
-    for kind in by_type:
-        if kind not in targets:
-            logger.warning("{}: no {} library on this server — dropping those picks", profile.username, kind.value)
 
     combined = diff if diff is not None else CollectionDiff()
     combined.collection_title = render_row_name(template, profile, picks)
     stored: str | None = None
 
-    for kind, section in targets.items():
-        if kind not in allowed:
-            continue
-        section_picks = by_type.get(kind, [])
+    for section in targets:
+        kind = _section_kind(section)
+        # Remap each pick to THIS library's ratingKey — a Plex collection can only hold its own
+        # library's items. A pick this library doesn't have is skipped (delivered wherever it does
+        # live). With no per-section index (legacy caller), fall back to the pick's existing key.
+        keys = idx.get(section.key)
+        section_picks = [
+            (replace(p, rating_key=keys[p.tmdb_id]) if keys is not None else p)
+            for p in by_type.get(kind, [])
+            if keys is None or p.tmdb_id in keys
+        ]
         if not section_picks:
             continue
         one, stored = _deliver_one(
@@ -160,6 +186,7 @@ def remove_row(
     *,
     dry_run: bool,
     diff: CollectionDiff,
+    sections: list | None = None,
 ) -> None:
     """Delete a user's collection for a row they've muted, in every targeted library.
 
@@ -175,7 +202,10 @@ def remove_row(
     template = spec.name_template or (profile.row_name_template or config.row_name_template)
     display = render_row_name(template, profile, [])
     title = display + marker
-    for section in plex.sections_by_type().values():
+    # Look in every library, not just the row's current targets: if its library_keys changed, an
+    # earlier copy may linger in a library it no longer targets, and a muted row must leave them all.
+    scan = sections if sections is not None else list(plex.sections_by_type().values())
+    for section in scan:
         for collection in plex.find_owned_collections(section, wanted_label):
             if collection.title != title:
                 continue

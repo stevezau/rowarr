@@ -338,6 +338,47 @@ class TestPerRowOverrides:
         # One seed, one shared pool -> tmdb_similar queried once, not once per row.
         assert ctx.tmdb.suggestions.call_count == 1
 
+    def test_row_pinned_to_a_non_lowest_key_library_is_delivered_and_promoted_there(
+        self, ctx: EngineContext, mock_plextv
+    ):
+        # Regression: promotion is the only thing that hides a collection from LIBRARY BROWSE
+        # (share filters only cover Home/Recommended/Related), so a row delivered to a library that
+        # isn't the lowest-key one of its type must still be promoted there — or it leaks into browse.
+        lib1 = MagicMock()
+        lib1.type = "movie"
+        lib1.key = "1"
+        lib2 = MagicMock()
+        lib2.type = "movie"
+        lib2.key = "2"  # the SECOND movie library — never returned by sections_by_type()
+        ctx.plex.sections.return_value = [lib1, lib2]
+        ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: lib1}  # lowest-key only
+        ctx.plex.build_library_index.side_effect = lambda s: (
+            {900: 999, 10: 1010, 20: 1020} if s is lib1 else {900: 999, 10: 2010, 20: 2020}
+        )
+        ctx.config.rows = [RowSpec(slug="picked", name_template="", size=5, library_keys=["2"])]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+
+        made: list[MagicMock] = []
+
+        def create_collection(section, title, items):
+            c = MagicMock()
+            c._section = section
+            made.append(c)
+            return c
+
+        ctx.plex.create_collection.side_effect = create_collection
+        ctx.plex.find_owned_collections.side_effect = lambda section, label: [c for c in made if c._section is section]
+
+        pipeline_mod.run(ctx, [sarah])
+
+        # Delivered into lib2 with lib2's ratingKeys (not lib1's 10xx), and PROMOTED there.
+        assert ctx.plex.create_collection.call_args.args[0] is lib2
+        assert ctx.plex.fetch_items.call_args.args[0] == [2010, 2020]
+        promoted_sections = {getattr(call.args[0], "_section", None) for call in ctx.plex.promote.call_args_list}
+        assert lib2 in promoted_sections, "the row in the non-lowest-key library was never promoted (leak)"
+
     def test_muting_removes_an_already_delivered_row(self, ctx: EngineContext, mock_plextv):
         from shortlist.engine.delivery import row_marker
 

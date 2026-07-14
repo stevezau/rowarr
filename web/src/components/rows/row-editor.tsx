@@ -5,6 +5,7 @@ import {
   type CurationStyleValue,
 } from "@/components/curation-style";
 import { AudiencePicker } from "@/components/rows/audience-picker";
+import { LibraryPicker } from "@/components/rows/library-picker";
 import { RowSourcesField } from "@/components/rows/row-sources-field";
 import { Segmented } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
@@ -23,12 +24,6 @@ import { blankInput, toInput } from "@/lib/collections";
 import { ROW_SIZES } from "@/lib/constants";
 import { useSaveCollection } from "@/lib/queries";
 import type { Collection, CollectionInput, User } from "@/lib/types";
-
-const MEDIA: { value: CollectionInput["media"]; label: string }[] = [
-  { value: "both", label: "Movies & Shows" },
-  { value: "movie", label: "Movies only" },
-  { value: "show", label: "Shows only" },
-];
 
 /** The add/edit-a-row dialog. `collection` is null when adding. */
 export function RowEditor({
@@ -121,25 +116,23 @@ export function RowEditor({
             onChange={set}
           />
 
-          <div className="grid gap-5 sm:grid-cols-2">
-            {!isDefault && (
-              <Segmented
-                legend="Row size"
-                value={String(input.size)}
-                onChange={(size) => set({ size: Number(size) })}
-                options={ROW_SIZES.map((size) => ({
-                  value: String(size),
-                  label: String(size),
-                }))}
-              />
-            )}
+          {!isDefault && (
             <Segmented
-              legend="Libraries"
-              value={input.media}
-              onChange={(media) => set({ media })}
-              options={MEDIA}
+              legend="Row size"
+              value={String(input.size)}
+              onChange={(size) => set({ size: Number(size) })}
+              options={ROW_SIZES.map((size) => ({
+                value: String(size),
+                label: String(size),
+              }))}
             />
-          </div>
+          )}
+
+          <LibraryPicker
+            libraryKeys={input.library_keys}
+            media={input.media}
+            onChange={(next) => set(next)}
+          />
 
           {input.build === "shared" && (
             <div className="space-y-2">

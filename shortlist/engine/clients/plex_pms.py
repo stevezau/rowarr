@@ -58,15 +58,14 @@ class PlexClient:
         return [s for s in self._server.library.sections() if s.type in types]
 
     def sections_by_type(self) -> dict[MediaType, LibrarySection]:
-        """The one library of each type rows are built in.
+        """One representative library per media type — used for cold-start discovery and the
+        AI-from-library catalog, NOT for choosing where rows are delivered.
 
-        A pick can only go in a collection in a library of its own type: Plex applies
-        `filterMovies`/`filterTelevision` per library, so a show sitting in a movie collection
-        is filterable by neither.
-
-        A server can have several libraries of one type ("Movies" + "4K Movies"). The lowest
-        section key wins — deliberately NOT the order the PMS happens to list them in, because a
-        reordering would silently move every user's row to a different library.
+        Row delivery targets ``library_keys`` (all libraries by default; see the delivery module),
+        so a server with several libraries of a type builds rows in every one. This helper is only a
+        stable single pick per type for the two callers that need just one: the lowest section key
+        wins — deliberately NOT the order the PMS lists them in, so a reordering can't shift which
+        library those callers read.
         """
         by_type: dict[MediaType, LibrarySection] = {}
         for section in sorted(self.sections(), key=lambda s: int(s.key)):

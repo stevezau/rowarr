@@ -43,7 +43,16 @@ export interface Collection {
   request_tag: string;
   /** Per-row discovery sources; [] inherits the global candidates.sources setting. */
   candidate_sources: string[];
+  /** Specific Plex library section keys to build in; [] = every library of the row's media type. */
+  library_keys: string[];
   prompt: { tone?: string; guidance?: string; template?: string };
+}
+
+/** A Plex library on the server (GET /api/system/libraries). */
+export interface PlexLibrary {
+  key: string;
+  title: string;
+  type: "movie" | "show";
 }
 
 /** Body for POST / PATCH /api/collections. */
@@ -60,6 +69,7 @@ export interface CollectionInput {
   min_watchers: number;
   request_tag: string;
   candidate_sources: string[];
+  library_keys: string[];
   prompt: { tone: string; guidance: string; template: string };
 }
 

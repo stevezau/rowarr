@@ -57,6 +57,12 @@ class EngineContext:
     # media_type -> [{tmdb_id, rating_key, title, year, genres}] for the delivery libraries, built
     # once per run and only when the AI-from-library candidate source is enabled (else empty).
     library_catalog: dict[MediaType, list[dict]] = field(default_factory=dict)
+    # section key -> {tmdb_id: ratingKey}: per-library index so a row delivered into a specific
+    # library uses that library's ratingKeys. Built by _build_indexes each run.
+    section_index: dict[str, dict[int, int]] = field(default_factory=dict)
+    # Every library rows may be delivered to (all movie + show sections), for resolving a row's
+    # library_keys to real sections. Built by _build_indexes each run.
+    delivery_sections: list = field(default_factory=list)
     # plex account id -> the slug Shortlist assigned that account, for EVERY user it knows (not just
     # tonight's). This is how "whose row is this?" is answered. It cannot be answered from a name:
     # people rename themselves, and two display names can slugify to the same string — either
@@ -116,7 +122,7 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
         return report
 
     # Only now, with the exclusions in place, promote rows onto shared Home.
-    _promote_phase(ctx, targets, to_promote, shared_to_promote, filters_ok, report)
+    _promote_phase(ctx, to_promote, shared_to_promote, filters_ok, report)
 
     # Sonarr/Radarr requests, dead LAST — after every Plex write is done.
     _request_phase(ctx, requests_on, demand, report)
@@ -130,36 +136,39 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
 def _build_indexes(
     ctx: EngineContext, users: list[UserProfile], sections: list, targets: dict
 ) -> tuple[dict[MediaType, dict[int, int]], dict[MediaType, dict[int, int]]]:
-    """Build the two library indexes a run reads from.
+    """Build the library indexes a run reads from.
 
-    Two indexes, because they answer different questions.
+    Three indexes, because they answer different questions.
 
     `seed_index` covers EVERY library: it turns what a user WATCHED into a TMDB id, and people
     watch films in "4K Movies" too. Narrowing it would silently give those users no seeds, no
     candidates, and an empty row — while the run still reported success.
 
-    `library_index` covers only the libraries we deliver to: it decides what may be RECOMMENDED,
-    and a pick from a library that never gets a collection could never be shown to anyone.
+    `library_index` (per media type) decides what may be RECOMMENDED: a title is deliverable if it
+    lives in ANY library of its type, since a row can target any of them. A pick in no delivery
+    library could never be shown to anyone.
+
+    `ctx.section_index` (per section key) decides WHERE a pick can go: a Plex collection lives in one
+    library and can only hold that library's items (its ratingKeys), so delivering a row into a
+    specific library needs that library's ratingKey for each pick.
     """
-    target_keys = {section.key for section in targets.values()}
     seed_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
     library_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
-    # Only when there is someone to recommend to. Both indexes walk every item in every library,
-    # and both are read only inside _run_user — so with no users this is thousands of PMS reads
-    # thrown away, in front of the sweep, on the one path (a closed gate) where the sweep is the
-    # entire point and must not be preceded by anything that can fail.
+    section_index: dict[str, dict[int, int]] = {}
+    # Only when there is someone to recommend to. The indexes walk every item in every library, and
+    # are read only inside _run_user — so with no users this is thousands of PMS reads thrown away,
+    # in front of the sweep, on the one path (a closed gate) where the sweep is the entire point and
+    # must not be preceded by anything that can fail.
     for section in sections if users else []:
         kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
         index = ctx.plex.build_library_index(section)
         seed_index[kind].update(index)
-        if section.key in target_keys:
-            library_index[kind].update(index)
-        else:
-            logger.info(
-                "library '{}': rows are built in '{}' instead, but watches here still count",
-                section.title,
-                targets[kind].title,
-            )
+        # Every library of a deliverable type is both a recommendation source (union) and a possible
+        # delivery target (its own per-section index) — a row picks which ones under library_keys.
+        library_index[kind].update(index)
+        section_index[section.key] = index
+    ctx.section_index = section_index
+    ctx.delivery_sections = list(sections) if users else []
     # The AI-from-library source needs titles/genres, so build the catalog once (only when it's on).
     if users and "llm_library" in ctx.config.candidate_sources:
         ctx.library_catalog = {kind: ctx.plex.build_library_catalog(section) for kind, section in targets.items()}
@@ -339,13 +348,17 @@ def _privacy_sync_phase(
 
 def _promote_phase(
     ctx: EngineContext,
-    targets: dict,
     to_promote: list[UserProfile],
     shared_to_promote: list[tuple[RowSpec, UserProfile]],
     filters_ok: bool,
     report: RunReport,
 ) -> None:
-    """Promote delivered rows onto shared Home — never before the excludes that hide them exist."""
+    """Promote delivered rows onto shared Home — never before the excludes that hide them exist.
+
+    Promotion runs across EVERY delivery library, not just one per type: promote() is the only call
+    that hides a collection from that library's normal browse view (modeUpdate), and a row can now be
+    delivered into any library (library_keys). A row promoted in only the lowest-key library would sit
+    unhidden — and browse-visible to everyone — in whatever other library it actually landed in."""
     for user in to_promote:
         user_report = next(r for r in report.users if r.slug == user.slug)
         if ctx.config.dry_run:
@@ -358,7 +371,7 @@ def _promote_phase(
             # Every row the user has, in every library — they can have several rows (all sharing
             # their label), and promoting only one would leave the others invisible to the one
             # person meant to see them.
-            for section in targets.values():
+            for section in ctx.delivery_sections:
                 for collection in ctx.plex.find_owned_collections(section, user.label):
                     ctx.plex.promote(collection, shared=True)
         except Exception as e:
@@ -370,7 +383,7 @@ def _promote_phase(
     for spec, agg in shared_to_promote if not ctx.config.dry_run and filters_ok else []:
         shared_report = next((r for r in report.users if r.slug == agg.slug), None)
         try:
-            for section in targets.values():
+            for section in ctx.delivery_sections:
                 for collection in ctx.plex.find_owned_collections(section, spec.label):
                     ctx.plex.promote(collection, shared=True)
         except Exception as e:

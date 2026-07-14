@@ -63,7 +63,8 @@ POST /api/setup/probe · POST /api/setup/link · GET/PUT /api/setup/state
 GET  /api/users · PATCH /api/users/{id} {enabled?, request_tag?, prefs?} · POST /api/users/sync
 GET  /api/users/{id}/rows · PUT /api/users/{id}/rows/{collection_id} {muted?, row_size?, prompt_*?}
 GET  /api/users/{id}/runs · GET /api/users/{id}/history
-GET/POST /api/collections · PATCH/DELETE /api/collections/{id} (incl. `request_tag`, `candidate_sources`)
+GET/POST /api/collections · PATCH/DELETE /api/collections/{id} (incl. `request_tag`, `candidate_sources`, `library_keys`)
+GET  /api/system/libraries -> [{key, title, type}] (the server's Plex libraries, for the row editor)
 GET  /api/runs · GET /api/runs/{id} · POST /api/runs {user_ids?, dry_run?}
 GET  /api/requests · POST /api/requests/send {ids, dry_run?} · POST /api/requests/reject {ids}
 GET  /api/events (SSE) · GET /api/events/log (audit feed)
@@ -84,6 +85,11 @@ Candidate sources are set globally (`candidates.sources`) and can be overridden 
 (`collections.candidate_sources`, `[]` = inherit the global set; valid values: `tmdb_similar`,
 `tmdb_discover`, `llm_library`, `trakt`, `llm_web`). `llm_web` uses the AI curator's live web
 search (Anthropic/OpenAI) to propose titles, each resolved via TMDB search then library-verified.
+
+A row builds a Plex collection in each library it targets (`collections.library_keys`, a list of
+Plex section keys; `[]` = every library of the row's media type — the default). A row's `media` is
+derived from the types of its selected libraries. This lets an owner point a row at a specific
+library (e.g. only "4K Movies") on a server with several libraries of one type.
 
 Request tags are three-layered: the global `requests.tag` setting, a per-user `request_tag`
 (`PATCH /api/users/{id}`), and a per-row `request_tag` (`collections`, per-person rows only —

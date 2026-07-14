@@ -36,6 +36,24 @@ def _section(title: str, kind: str, key: int) -> MagicMock:
     return section
 
 
+def test_target_sections_defaults_to_all_then_narrows_by_media_and_keys():
+    from shortlist.engine.delivery import _target_sections
+    from shortlist.engine.models import RowSpec
+
+    movies = _section("Movies", "movie", "1")
+    movies4k = _section("4K Movies", "movie", "3")
+    shows = _section("TV Shows", "show", "2")
+    secs = [movies, shows, movies4k]
+
+    def spec(**kw):
+        return RowSpec(slug="p", name_template="", size=5, **kw)
+
+    assert _target_sections(secs, spec()) == [movies, shows, movies4k]  # empty -> every library
+    assert _target_sections(secs, spec(media="movie")) == [movies, movies4k]  # type filter
+    assert _target_sections(secs, spec(library_keys=["3"])) == [movies4k]  # a specific library
+    assert _target_sections(secs, spec(library_keys=["9"])) == []  # a key that no longer exists
+
+
 @pytest.fixture
 def movies() -> MagicMock:
     return _section("Movies", "movie", 1)
@@ -93,6 +111,31 @@ class TestDeliverRows:
         plex.matches_section.return_value = True
         plex.stored_label.return_value = "Rowarr_sarah"
         return plex
+
+    def test_library_keys_target_one_library_and_remap_its_rating_keys(self, engine_config: EngineConfig):
+        from shortlist.engine.models import RowSpec
+
+        # Two movie libraries; the SAME titles have different ratingKeys in each. A row pinned to
+        # "4K Movies" must build only there, with 4K's ratingKeys — not the "Movies" ones.
+        movies = _section("Movies", "movie", "1")
+        movies4k = _section("4K Movies", "movie", "3")
+        shows = _section("TV Shows", "show", "2")
+        plex = self._plex(movies, shows)
+        section_index = {"1": {1: 1001, 2: 1002}, "3": {1: 4001, 2: 4002}, "2": {}}
+        spec = RowSpec(slug="gems", name_template="Gems", size=5, library_keys=["3"])
+
+        deliver_rows(
+            plex,
+            make_profile(),
+            picks(),
+            engine_config,
+            spec,
+            sections=[movies, shows, movies4k],
+            section_index=section_index,
+        )
+
+        assert plex.create_collection.call_args.args[0] is movies4k  # only the 4K library
+        plex.fetch_items.assert_called_once_with([4001, 4002])  # 4K ratingKeys, not [1001, 1002]
 
     def test_creates_collection_when_missing(self, engine_config: EngineConfig, movies, shows):
         plex = self._plex(movies, shows)

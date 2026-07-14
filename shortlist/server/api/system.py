@@ -26,6 +26,25 @@ async def version() -> dict:
     return {"version": shortlist.__version__}
 
 
+@router.get("/libraries", dependencies=[Depends(require_owner)])
+async def libraries(request: Request) -> list[dict]:
+    """The server's movie/show libraries, so the Rows editor can offer them as delivery targets."""
+    from shortlist.engine.clients.plex_pms import PlexClient
+    from shortlist.server.settings_store import SettingsStore
+
+    state = request.app.state
+
+    def read() -> list[dict]:
+        with state.sessions() as session:
+            store = SettingsStore(session, state.secrets)
+            url, token = store.get("plex.url"), store.get("plex.token")
+        if not url or not token:
+            raise HTTPException(status_code=409, detail="Plex isn't connected yet")
+        return [{"key": str(s.key), "title": s.title, "type": s.type} for s in PlexClient(url, token).sections()]
+
+    return await asyncio.get_running_loop().run_in_executor(None, read)
+
+
 class UninstallRequest(BaseModel):
     confirm: str = ""
     dry_run: bool = False  # preview: report what WOULD be restored/deleted (rule 8)

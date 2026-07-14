@@ -368,6 +368,15 @@ class TestCollectionsApi:
         bad = client.post("/api/collections", json={"name": "Bad Row", "candidate_sources": ["imdb_magic"]})
         assert bad.status_code == 422
 
+    def test_library_keys_round_trip(self, client: TestClient):
+        # Empty by default (every library); a per-row selection round-trips as strings.
+        created = client.post("/api/collections", json={"name": "4K Only"})
+        assert created.status_code == 201 and created.json()["library_keys"] == []
+        cid = created.json()["id"]
+        patched = client.patch(f"/api/collections/{cid}", json={"name": "4K Only", "library_keys": ["3", "5"]})
+        assert patched.status_code == 200
+        assert patched.json()["library_keys"] == ["3", "5"]
+
     def test_slug_collision_gets_suffixed(self, client: TestClient):
         # Different names (duplicates are rejected) that slugify to the same base collide on slug.
         first = client.post("/api/collections", json={"name": "Date Night"}).json()

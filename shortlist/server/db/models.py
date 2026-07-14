@@ -90,6 +90,8 @@ class Collection(Base):
     name_template: Mapped[str] = mapped_column(String(255), default="")  # per_person display name
     # Per-row override of which discovery sources feed this row; [] -> inherit global candidates.sources.
     candidate_sources: Mapped[list] = mapped_column(JSON, default=list)
+    # Specific Plex library section keys this row builds in; [] -> every library of its media type.
+    library_keys: Mapped[list] = mapped_column(JSON, default=list)
     min_watchers: Mapped[int] = mapped_column(Integer, default=2)  # shared: aggregate-privacy threshold
     request_tag: Mapped[str] = mapped_column(String(64), default="")  # tag added to titles requested via this row
     prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig recipe

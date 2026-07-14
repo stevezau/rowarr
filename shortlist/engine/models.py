@@ -181,7 +181,10 @@ class RowSpec:
     slug: str
     name_template: str
     size: int
-    media: str = "both"  # movie | show | both
+    media: str = "both"  # movie | show | both — the type filter; library_keys narrows to specific libraries
+    # Specific Plex library section keys to deliver this row into; empty -> every library of the
+    # allowed media type (the default, so a server with one movie + one show library is unchanged).
+    library_keys: list[str] = field(default_factory=list)
     shared: bool = False
     # None -> visible to everyone; otherwise the set of plex_account_ids this row is built for / seen by.
     audience: set[int] | None = None

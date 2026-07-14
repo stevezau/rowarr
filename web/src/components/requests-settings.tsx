@@ -389,6 +389,13 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                         <TestResult error={omdbTest.error} as="span" />
                       )}
                     </div>
+                    {!omdbOnFile && (
+                      <p role="alert" className="text-sm text-warning">
+                        Without a saved OMDb key, Shortlist falls back to TMDB
+                        ratings — IMDb gating won&rsquo;t actually be used. Add
+                        and save a key above.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -466,7 +473,7 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
 
               <div className="space-y-2">
                 <Segmented
-                  legend="Most to request per night"
+                  legend="Most to auto-request per night"
                   value={String(form.maxPerRun)}
                   options={MAX_PER_RUN.map((n) => ({
                     value: String(n),
@@ -475,8 +482,10 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                   onChange={(v) => set({ maxPerRun: Number(v) })}
                 />
                 <p className="text-sm text-muted-foreground">
-                  A hard cap across both apps, so a night can never flood your
-                  downloads.
+                  A hard cap on titles sent automatically each night, across
+                  both apps — so a night can never flood your downloads. Titles
+                  you approve by hand from the Requests inbox aren&rsquo;t
+                  capped.
                 </p>
               </div>
             </fieldset>

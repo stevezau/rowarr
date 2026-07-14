@@ -7,13 +7,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RequestCandidate } from "@/lib/types";
 import { RequestsPage } from "@/pages/requests";
 
-const { listRequests, sendRequests, rejectRequests } = vi.hoisted(() => ({
-  listRequests: vi.fn(),
-  sendRequests: vi.fn((_ids: number[], _dryRun?: boolean) =>
-    Promise.resolve({ sent: 1, dry_run: false, outcomes: [] }),
-  ),
-  rejectRequests: vi.fn((_ids: number[]) => Promise.resolve({ rejected: 1 })),
-}));
+const { listRequests, sendRequests, rejectRequests, getSettings } = vi.hoisted(
+  () => ({
+    listRequests: vi.fn(),
+    sendRequests: vi.fn((_ids: number[], _dryRun?: boolean) =>
+      Promise.resolve({ sent: 1, dry_run: false, outcomes: [] }),
+    ),
+    rejectRequests: vi.fn((_ids: number[]) => Promise.resolve({ rejected: 1 })),
+    getSettings: vi.fn(() => Promise.resolve({ "requests.enabled": true })),
+  }),
+);
 
 vi.mock("@/lib/api", () => ({
   apiErrorMessage: (_error: unknown, fallback: string) => fallback,
@@ -22,6 +25,7 @@ vi.mock("@/lib/api", () => ({
     sendRequests: (ids: number[], dryRun?: boolean) =>
       sendRequests(ids, dryRun),
     rejectRequests: (ids: number[]) => rejectRequests(ids),
+    getSettings: () => getSettings(),
   },
 }));
 
@@ -64,12 +68,22 @@ describe("RequestsPage", () => {
     listRequests.mockReset();
     sendRequests.mockClear();
     rejectRequests.mockClear();
+    getSettings.mockResolvedValue({ "requests.enabled": true });
   });
 
   it("shows an empty state when nothing has ever been queued", async () => {
     listRequests.mockResolvedValue([]);
     renderPage();
     expect(await screen.findByText(/Nothing waiting/i)).toBeTruthy();
+  });
+
+  it("shows a distinct 'off' empty state when requests are disabled", async () => {
+    listRequests.mockResolvedValue([]);
+    getSettings.mockResolvedValue({ "requests.enabled": false });
+    renderPage();
+    // Never implies auto-send is running; points the owner at Settings to turn it on.
+    expect(await screen.findByText(/Requests are off/i)).toBeTruthy();
+    expect(screen.getByText(/Enable in Settings/i)).toBeTruthy();
   });
 
   it("lists pending titles and files handled ones under Already handled", async () => {

@@ -6,8 +6,16 @@ import { EmptyState, QueryBoundary } from "@/components/query-boundary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Link } from "react-router-dom";
+
 import { apiErrorMessage } from "@/lib/api";
-import { useRejectRequests, useRequests, useSendRequests } from "@/lib/queries";
+import { settingBool } from "@/lib/format";
+import {
+  useRejectRequests,
+  useRequests,
+  useSendRequests,
+  useSettings,
+} from "@/lib/queries";
 import type { RequestCandidate } from "@/lib/types";
 
 function RequestsSkeleton() {
@@ -106,9 +114,11 @@ function HandledRow({ item }: { item: RequestCandidate }) {
 
 export function RequestsPage() {
   const requestsQuery = useRequests();
+  const settings = useSettings();
   const send = useSendRequests();
   const reject = useRejectRequests();
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const requestsEnabled = settingBool(settings.data ?? {}, "requests.enabled");
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -158,10 +168,22 @@ export function RequestsPage() {
         skeleton={<RequestsSkeleton />}
         isEmpty={(data) => data.length === 0}
         empty={
-          <EmptyState
-            title="Nothing waiting"
-            hint="When a run turns up a great pick that isn't in your library, it lands here for your approval. Strong picks are sent automatically (tune that in Settings → Requests)."
-          />
+          requestsEnabled ? (
+            <EmptyState
+              title="Nothing waiting"
+              hint="When a run turns up a great pick that isn't in your library, it lands here for your approval. Strong picks are sent automatically (tune that in Settings → Requests)."
+            />
+          ) : (
+            <EmptyState
+              title="Requests are off"
+              hint="Turn on Sonarr/Radarr requests to have Shortlist notice great picks your library is missing and offer to grab them."
+              action={
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/settings">Enable in Settings</Link>
+                </Button>
+              }
+            />
+          )
         }
       >
         {() => (

@@ -33,11 +33,12 @@ The wizard then walks:
 3. **Choose your curator** — Claude / GPT / Gemini / Ollama / **None**. Keys are yours,
    stored encrypted, redacted after save.
 4. **Pick your users** — everyone you share with, with history-depth and cold-start badges.
-5. **Privacy Check** — Shortlist creates a throwaway labeled collection, hides it from a canary
-   account, and verifies with that account's own view that it's gone. ~90 seconds, fully
-   cleaned up. **Nothing real is written until this passes.**
-6. **Make it yours** — row name (static or "Because you watched {top_seed}"), row size, schedule.
-7. **First run** — live per-user progress; when it finishes, each user has their private row.
+5. **Make it yours** — row name (static or "Because you watched {top_seed}"), row size, schedule.
+6. **First run** — live per-user progress; when it finishes, each user has their private row.
+
+There's no manual Privacy Check step: Shortlist verifies privacy automatically as the first phase
+of every real run (and refuses to write if it can't confirm rows stay hidden), so **nothing real is
+written until that check passes**. You can re-run it any time under Settings → Privacy.
 
 ## The one honest caveat
 

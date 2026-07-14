@@ -8,8 +8,9 @@
   rating), pause, and each user's restriction status.
 - **Runs** — every run with per-user diffs ("added X, removed Y (watched ✓)"), errors as
   first-class rows with copy-for-GitHub buttons, LLM token usage.
-- **Settings** — every connection re-testable in place; schedule editor (cron for power
-  users); label prefix, plex.tv throttle and log level under Advanced; the Danger Zone.
+- **Settings** — every connection re-testable in place; **Recommendations** (which candidate
+  sources to pool); curation style; row defaults; schedule editor (cron for power users); the
+  Danger Zone.
 
 ## Schedules
 

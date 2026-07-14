@@ -7,6 +7,7 @@
 | [Reference](reference.md)             | Configuration keys, API endpoints, environment variables, defaults         |
 | [FAQ](faq.md)                         | Privacy model, Plex requirements, Kometa coexistence, uninstalling         |
 
-**The short version:** run the container, log in with Plex, pick your users, let the built-in
-Privacy Check prove rows stay private on _your_ server, and every night each user gets a
-personal "✨ Picked for You" row built from their own watch history — visible only to them.
+**The short version:** run the container, log in with Plex, pick your users, and every night each
+user gets a personal "✨ Picked for You" row built from their own watch history — visible only to
+them. Shortlist verifies rows stay private on _your_ server automatically before it writes anything
+real.

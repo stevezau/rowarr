@@ -26,14 +26,14 @@ def _users_by_name(app: RowarrApp) -> dict[str, dict]:
 class TestUsers:
     def test_disabling_a_user_persists_and_leaves_the_others_alone(self, page: Page, app: RowarrApp):
         page.goto("/users")
-        canary = page.get_by_role("switch", name="Rowarr row for canary")
+        canary = page.get_by_role("switch", name="Shortlist row for canary")
         expect(canary).to_be_checked(timeout=LOAD)
 
         canary.click()
         expect(canary).not_to_be_checked(timeout=LOAD)
 
         page.reload()
-        expect(page.get_by_role("switch", name="Rowarr row for canary")).not_to_be_checked(timeout=LOAD)
+        expect(page.get_by_role("switch", name="Shortlist row for canary")).not_to_be_checked(timeout=LOAD)
 
         # Exactly one user changed — a broadcast PATCH would pass a "it persisted" test too.
         users = _users_by_name(app)
@@ -46,20 +46,23 @@ class TestUsers:
         page.goto(f"/users/{sarah_id}")
         expect(page.get_by_role("heading", name="sarah")).to_be_visible(timeout=LOAD)
 
-        paused = page.get_by_role("switch", name=re.compile("^Paused"))
+        # Pause is a user-level control in the header (switch is "on" when active).
+        paused = page.get_by_role("switch", name="Pause or resume sarah")
+        expect(paused).to_be_checked(timeout=LOAD)
         paused.click()
-        expect(paused).to_be_checked()
+        expect(paused).not_to_be_checked(timeout=LOAD)
 
+        # Size is a PER-ROW override now: open a row's drawer, set 10, save.
+        page.get_by_role("button", name="Customize for this person").first.click()
         page.get_by_role("button", name="10", exact=True).click()
-        page.get_by_role("button", name="Save overrides").click()
+        page.get_by_role("button", name="Save", exact=True).first.click()
+        expect(page.get_by_text("Saved").first).to_be_visible(timeout=LOAD)
 
-        # PATCH /api/users/{id} merges prefs, so both edits must survive together.
-        def prefs() -> dict:
-            return _users_by_name(app)["sarah"]["prefs"]
-
-        expect(page.get_by_role("button", name="Save overrides")).to_be_enabled(timeout=LOAD)
-        assert prefs()["row_size"] == 10
-        assert prefs()["paused"] is True
+        # Pause reaches the user's prefs; the size override lives on the row, not user prefs.
+        assert _users_by_name(app)["sarah"]["prefs"]["paused"] is True
+        rows = app.api("GET", f"/api/users/{sarah_id}/rows").json()
+        assert any(r["override"].get("row_size") == 10 for r in rows), "the per-row size override must persist"
+        # Exactly this user changed — mike's prefs stay empty.
         assert _users_by_name(app)["mike"]["prefs"] == {}
 
     def test_a_paused_user_is_skipped_by_the_next_run(self, page: Page, app: RowarrApp, reset_fake_plex):
@@ -69,8 +72,11 @@ class TestUsers:
 
         page.goto(f"/users/{sarah_id}")
         expect(page.get_by_role("heading", name="sarah")).to_be_visible(timeout=LOAD)
-        page.get_by_role("switch", name=re.compile("^Paused")).click()
-        expect(page.get_by_role("switch", name=re.compile("^Paused"))).to_be_checked(timeout=LOAD)
+        # The header pause switch is "on" when active; clicking it pauses this user.
+        paused = page.get_by_role("switch", name="Pause or resume sarah")
+        expect(paused).to_be_checked(timeout=LOAD)
+        paused.click()
+        expect(paused).not_to_be_checked(timeout=LOAD)
 
         run = build_real_rows(app)
         built = {result["slug"] for result in app.api("GET", f"/api/runs/{run['id']}").json()["users"]}
@@ -168,8 +174,11 @@ class TestRuns:
 
         picks = page.get_by_role("listitem").filter(has_text="#1")
         expect(picks.first).to_be_visible(timeout=LOAD)
-        # sarah watches movies AND TV, so her reasons cite seeds of both kinds.
-        reasons = page.get_by_text(re.compile(r"^Because you watched (Movie|Show) \d+$"))
+        # Each pick renders its "Because you watched …" reason inside its list item (the PickList now
+        # combines title + reason + seed in one line). sarah watches movies AND TV, so both appear.
+        reasons = page.get_by_role("listitem").filter(
+            has_text=re.compile(r"Because you watched (Movie|Show) \d+")
+        )
         expect(reasons).to_have_count(len(sarah_picks))
         assert {p["title"].split()[0] for p in sarah_picks} == {"Movie", "Show"}, (
             "sarah's row should mix both libraries — otherwise this test proves nothing about them"

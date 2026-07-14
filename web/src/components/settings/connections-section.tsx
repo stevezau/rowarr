@@ -79,13 +79,11 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
           purpose="Writes each row and its “why we picked this”. Optional — a no-AI mode works too."
           settings={settings}
           summary={
-            // "none" is the default and is a real choice, not a configured connection — show the
-            // provider's friendly label only when an AI provider is actually set, else "" (not set).
-            settingString(settings, "curator.provider") &&
-            settingString(settings, "curator.provider") !== "none"
-              ? (findProvider(settingString(settings, "curator.provider"))
-                  ?.label ?? settingString(settings, "curator.provider"))
-              : ""
+            // Show the provider's friendly label ("Claude", "None"), never the raw id or a
+            // machine-id-looking string. "None" (heuristic mode) is a real, testable choice, so it
+            // stays a configured state — its Test button must keep working, not vanish.
+            findProvider(settingString(settings, "curator.provider"))?.label ??
+            settingString(settings, "curator.provider")
           }
           glyph={
             <ProviderGlyph

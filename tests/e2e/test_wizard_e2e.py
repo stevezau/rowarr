@@ -52,8 +52,9 @@ def _connect_plex(page: Page, pms_url: str) -> None:
     expect(page.get_by_text("FakePlex", exact=True).first).to_be_visible(timeout=SLOW)
     working = page.locator("button", has_text=pms_url).first
     expect(working).to_be_enabled(timeout=LOAD)
+    # An unreachable address stays CLICKABLE by design — the probe only tried the plex.direct URL
+    # and can be a false negative, so it's marked "unreachable" as a hint, not disabled outright.
     unreachable = page.locator("button", has_text="10.255.255.1").first
-    expect(unreachable).to_be_disabled()
     expect(unreachable).to_contain_text("unreachable")
 
     # It preselects the address that worked, so the common case is one click.
@@ -82,7 +83,7 @@ def _skip_history(page: Page) -> None:
     stays optional: Plex's own history works.
     """
     page.get_by_role("button", name="Next").click()
-    expect(page.get_by_role("heading", name="History source")).to_be_visible()
+    expect(page.get_by_role("heading", name="Recommendations & history")).to_be_visible()
 
     # The gate: you cannot leave, or even skip Tautulli, without TMDB.
     expect(page.get_by_role("button", name="Skip — Plex's own history works without it")).to_be_disabled()
@@ -118,10 +119,15 @@ def _pick_users(page: Page, *usernames: str) -> None:
     for username in ("sarah", "mike", "canary"):
         expect(page.get_by_role("cell", name=username, exact=True)).to_be_visible(timeout=LOAD)
 
-    for username in usernames:
-        toggle = page.get_by_role("switch", name=f"Give {username} a row")
-        toggle.click()
-        expect(toggle).to_be_checked(timeout=LOAD)
+    # First sync pre-selects everyone (so the default click-through builds rows), so wait for that
+    # to land, then turn OFF anyone this test doesn't want enabled.
+    for username in ("sarah", "mike", "canary"):
+        expect(page.get_by_role("switch", name=f"Give {username} a row")).to_be_checked(timeout=LOAD)
+    for username in ("sarah", "mike", "canary"):
+        if username not in usernames:
+            toggle = page.get_by_role("switch", name=f"Give {username} a row")
+            toggle.click()
+            expect(toggle).not_to_be_checked(timeout=LOAD)
 
 
 def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fake_plex):

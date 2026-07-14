@@ -249,6 +249,11 @@ def app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> I
     pms_url, plextv_url, state = fake_plex
     monkeypatch.setattr("shortlist.engine.clients.plextv.PLEXTV", plextv_url)  # engine uses absolute plex.tv URLs
     monkeypatch.setattr("shortlist.server.auth.PLEXTV", plextv_url)  # the PIN flow has its own constant
+    # The server picker and the capability probe each did `from ...plextv import PLEXTV`, binding the
+    # name in their own module — so patching the engine module's attribute alone leaves them pointed
+    # at the real plex.tv (a 401 listing servers, an HTTPStatusError probing plex_pass).
+    monkeypatch.setattr("shortlist.server.api.setup.PLEXTV", plextv_url)
+    monkeypatch.setattr("shortlist.server.services.setup_probe.PLEXTV", plextv_url)
     monkeypatch.setattr("shortlist.engine.clients.tmdb.API", fake_tmdb)
 
     fastapi_app, server = _boot_app(tmp_path)
@@ -305,6 +310,11 @@ def fresh_app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch
     # would reach for the internet, and the e2e would have to forge the session cookie instead of
     # letting the product mint it.
     monkeypatch.setattr("shortlist.server.auth.PLEXTV", plextv_url)
+    # The server picker and capability probe each bind their own PLEXTV name
+    # (`from ...plextv import PLEXTV`), so they must be redirected here too or the wizard's first
+    # step reaches the real plex.tv (a 401 listing servers, an HTTPStatusError probing plex_pass).
+    monkeypatch.setattr("shortlist.server.api.setup.PLEXTV", plextv_url)
+    monkeypatch.setattr("shortlist.server.services.setup_probe.PLEXTV", plextv_url)
     monkeypatch.setattr("shortlist.engine.clients.tmdb.API", fake_tmdb)
 
     fastapi_app, server = _boot_app(tmp_path)

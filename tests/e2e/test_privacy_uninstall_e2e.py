@@ -176,13 +176,13 @@ class TestUninstall:
         assert state.users[201].filters["filterMovies"] == "label!=Rowarr_canary,Rowarr_mike"
 
         page.goto("/settings")
-        page.get_by_role("button", name="Uninstall Rowarr…").click()
+        page.get_by_role("button", name="Uninstall Shortlist…").click()
         dialog = page.get_by_role("dialog")
         expect(dialog).to_be_visible(timeout=LOAD)
 
         commit = dialog.get_by_role("button", name="Uninstall and restore server")
         expect(commit).to_be_disabled()
-        dialog.get_by_role("textbox").fill("uninstall rowarr")
+        dialog.get_by_role("textbox").fill("uninstall shortlist")
         expect(commit).to_be_enabled()
         commit.click()
 
@@ -209,14 +209,14 @@ class TestUninstall:
         state.collections[9999] = foreign
 
         page.goto("/settings")
-        page.get_by_role("button", name="Uninstall Rowarr…").click()
+        page.get_by_role("button", name="Uninstall Shortlist…").click()
         dialog = page.get_by_role("dialog")
 
         dialog.get_by_role("button", name="Preview what would change").click()
         expect(dialog).to_contain_text("5 collections deleted", timeout=SLOW)
         expect(dialog).not_to_contain_text("Kometa")
 
-        dialog.get_by_role("textbox").fill("uninstall rowarr")
+        dialog.get_by_role("textbox").fill("uninstall shortlist")
         dialog.get_by_role("button", name="Uninstall and restore server").click()
         expect(page.get_by_text("Your server is as we found it.")).to_be_visible(timeout=SLOW)
 

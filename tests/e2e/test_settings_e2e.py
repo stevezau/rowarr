@@ -46,11 +46,12 @@ class TestConnectionCards:
         llm.get_by_role("button", name="Test").click()
         expect(llm).to_contain_text("Heuristic mode — nothing to test, always works", timeout=LOAD)
 
+        # An unconfigured connection says so plainly and never claims a connection it doesn't have —
+        # and its Test is disabled until a key is on file (you can't test what isn't set up), rather
+        # than letting the owner test nothing and read a raw error.
         tautulli = page.get_by_test_id("connection-tautulli")
-        expect(tautulli).to_contain_text("Not set up yet.")
-        tautulli.get_by_role("button", name="Test").click()
-        # An error, surfaced — the card must not stay silent or claim a connection it doesn't have.
-        expect(tautulli).to_contain_text(re.compile("Error|error|missing"), timeout=LOAD)
+        expect(tautulli).to_contain_text("Not set up yet")
+        expect(tautulli.get_by_role("button", name="Test")).to_be_disabled()
         expect(tautulli).not_to_contain_text("Connected —")
 
 
@@ -151,11 +152,11 @@ class TestDangerZone:
         assert len(before_collections) == 5
 
         _open_settings(page)
-        page.get_by_role("button", name="Uninstall Rowarr…").click()
+        page.get_by_role("button", name="Uninstall Shortlist…").click()
 
         dialog = page.get_by_role("dialog")
         expect(dialog).to_be_visible()
-        expect(dialog).to_contain_text("Uninstall Rowarr from this server?")
+        expect(dialog).to_contain_text("Uninstall Shortlist from this server?")
 
         dialog.get_by_role("button", name="Preview what would change").click()
         expect(dialog).to_contain_text("5 collections deleted", timeout=SLOW)
@@ -168,7 +169,7 @@ class TestDangerZone:
         commit = dialog.get_by_role("button", name="Uninstall and restore server")
         expect(commit).to_be_disabled()
 
-        dialog.get_by_role("button", name="Keep Rowarr").click()
+        dialog.get_by_role("button", name="Keep Shortlist").click()
         expect(dialog).not_to_be_visible()
 
         # Nothing moved on the fake Plex: not one collection, not one share filter.

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import type { SetupState } from "./types";
 
-export const TOTAL_STEPS = 8;
+export const TOTAL_STEPS = 7;
 
 export type CuratorProvider =
   "anthropic" | "openai" | "google" | "ollama" | "none";
@@ -19,10 +19,6 @@ export interface WizardData {
   tmdb_set?: boolean;
   /** Step 3 gate: a curator card was chosen (None counts). */
   curator_provider?: CuratorProvider;
-  /** Step 5 gate: the Privacy Check passed… */
-  privacy_passed?: boolean;
-  /** …or the owner explicitly accepted the risk behind the details fold. */
-  privacy_skipped?: boolean;
   customized?: boolean;
 }
 
@@ -54,10 +50,6 @@ export const WIZARD_STEPS: readonly WizardStepMeta[] = [
     why: "Choose who gets a nightly row. You can change this any time.",
   },
   {
-    title: "Privacy Check",
-    why: "Proves rows stay private on your server before Shortlist writes anything real.",
-  },
-  {
     title: "Make it yours",
     why: "Row name, row size, and when rows refresh.",
   },
@@ -82,8 +74,6 @@ export function canLeaveStep(step: number, data: WizardData): boolean {
       return data.tmdb_set === true;
     case 3:
       return data.curator_provider !== undefined;
-    case 5:
-      return data.privacy_passed === true || data.privacy_skipped === true;
     default:
       return true;
   }

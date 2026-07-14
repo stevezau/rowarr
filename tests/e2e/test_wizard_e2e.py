@@ -136,27 +136,12 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fa
     _connect_plex(page, pms_url)
     _skip_history(page)
     _choose_no_curator(page)
-    # The canary must get a row too: the Privacy Probe needs an enabled Home user as its canary.
+    # The canary must be enabled too: the automatic Privacy Probe (now run server-side at first-run
+    # time, not as a wizard step) needs an enabled Home user as its canary.
     _pick_users(page, "sarah", "mike", "canary")
 
-    # --- Step 5: the Privacy Check (the real probe, against the fake server) ---------------
-    page.get_by_role("button", name="Next").click()
-    expect(page.get_by_role("heading", name="Privacy Check")).to_be_visible()
-    page.get_by_role("button", name=re.compile("^Run Privacy Check")).click()
-
-    # Live log lines arrive over SSE while the probe runs — proof the stream is wired end to end.
-    log = page.get_by_role("list", name="Privacy Check progress")
-    expect(log).to_contain_text("creating probe collection", timeout=SLOW)
-    expect(log).to_contain_text("excluding the probe label on the canary's share", timeout=SLOW)
-
-    passed_panel = page.get_by_role("status")
-    expect(passed_panel).to_contain_text("Your server keeps rows private", timeout=SLOW)
-    expect(passed_panel).to_contain_text("PROBE: private")
-    expect(log).to_contain_text("deleting the probe collection", timeout=SLOW)
-    # Rule 7: probe artifacts never outlive the check.
-    assert state.collections == {}, "the probe collection was not cleaned up"
-
-    # --- Step 6: customize ---------------------------------------------------------------
+    # --- Privacy is verified automatically now — no wizard step. Users -> Make it yours directly;
+    # the probe runs (and cleans up) server-side when the first run writes, asserted below. ---------
     page.get_by_role("button", name="Next").click()
     expect(page.get_by_role("heading", name="Make it yours")).to_be_visible()
 
@@ -301,16 +286,15 @@ def test_wizard_resumes_on_the_same_step_after_a_reload(fresh_page: Page, fresh_
     expect(page.get_by_text("Linked to FakePlex")).to_be_visible()
 
 
-def test_skipping_the_privacy_check_forces_a_dry_run(
+def test_a_canary_less_server_refuses_real_writes(
     fresh_page: Page,
     fresh_app: RowarrApp,
     fake_plex,
     reset_fake_plex: FakePlexState,
 ):
-    """Skip the check and the server MUST refuse to write — the wizard says so and dry-runs.
-
-    The failure here is real, not stubbed: with no Home canary enabled, the probe cannot run.
-    That is exactly the situation in which an owner reaches for the skip affordance.
+    """Fail-closed, server-side: with no Home canary the automatic probe can't verify privacy, so a
+    real run must build nothing (plex-safety rule 1). There is no skip affordance anymore — the
+    guarantee is the gate, not the UI. Setup completes via the First-run "Skip for now".
     """
     page, app, state = fresh_page, fresh_app, reset_fake_plex
     pms_url, _, _ = fake_plex
@@ -323,45 +307,15 @@ def test_skipping_the_privacy_check_forces_a_dry_run(
     _pick_users(page, "sarah", "mike")  # no canary -> the probe has nobody to check against
 
     page.get_by_role("button", name="Next").click()
-    page.get_by_role("button", name=re.compile("^Run Privacy Check")).click()
-    expect(page.get_by_text("Privacy Check failed")).to_be_visible(timeout=SLOW)
-
-    # The escape hatch is deliberately behind a fold, and says what it costs.
-    page.get_by_text("I understand the risk").click()
-    expect(page.get_by_text(re.compile("every user's row may be visible to every other user"))).to_be_visible()
-    page.get_by_role("button", name="Skip — continue without privacy verification").click()
-    expect(page.get_by_text(re.compile("Privacy verification skipped"))).to_be_visible()
-
-    page.get_by_role("button", name="Next").click()
     expect(page.get_by_role("heading", name="Make it yours")).to_be_visible()
     page.get_by_role("button", name="Save & continue").click()
-
-    # Step 7 must not offer to write. It offers a preview, and says why.
     expect(page.get_by_role("heading", name="First run")).to_be_visible(timeout=LOAD)
-    expect(page.get_by_text(re.compile("Rowarr will not write to Plex"))).to_be_visible()
-    expect(page.get_by_role("button", name="Build my rows")).to_have_count(0)
 
-    run_bodies: list[str] = []
-    page.on(
-        "request",
-        lambda r: run_bodies.append(r.post_data or "") if r.method == "POST" and r.url.endswith("/api/runs") else None,
-    )
-    page.get_by_role("button", name="Preview my rows (dry run)").click()
-    # The success panel must not claim rows are live after a dry run.
-    expect(page.get_by_text("Dry run complete — nothing was written to Plex")).to_be_visible(timeout=SLOW)
-    expect(page.get_by_text("Rows are live on Plex")).to_have_count(0)
-
-    assert run_bodies == ['{"dry_run":true}'], f"the SPA must ask for a DRY run, sent: {run_bodies}"
-    assert state.collections == {}, "a dry run wrote collections to Plex"
-    assert state.users[201].filters["filterMovies"] == "", "a dry run rewrote a user's share filters"
-
-    run = app.api("GET", "/api/runs").json()[0]
-    assert run["dry_run"] is True
-
-    # Fail-closed, server-side: even a direct real-run request is refused without a passing check
-    # (plex-safety rule 1). The UI's dry-run-only copy is a courtesy; THIS is the guarantee.
+    # A real run is refused: the auto-probe records a failed PROBE (no canary), the gate stays shut,
+    # and nothing is written — no UI courtesy required, this is the hard guarantee.
     created = app.api("POST", "/api/runs", json={"dry_run": False}).json()
     refused = app.wait_for_run(created["run_id"])
     assert refused["status"] == "error"
     assert "privacy gate" in refused["stats"]["error"]
-    assert state.collections == {}
+    assert state.collections == {}, "a canary-less server must write no collections"
+    assert state.users[201].filters["filterMovies"] == "", "a canary-less server must not rewrite share filters"

@@ -24,7 +24,7 @@ const putSetupState = vi.mocked(api.putSetupState);
 describe("clampStep", () => {
   it("keeps in-range steps and clamps everything else", () => {
     expect(clampStep(0)).toBe(0);
-    expect(clampStep(7)).toBe(7);
+    expect(clampStep(TOTAL_STEPS - 1)).toBe(TOTAL_STEPS - 1);
     expect(clampStep(-3)).toBe(0);
     expect(clampStep(99)).toBe(TOTAL_STEPS - 1);
     expect(clampStep(Number.NaN)).toBe(0);
@@ -44,14 +44,8 @@ describe("canLeaveStep", () => {
     expect(canLeaveStep(3, { curator_provider: "anthropic" })).toBe(true);
   });
 
-  it("gates step 5 on privacy passing or an explicit skip", () => {
-    expect(canLeaveStep(5, {})).toBe(false);
-    expect(canLeaveStep(5, { privacy_passed: true })).toBe(true);
-    expect(canLeaveStep(5, { privacy_skipped: true })).toBe(true);
-  });
-
-  it("leaves the ungated steps open", () => {
-    for (const step of [0, 4, 6, 7]) {
+  it("leaves the ungated steps open (privacy is verified automatically, not a wizard gate)", () => {
+    for (const step of [0, 4, 5, 6]) {
       expect(canLeaveStep(step, {})).toBe(true);
     }
   });
@@ -189,7 +183,7 @@ describe("useWizard", () => {
 
   it("marks setup completed and then calls onComplete", async () => {
     getSetupState.mockResolvedValue({
-      step: 7,
+      step: 6,
       state: { linked: true },
       completed: false,
     });
@@ -200,7 +194,7 @@ describe("useWizard", () => {
     await act(() => result.current.complete());
 
     expect(putSetupState).toHaveBeenCalledWith({
-      step: 7,
+      step: 6,
       state: { linked: true },
       completed: true,
     });
@@ -209,17 +203,6 @@ describe("useWizard", () => {
     expect(putSetupState.mock.invocationCallOrder[0]).toBeLessThan(
       onComplete.mock.invocationCallOrder[0] ?? Infinity,
     );
-  });
-
-  it("gates step 5 on a passing Privacy Check", () => {
-    expect(canLeaveStep(5, {})).toBe(false);
-    expect(canLeaveStep(5, { privacy_passed: true })).toBe(true);
-  });
-
-  it("lets an owner past step 5 by explicitly accepting the risk", () => {
-    // The skip is deliberate but consequential: the server still refuses real writes,
-    // so step 7 must fall back to a dry run (see step-first-run).
-    expect(canLeaveStep(5, { privacy_skipped: true })).toBe(true);
   });
 
   it("has a title and one-line why for every step", () => {

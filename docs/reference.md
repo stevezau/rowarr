@@ -86,9 +86,12 @@ Shortlist refuses real (non-dry-run) writes unless **both** hold:
    recent result must pass — a stale T2 failure can't be masked by a newer T1-only pass).
 2. The linked PMS is **≥ 1.43.2.10687**.
 
-The web app records checks in the `privacy_checks` table (Settings → Run Privacy Check, or
-the wizard). The CLI records them in `privacy_check.json` via `shortlist verify`. A refused run
-is recorded as an errored run with a plain-English reason — it never half-applies.
+The web app records checks in the `privacy_checks` table. **Every real run runs the check itself as
+its first phase** — if the gate isn't already open, the run performs the check, records the result,
+and only then decides whether to write; the owner never runs it by hand. A manual re-check is still
+available (Settings → Re-check privacy), and the CLI records checks in `privacy_check.json` via
+`shortlist verify`. A refused run is recorded as an errored run with a plain-English reason — it
+never half-applies.
 
 ## Privacy Check tiers
 
@@ -98,8 +101,8 @@ is recorded as an errored run with a plain-English reason — it never half-appl
 | **T2**    | Fetches a canary Home user's own Home hubs and asserts no other user's collection id appears                                                                                                           | seconds, read-only     |
 | **PROBE** | Creates a throwaway labeled collection, promotes it, confirms the canary can see it, excludes it, confirms it disappears — then restores filters byte-identically and deletes the probe (in `finally`) | ~90s, fully reversible |
 
-The wizard runs PROBE. The weekly scheduled check runs T1 + T2. `rowarr verify --probe` runs
-PROBE from the CLI.
+Each real run auto-runs PROBE (when a canary Home user exists, else T1/T2) before it writes. The
+weekly scheduled check runs T1 + T2. `rowarr verify --probe` runs PROBE from the CLI.
 
 ## Files under /config
 

@@ -113,18 +113,14 @@ class TestRequestsApi:
         assert rows[10]["status"] == "rejected"
 
     def test_send_without_requests_configured_returns_409(self, client: TestClient, monkeypatch):
-        monkeypatch.setattr(
-            client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(None)
-        )
+        monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(None))
         assert client.post("/api/requests/send", json={"ids": [10]}).status_code == 409
 
     def test_send_marks_the_title_sent(self, client: TestClient, monkeypatch):
         fake = FakeArr()
         monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
         cfg = RequestConfig(enabled=True, radarr=_RADARR)
-        monkeypatch.setattr(
-            client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(cfg)
-        )
+        monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(cfg))
         body = client.post("/api/requests/send", json={"ids": [1]}).json()
         assert body["sent"] == 1 and fake.movie_calls == [(10, False)]
         rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
@@ -134,9 +130,7 @@ class TestRequestsApi:
         fake = FakeArr()
         monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
         cfg = RequestConfig(enabled=True, radarr=_RADARR)
-        monkeypatch.setattr(
-            client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(cfg)
-        )
+        monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(cfg))
         body = client.post("/api/requests/send", json={"ids": [1], "dry_run": True}).json()
         assert body["dry_run"] is True and fake.movie_calls == [(10, True)]
         rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}

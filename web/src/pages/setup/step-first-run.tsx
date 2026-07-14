@@ -62,7 +62,7 @@ function ProgressCard({
  * Step 7 — fire the first real run and stream per-user progress via SSE
  * (design doc §3 step 7). On finish: success panel + complete the wizard.
  */
-export function StepFirstRun({ data, complete }: StepProps) {
+export function StepFirstRun({ complete }: StepProps) {
   const usersQuery = useUsers();
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   const [finishedStatus, setFinishedStatus] = useState<string | null>(null);
@@ -76,12 +76,8 @@ export function StepFirstRun({ data, complete }: StepProps) {
     onRunFinished: (event) => setFinishedStatus(event.status),
   });
 
-  // Without a passing Privacy Check the server refuses real writes (fail-closed), so a
-  // skipper's "first run" can only ever be a dry run. Say so, and do that instead.
-  const dryRunOnly = Boolean(data.privacy_skipped) && !data.privacy_passed;
-
   const run = useMutation({
-    mutationFn: () => api.startRun({ dry_run: dryRunOnly }),
+    mutationFn: () => api.startRun({}),
     onMutate: () => {
       setProgress({});
       setFinishedStatus(null);
@@ -97,9 +93,11 @@ export function StepFirstRun({ data, complete }: StepProps) {
       {!started && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            {dryRunOnly
-              ? "You skipped the Privacy Check, so Shortlist will not write to Plex — it never does until a check passes. This is a dry run: you'll see exactly what it would build for each user. Run the Privacy Check from Settings whenever you're ready, then build the rows for real."
-              : "This builds a real row for every enabled user — history → candidates → curating → collection → privacy sync — and you get to watch every stage live."}
+            This builds a real row for every enabled user — history → candidates
+            → curating → collection → privacy sync — and you get to watch every
+            stage live. Shortlist verifies privacy on your server before it
+            writes anything; if a row can&rsquo;t be kept private, the run stops
+            itself rather than expose it.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Button
@@ -112,7 +110,7 @@ export function StepFirstRun({ data, complete }: StepProps) {
               ) : (
                 <Play aria-hidden="true" />
               )}
-              {dryRunOnly ? "Preview my rows (dry run)" : "Build my rows"}
+              Build my rows
             </Button>
             {/* Finishing without a run is fine — nothing needs the first run to have happened.
                 The nightly schedule builds rows anyway, and "Build my rows" waits on the Runs page. */}
@@ -186,19 +184,15 @@ export function StepFirstRun({ data, complete }: StepProps) {
             )}
             {failed
               ? "The run failed — no rows were built"
-              : dryRunOnly
-                ? "Dry run complete — nothing was written to Plex"
-                : "Rows are live on Plex"}
+              : "Rows are live on Plex"}
           </p>
           <Badge variant={finishedStatus === "ok" ? "success" : "destructive"}>
             run {finishedStatus}
           </Badge>
           <p className="text-sm text-muted-foreground">
             {failed
-              ? "Open Runs to see exactly which user failed and why — the error is recorded per user. Nothing was half-applied: fix the cause and run it again."
-              : dryRunOnly
-                ? "That's what Shortlist would build for each user. When you're ready, run the Privacy Check from Settings — once it passes, the next run writes for real."
-                : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
+              ? "Open Runs to see exactly which user failed and why — the error is recorded per user (a failed privacy verification shows here too). Nothing was half-applied: fix the cause and run it again."
+              : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
           </p>
           <Button onClick={() => void complete()}>
             {failed ? "Finish setup anyway" : "Finish setup"}

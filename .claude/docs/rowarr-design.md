@@ -108,9 +108,12 @@ Animated mock of a Plex Home screen gaining a "✨ Picked for You" row. One butt
 - **Admin caveat surfaced here**, not buried: _"Plex cannot hide collections from the server owner —
   your own Home will show every user's row. Tip: watch on a non-owner account."_
 
-### Step 5 — Privacy Check ★ (the feature nobody else has)
+### Privacy Check ★ (the feature nobody else has)
 
-Runs automatically, ~60 seconds, with a live log:
+**No longer a manual wizard step.** It runs automatically as the first phase of every real run (and
+the weekly scheduled check): the owner never triggers it, and the write gate simply refuses to build
+rows until a fresh passing result is on record. It only surfaces if it fails (the run pauses and says
+why). Settings still exposes a manual re-check. The mechanism, ~60 seconds with a live log:
 
 1. Create throwaway collection `Shortlist Privacy Probe` with one item, label `rowarr_probe`,
    promote to shared Home.
@@ -379,7 +382,7 @@ for everything above** — and it doubles as the manual dry-run of the Step-5 Pr
 | **0 — Validate**       | Manual privacy test on Steve's server (probe collection + one invited test account + a non-owner viewing account). Scaffold repo (engine/server/web skeleton, CI, ruff/pytest). | Privacy test passes on Home/Recommended/Related; repo builds                                          | ~1 day         |
 | **1 — Engine + pilot** | `rowarr/engine` + `cli.py` complete (history→TMDB→LLM→collections→privacy sync w/ snapshots). Cron on plex host via `error_checker.sh`. Roll out 5 → 15 → 40 of Steve's users.  | 40 users have private rows nightly for 1–2 weeks; zero privacy incidents; hit-rate baseline collected | ~1 week + soak |
 | **2 — App core**       | FastAPI + DB + scheduler + API; React shell; Dashboard, Users, Runs, Settings on the live engine                                                                                | Steve administers his own server through the UI instead of cron                                       | ~2 weeks       |
-| **3 — Onboarding**     | PIN auth, capability probes, wizard steps 0–7, automated Privacy Check (T1/T2/T3), uninstall/rollback flow                                                                      | Fresh `docker run` on a clean test server → rows, no docs needed                                      | ~1 week        |
+| **3 — Onboarding**     | PIN auth, capability probes, wizard steps 0–6, automatic pre-write Privacy Check (T1/T2/T3), uninstall/rollback flow                                                            | Fresh `docker run` on a clean test server → rows, no docs needed                                      | ~1 week        |
 | **4 — Ship-ready**     | GHCR/Docker Hub images, README + docs site, screenshots/GIF, issue templates, 3–5 external beta testers recruited from r/PleX                                                   | Beta testers onboard unassisted; blockers fixed                                                       | ~1 week        |
 | **5 — Launch**         | r/selfhosted + r/PleX posts (lead with the Privacy Check + "works without AI"), Awesome-Selfhosted PR                                                                           | Public v1.0                                                                                           | —              |
 

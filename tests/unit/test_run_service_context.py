@@ -191,6 +191,9 @@ class TestServerPrivacyGate:
         monkeypatch.setattr(run_service_mod, "engine_run", called)
         contexts: list[dict] = []
         monkeypatch.setattr(service, "build_context", lambda **kw: (contexts.append(kw), MagicMock())[1])
+        # The run now auto-runs the Privacy Check first; here it records nothing, so the gate stays
+        # shut and the remedy path below is exercised exactly as before automation existed.
+        monkeypatch.setattr(service, "run_privacy_check", lambda **kw: [])
 
         async def scenario():
             run_id = await service.start_run(trigger="schedule", dry_run=False)
@@ -212,6 +215,101 @@ class TestServerPrivacyGate:
         # ...and for REAL. A remedy built as a dry run would log every write and make none, so the
         # excludes would never land, the check would never pass, and the gate would stay shut.
         assert contexts == [{"dry_run": False}]
+
+    def _stub_check_ctx(self, service, monkeypatch, *, canary: bool):
+        """A fake engine context + enabled profile so run_privacy_check's canary branch can be driven."""
+        ctx = MagicMock()
+        ctx.plex.owned_collections.return_value = {}
+        ctx.config.label_prefix = "rowarr"
+        ctx.plextv.home_users.return_value = [{"id": 100, "protected": False}] if canary else []
+        monkeypatch.setattr(service, "build_context", lambda **kw: ctx)
+        monkeypatch.setattr(service, "enabled_profiles", lambda session: [MagicMock(plex_account_id=100)])
+        return ctx
+
+    def test_run_privacy_check_probe_with_canary_runs_the_probe(self, service, sessions, monkeypatch):
+        self._stub_check_ctx(service, monkeypatch, canary=True)
+        probe = MagicMock(return_value=MagicMock(tier="PROBE", passed=True, detail={}))
+        t1 = MagicMock(return_value=MagicMock(tier="T1", passed=True, detail={}))
+        monkeypatch.setattr("shortlist.engine.probe.run_privacy_probe", probe)
+        monkeypatch.setattr("shortlist.engine.verify.check_t1", t1)
+
+        results = service.run_privacy_check(probe=True)
+
+        probe.assert_called_once()
+        t1.assert_not_called()
+        assert [r.tier for r in results] == ["PROBE"]
+        with sessions() as session:
+            assert {c.tier for c in session.query(PrivacyCheck).all()} == {"PROBE"}
+
+    def test_run_privacy_check_probe_without_canary_records_a_failed_probe(self, service, sessions, monkeypatch):
+        self._stub_check_ctx(service, monkeypatch, canary=False)
+        probe = MagicMock()
+        t1 = MagicMock(return_value=MagicMock(tier="T1", passed=True, detail={}))
+        monkeypatch.setattr("shortlist.engine.probe.run_privacy_probe", probe)
+        monkeypatch.setattr("shortlist.engine.verify.check_t1", t1)
+
+        results = service.run_privacy_check(probe=True)  # asked for a probe, but there's no canary
+
+        probe.assert_not_called()  # can't run without a canary
+        # ...and crucially it does NOT fall back to a trivially-passing T1 that would open the gate:
+        # it records a FAILED PROBE so a canary-less server stays fail-closed (no raise either).
+        t1.assert_not_called()
+        assert len(results) == 1
+        assert results[0].tier == "PROBE" and results[0].passed is False
+        with sessions() as session:
+            row = session.query(PrivacyCheck).one()
+            assert row.tier == "PROBE" and row.passed is False
+
+    def test_run_privacy_check_non_probe_with_canary_runs_t1_and_t2(self, service, sessions, monkeypatch):
+        self._stub_check_ctx(service, monkeypatch, canary=True)
+        monkeypatch.setattr("shortlist.engine.probe.run_privacy_probe", MagicMock())
+        t1 = MagicMock(return_value=MagicMock(tier="T1", passed=True, detail={}))
+        t2 = MagicMock(return_value=MagicMock(tier="T2", passed=True, detail={}))
+        monkeypatch.setattr("shortlist.engine.verify.check_t1", t1)
+        monkeypatch.setattr("shortlist.engine.verify.check_t2", t2)
+
+        results = service.run_privacy_check(probe=False)
+
+        t1.assert_called_once()
+        t2.assert_called_once()
+        assert {r.tier for r in results} == {"T1", "T2"}
+
+    def test_a_gated_run_auto_checks_itself_then_builds_when_the_check_passes(self, service, sessions, monkeypatch):
+        """The owner never runs the Privacy Check by hand: a closed gate makes the run run the check
+        itself, and a passing check opens the gate so the SAME run goes on to build for real."""
+        import asyncio
+
+        self._add_server(sessions)  # version OK, but no check on record yet -> gate starts closed
+        assert service._privacy_gate_error() is not None
+
+        def passing_check(**_kwargs):
+            # What a passing check leaves behind: a fresh passing tier, which opens the gate.
+            with sessions() as session:
+                session.add(PrivacyCheck(tier="T1", passed=True, ran_at=datetime.now(UTC), detail={}))
+                session.commit()
+            return [MagicMock(tier="T1", passed=True, detail={})]
+
+        monkeypatch.setattr(service, "run_privacy_check", passing_check)
+        built = MagicMock(return_value=RunReport(started_at=datetime.now(UTC)))
+        monkeypatch.setattr(run_service_mod, "engine_run", built)
+        monkeypatch.setattr(service, "build_context", lambda **kw: MagicMock())
+
+        async def scenario():
+            from shortlist.server.db.models import Run
+
+            run_id = await service.start_run(trigger="schedule", dry_run=False)
+            for _ in range(100):
+                with sessions() as session:
+                    run = session.get(Run, run_id)
+                    if run.finished_at is not None:
+                        return run.stats
+                await asyncio.sleep(0.02)
+            raise AssertionError("run never finished")
+
+        stats = asyncio.run(scenario())
+        built.assert_called_once()  # the real build ran
+        assert "privacy gate" not in (stats.get("error") or ""), "the run was NOT refused"
+        assert service._privacy_gate_error() is None, "the auto-check left a passing record on file"
 
     def test_a_remedy_that_blows_up_still_finishes_the_run(self, service, sessions, monkeypatch):
         """The gate refusal is the headline; a failing remedy is the footnote. It must never leave

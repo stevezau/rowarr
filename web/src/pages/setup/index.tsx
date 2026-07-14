@@ -15,7 +15,6 @@ import { StepCurator } from "./step-curator";
 import { StepCustomize } from "./step-customize";
 import { StepFirstRun } from "./step-first-run";
 import { StepHistory } from "./step-history";
-import { StepPrivacy } from "./step-privacy";
 import { StepUsers } from "./step-users";
 import { StepWelcome } from "./step-welcome";
 import type { StepProps } from "./step-props";
@@ -26,7 +25,6 @@ const STEP_COMPONENTS: readonly ((props: StepProps) => ReactNode)[] = [
   StepHistory,
   StepCurator,
   StepUsers,
-  StepPrivacy,
   StepCustomize,
   StepFirstRun,
 ];

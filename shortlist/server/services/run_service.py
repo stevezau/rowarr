@@ -9,15 +9,17 @@ config, profiles) lives in ``context_builder.ContextBuilder``; this module is on
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
+from shortlist.engine.models import PrivacyCheckResult
 from shortlist.engine.pipeline import EngineContext
 from shortlist.engine.pipeline import run as engine_run
-from shortlist.server.db.models import Event, PickRow, RequestCandidate, Run, RunUser, Server, User
+from shortlist.server.db.models import Event, PickRow, PrivacyCheck, RequestCandidate, Run, RunUser, Server, User
 from shortlist.server.services.context_builder import ContextBuilder
 from shortlist.server.services.privacy_state import gate_error
 from shortlist.server.services.sse import EventBus
@@ -41,6 +43,59 @@ class RunService:
     def build_requests_context(self):
         """Requests config + TMDB client for the approval inbox's manual send — no Plex/LLM I/O."""
         return self._ctx.build_requests_only()
+
+    def run_privacy_check(self, *, probe: bool, on_step: Callable[[str], None] | None = None) -> list:
+        """Run the Privacy Check, persist each tier's result, and return them.
+
+        ``probe=True`` runs the full end-to-end probe (a throwaway labeled collection whose visibility
+        is checked from a canary Home user, cleaned up in ``finally``) when such a canary exists, and
+        falls back to the read-only T1/T2 checks when none does. This is the single place the check
+        runs: the dashboard's manual re-check and the automatic pre-write check both call it.
+        """
+        from shortlist.engine.probe import run_privacy_probe
+        from shortlist.engine.verify import check_t1, check_t2
+
+        ctx = self.build_context(dry_run=True)
+        with self._sessions() as session:
+            profiles = self.enabled_profiles(session)
+        collections = ctx.plex.owned_collections(ctx.config.label_prefix)
+        stored = {slug: row.label for slug, row in collections.items()}
+        # The canary is an enabled user who is a Home user without a PIN — the only account we can
+        # safely borrow a token for to view the server as a non-owner (plex-safety: managed profiles
+        # are never touched, and a PIN-protected user can't be impersonated).
+        home = {int(u.get("id", 0)): u for u in ctx.plextv.home_users()}
+        canary = next(
+            (p for p in profiles if p.plex_account_id in home and not home[p.plex_account_id].get("protected")),
+            None,
+        )
+        if probe:
+            if canary is not None:
+                results = [run_privacy_probe(ctx.plex, ctx.plextv, canary, ctx.snapshots, on_step=on_step)]
+            else:
+                # No canary means the end-to-end probe can't run — and T1 alone passes trivially on a
+                # fresh server, so it must NOT be allowed to open the gate. Record a FAILED PROBE with
+                # an actionable reason: fail-closed until the owner adds a Home user without a PIN to
+                # verify against. This keeps the automatic path at least as strict as the old wizard,
+                # which also required the probe.
+                results = [
+                    PrivacyCheckResult(
+                        tier="PROBE",
+                        passed=False,
+                        detail={"reason": "no canary — add a Plex Home user without a PIN so privacy can be verified"},
+                    )
+                ]
+        else:
+            results = [check_t1(ctx.plextv, ctx.known_slugs, stored)]
+            if canary is not None:
+                try:
+                    results.append(check_t2(ctx.plex, ctx.plextv, canary, collections))
+                except Exception:
+                    logger.exception("T2 check failed to execute")
+        with self._sessions() as session:
+            for result in results:
+                session.add(PrivacyCheck(tier=result.tier, passed=result.passed, detail=result.detail))
+            session.commit()
+        return results
 
     def enabled_profiles(self, session: Session, user_ids: list[int] | None = None):
         return self._ctx.enabled_profiles(session, user_ids)
@@ -90,6 +145,17 @@ class RunService:
     async def _execute(self, run_id: int, dry_run: bool, user_ids: list[int] | None) -> None:
         loop = asyncio.get_running_loop()
         async with self._lock:
+            if not dry_run and self._privacy_gate_error():
+                # Automatic, invisible Privacy Check: try to open the gate ourselves before falling
+                # back to the remedy pass — the owner never runs it by hand. The gate re-check below
+                # is deliberately unchanged, so a check that genuinely fails (or a Plex too old to
+                # fix) still refuses every real write. Automating the check cannot loosen the gate.
+                # Wrapped so NOTHING here (even its own bookkeeping) can strand the run: any failure
+                # falls through to the gate re-check, which can only keep the gate shut, never open it.
+                try:
+                    await self._auto_privacy_check(run_id, loop)
+                except Exception:
+                    logger.exception("automatic privacy check bookkeeping failed for run {}", run_id)
             if not dry_run and (gate := self._privacy_gate_error()):
                 await self._run_remedy_pass(run_id, gate, loop)
                 return
@@ -110,6 +176,39 @@ class RunService:
                 self._bus.publish("run.finished", {"run_id": run_id, "status": "error"})
                 return
             self._bus.publish("run.finished", {"run_id": run_id, "status": status})
+
+    async def _auto_privacy_check(self, run_id: int, loop: asyncio.AbstractEventLoop) -> None:
+        """Run the Privacy Check on the run's behalf so the gate can open without the owner acting.
+
+        Best-effort and never fatal: if the check itself errors, the gate simply stays closed and the
+        caller falls back to the remedy pass — no real write happens, exactly as if the check had been
+        skipped. The outcome is recorded as an event so a silent failure is still answerable from the UI.
+        """
+        try:
+            results = await loop.run_in_executor(None, lambda: self.run_privacy_check(probe=True))
+        except Exception as e:
+            logger.exception("automatic privacy check failed to execute for run {}", run_id)
+            with self._sessions() as session:
+                session.add(
+                    Event(
+                        scope="privacy.auto",
+                        level="warn",
+                        message={"run_id": run_id, "error": f"{type(e).__name__}: {e}"},
+                    )
+                )
+                session.commit()
+            return
+        passed = all(r.passed for r in results)
+        self._bus.publish("privacy.status", {"passed": passed})
+        with self._sessions() as session:
+            session.add(
+                Event(
+                    scope="privacy.auto",
+                    level="info" if passed else "warn",
+                    message={"run_id": run_id, "passed": passed, "tiers": {r.tier: r.passed for r in results}},
+                )
+            )
+            session.commit()
 
     async def _run_remedy_pass(self, run_id: int, gate: str, loop: asyncio.AbstractEventLoop) -> None:
         """The gate refused to BUILD rows — but the remedy must still run, or the gate deadlocks.

@@ -81,14 +81,16 @@ export function StepConnect({ data, update }: StepProps) {
     mutationFn: () => api.setupProbe({ plex_url: plexUrl }),
   });
 
-  // Auto-run the deep checks the moment a reachable discovered address is chosen — discovery already
-  // proved it answers, so there's nothing for the owner to click. A manually typed address still
-  // uses the Run checks button (we can't assume an address we didn't find is real).
+  // Auto-run the deep checks the moment a discovered address is chosen — whether or not discovery
+  // could reach it. Discovery probes plex.direct hostnames, which often fail from where Shortlist
+  // runs even when the server's plain LAN address works, so "unreachable" is a hint, not a verdict:
+  // clicking one runs the real check so the owner sees for themselves. A manually typed address
+  // (not in the discovered list) still uses the Run checks button.
   const autoChecked = useRef<string | null>(null);
   useEffect(() => {
     if (!plexUrl || autoChecked.current === plexUrl) return;
     const discovered = servers.data?.some((server) =>
-      server.connections.some((c) => c.uri === plexUrl && c.ok),
+      server.connections.some((c) => c.uri === plexUrl),
     );
     if (discovered) {
       autoChecked.current = plexUrl;
@@ -229,7 +231,9 @@ export function StepConnect({ data, update }: StepProps) {
                       }
                       size="sm"
                       aria-pressed={plexUrl === connection.uri}
-                      disabled={!connection.ok}
+                      // Unreachable addresses stay clickable: discovery only probed the plex.direct
+                      // hostname, so selecting one fills the URL and re-runs the real check — and the
+                      // owner can then edit it to their LAN address if that hostname won't route.
                       onClick={() => setPlexUrl(connection.uri)}
                       className="h-auto w-full items-start justify-start gap-2 whitespace-normal break-all py-1.5 text-left font-mono text-xs"
                     >

@@ -176,9 +176,7 @@ class TestRuns:
         expect(picks.first).to_be_visible(timeout=LOAD)
         # Each pick renders its "Because you watched …" reason inside its list item (the PickList now
         # combines title + reason + seed in one line). sarah watches movies AND TV, so both appear.
-        reasons = page.get_by_role("listitem").filter(
-            has_text=re.compile(r"Because you watched (Movie|Show) \d+")
-        )
+        reasons = page.get_by_role("listitem").filter(has_text=re.compile(r"Because you watched (Movie|Show) \d+"))
         expect(reasons).to_have_count(len(sarah_picks))
         assert {p["title"].split()[0] for p in sarah_picks} == {"Movie", "Show"}, (
             "sarah's row should mix both libraries — otherwise this test proves nothing about them"

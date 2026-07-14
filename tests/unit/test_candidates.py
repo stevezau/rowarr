@@ -1,6 +1,29 @@
-from shortlist.engine.candidates import filter_candidates, gather_candidates
-from shortlist.engine.models import MediaType, Seed
+from shortlist.engine.candidates import _slice_for_llm, filter_candidates, gather_candidates
+from shortlist.engine.curator import NullCurator
+from shortlist.engine.models import MediaType, Pick, Seed
 from tests.conftest import make_candidate
+
+
+class _PickFirstCurator:
+    """A stand-in curator that 'proposes' the first title it's shown from the library slice."""
+
+    def curate(self, profile, candidates, k):
+        c = candidates[0]
+        return [
+            Pick(
+                tmdb_id=c.tmdb_id,
+                rating_key=c.rating_key or 0,
+                title=c.title,
+                rank=1,
+                reason="fits",
+                media_type=c.media_type,
+            )
+        ]
+
+
+class _BoomCurator:
+    def curate(self, profile, candidates, k):
+        raise RuntimeError("llm down")
 
 
 def seed(tmdb_id: int, title: str = "Seed") -> Seed:
@@ -68,6 +91,69 @@ class TestGatherCandidates:
     def test_default_sources_do_not_call_discover(self, mock_tmdb):
         gather_candidates(mock_tmdb, [seed(1)])  # unset -> default (tmdb_similar only)
         assert mock_tmdb.discover.called is False
+
+    def test_llm_library_source_proposes_owned_titles(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        catalog = {
+            MediaType.MOVIE: [
+                {"tmdb_id": 500, "rating_key": 1, "title": "Owned A", "year": 2020, "genres": ["Drama"]},
+                {"tmdb_id": 501, "rating_key": 2, "title": "Owned B", "year": 2021, "genres": ["Comedy"]},
+            ]
+        }
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["llm_library"],
+            curator=_PickFirstCurator(),
+            catalog=catalog,
+            profile=object(),
+        )
+        assert {c.tmdb_id for c in pool} == {500}  # only the curator's pick from the owned library
+
+    def test_llm_library_failure_keeps_the_other_sources(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 1, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        catalog = {MediaType.MOVIE: [{"tmdb_id": 5, "rating_key": 1, "title": "X", "year": 2020, "genres": []}]}
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["tmdb_similar", "llm_library"],
+            curator=_BoomCurator(),
+            catalog=catalog,
+            profile=object(),
+        )
+        assert {c.tmdb_id for c in pool} == {1}  # similar survives; the LLM source's failure is swallowed
+
+    def test_llm_library_is_a_noop_without_a_real_curator(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 1, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        catalog = {MediaType.MOVIE: [{"tmdb_id": 5, "rating_key": 1, "title": "X", "year": 2020, "genres": []}]}
+        # NullCurator isn't AI -> the source no-ops (matches the UI gate); only tmdb_similar contributes.
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["tmdb_similar", "llm_library"],
+            curator=NullCurator(),
+            catalog=catalog,
+            profile=object(),
+        )
+        assert {c.tmdb_id for c in pool} == {1}
+
+
+class TestSliceForLlm:
+    def test_caps_and_prefers_taste_matching_titles(self):
+        # A big library must be trimmed to the cap, keeping taste-matching titles over the long tail.
+        items = [{"tmdb_id": i, "genres": ["Comedy"]} for i in range(400)]
+        items.append({"tmdb_id": 9999, "genres": ["Drama"]})  # the only Drama title, last in the list
+        sliced = _slice_for_llm(items, {"Drama"}, 300)
+        assert len(sliced) == 300  # capped
+        assert any(it["tmdb_id"] == 9999 for it in sliced)  # taste match kept despite being last
+
+    def test_small_library_is_returned_whole(self):
+        items = [{"tmdb_id": 1, "genres": []}, {"tmdb_id": 2, "genres": []}]
+        assert _slice_for_llm(items, set(), 300) == items
 
 
 class TestFilterCandidates:

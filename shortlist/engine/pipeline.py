@@ -51,6 +51,9 @@ class EngineContext:
     # slug -> {(tmdb_id, media_type)}: the staleness guard. Keyed on the PAIR because TMDB ids
     # are unique only within a namespace — movie 550 and TV 550 are different titles.
     recent_picks: dict[str, set[tuple[int, MediaType]]] = field(default_factory=dict)
+    # media_type -> [{tmdb_id, rating_key, title, year, genres}] for the delivery libraries, built
+    # once per run and only when the AI-from-library candidate source is enabled (else empty).
+    library_catalog: dict[MediaType, list[dict]] = field(default_factory=dict)
     # plex account id -> the slug Shortlist assigned that account, for EVERY user it knows (not just
     # tonight's). This is how "whose row is this?" is answered. It cannot be answered from a name:
     # people rename themselves, and two display names can slugify to the same string — either
@@ -151,6 +154,9 @@ def _build_indexes(
                 section.title,
                 targets[kind].title,
             )
+    # The AI-from-library source needs titles/genres, so build the catalog once (only when it's on).
+    if users and "llm_library" in ctx.config.candidate_sources:
+        ctx.library_catalog = {kind: ctx.plex.build_library_catalog(section) for kind, section in targets.items()}
     return seed_index, library_index
 
 

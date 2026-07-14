@@ -86,6 +86,29 @@ class PlexClient:
         )
         return index
 
+    def build_library_catalog(self, section: LibrarySection) -> list[dict]:
+        """Every TMDB-identified item with the metadata the AI-from-library source reasons over.
+
+        Same one scan shape as build_library_index, but keeps title/year/genres so the LLM can pick
+        owned titles that fit a person's taste. Built at most once per run (only when that source is on).
+        """
+        catalog: list[dict] = []
+        for item in section.all():
+            tmdb_id = _tmdb_guid(item)
+            if tmdb_id is None:
+                continue
+            catalog.append(
+                {
+                    "tmdb_id": tmdb_id,
+                    "rating_key": item.ratingKey,
+                    "title": item.title,
+                    "year": getattr(item, "year", None),
+                    "genres": [g.tag for g in (getattr(item, "genres", None) or [])],
+                }
+            )
+        logger.debug("library catalog for '{}': {} titled items", section.title, len(catalog))
+        return catalog
+
     def top_rated(self, section: LibrarySection, limit: int) -> list[tuple[int, object]]:
         """Highest audience-rated titles that carry a TMDB id — the cold-start 'popular' source.
 

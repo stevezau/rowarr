@@ -32,6 +32,9 @@ wider reach. Available today:
 - **TMDB — similar titles**: the baseline — titles TMDB says are similar to what each person watched.
 - **TMDB — discover by taste**: widens into popular, well-rated titles in the genres each person
   leans toward (derived from their watch history).
+- **AI — suggests from your library** (needs an AI curator): the curator reads each person's taste
+  and proposes owned titles that fit, reaching across your whole library rather than just what's
+  similar to one seed. Large libraries are sliced to each person's genres before the LLM sees them.
 
 ## Requests (Radarr / Sonarr)
 

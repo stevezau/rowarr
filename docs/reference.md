@@ -26,7 +26,7 @@
 | `row.size`                                            | `15`                               | 10/15/20 in the UI; budget across a user's rows                        |
 | `schedule.cron`                                       | `30 3 * * *`                       | full cron, applied live                                                |
 | `staleness_runs`                                      | `3`                                | prefer titles not picked in the last N runs                            |
-| `candidates.sources`                                  | `["tmdb_similar","tmdb_discover"]` | candidate sources to pool: `tmdb_similar`, `tmdb_discover`             |
+| `candidates.sources`                                  | `["tmdb_similar","tmdb_discover"]` | sources to pool: `tmdb_similar`, `tmdb_discover`, `llm_library`        |
 | `plextv.throttle_s`                                   | `1.0`                              | plex.tv write spacing (rule: ≤1 write/s)                               |
 | `requests.enabled`                                    | `false`                            | ask Radarr/Sonarr for picks the library lacks                          |
 | `requests.radarr.url` / `.apikey`                     | —                                  | Radarr (movies); key stored Fernet-encrypted, redacted                 |

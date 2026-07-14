@@ -5,11 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { apiErrorMessage } from "@/lib/api";
+import { settingString } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
 /** Candidate sources the owner can enable. More sources = wider recall before the AI re-ranks. */
-const SOURCES: { id: string; label: string; desc: string }[] = [
+const SOURCES: {
+  id: string;
+  label: string;
+  desc: string;
+  requiresCurator?: boolean;
+}[] = [
   {
     id: "tmdb_similar",
     label: "TMDB — similar titles",
@@ -19,6 +25,12 @@ const SOURCES: { id: string; label: string; desc: string }[] = [
     id: "tmdb_discover",
     label: "TMDB — discover by taste",
     desc: "Widens the net to popular, well-rated titles in the genres each person leans toward.",
+  },
+  {
+    id: "llm_library",
+    label: "AI — suggests from your library",
+    desc: "Your AI curator reads each person's taste and picks owned titles that fit — reaching across your whole library, not just what's similar to one seed.",
+    requiresCurator: true,
   },
 ];
 
@@ -33,6 +45,10 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
   const save = useSaveSettings();
   const [enabled, setEnabled] = useState<string[]>(() => readSources(settings));
   const [saved, setSaved] = useState(false);
+
+  const hasCurator = !["", "none"].includes(
+    settingString(settings, "curator.provider"),
+  );
 
   const toggle = (id: string) =>
     setEnabled((current) =>
@@ -59,22 +75,31 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
             you enable, keeps only what&rsquo;s already in your library, then
             the AI re-ranks. More sources means wider reach.
           </p>
-          {SOURCES.map((source) => (
-            <div
-              key={source.id}
-              className="flex items-start justify-between gap-4"
-            >
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">{source.label}</p>
-                <p className="text-sm text-muted-foreground">{source.desc}</p>
+          {SOURCES.map((source) => {
+            const blocked = Boolean(source.requiresCurator) && !hasCurator;
+            return (
+              <div
+                key={source.id}
+                className="flex items-start justify-between gap-4"
+              >
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{source.label}</p>
+                  <p className="text-sm text-muted-foreground">{source.desc}</p>
+                  {blocked && (
+                    <p className="text-xs text-warning">
+                      Needs an AI curator — set one up in Connections first.
+                    </p>
+                  )}
+                </div>
+                <Switch
+                  checked={enabled.includes(source.id) && !blocked}
+                  disabled={blocked}
+                  onCheckedChange={() => toggle(source.id)}
+                  aria-label={`Enable ${source.label}`}
+                />
               </div>
-              <Switch
-                checked={enabled.includes(source.id)}
-                onCheckedChange={() => toggle(source.id)}
-                aria-label={`Enable ${source.label}`}
-              />
-            </div>
-          ))}
+            );
+          })}
           <div className="flex items-center gap-3 pt-1">
             <Button onClick={onSave} loading={save.isPending}>
               Save recommendations

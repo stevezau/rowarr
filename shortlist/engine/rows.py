@@ -69,6 +69,7 @@ def _candidate_pool(
     *,
     excluded_genres: set[str],
     recent: set[tuple[int, MediaType]],
+    profile=None,
 ) -> tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]]:
     """Gather TMDB candidates for ``seeds``, intersect with the library, split by staleness.
 
@@ -85,7 +86,14 @@ def _candidate_pool(
     is (tmdb_id, media_type), never the bare id — movie 1399 and TV 1399 are different titles.
     """
     watched_ids = {(s.tmdb_id, s.media_type) for s in seeds}
-    pool = candidates_mod.gather_candidates(ctx.tmdb, seeds, sources=ctx.config.candidate_sources)
+    pool = candidates_mod.gather_candidates(
+        ctx.tmdb,
+        seeds,
+        sources=ctx.config.candidate_sources,
+        curator=ctx.curator,
+        catalog=ctx.library_catalog,
+        profile=profile,
+    )
     valid = candidates_mod.filter_candidates(
         pool,
         library_index,
@@ -158,7 +166,7 @@ def _run_user(
         _pipeline._emit(ctx, user.slug, "candidates", {"history": len(user.history), "seeds": len(seeds)})
         recent = ctx.recent_picks.get(user.slug, set())
         pool, in_library, ranked, held_back = _candidate_pool(
-            ctx, seeds, library_index, excluded_genres=user.excluded_genres, recent=recent
+            ctx, seeds, library_index, excluded_genres=user.excluded_genres, recent=recent, profile=user
         )
         user_report.counts.candidates = len(pool)
         # Record what this user wanted that the server doesn't have, for the run-wide request pass.
@@ -325,7 +333,7 @@ def _shared_row(
 
     seeds = derive_seeds(agg_history, resolve, max_seeds=cfg.max_seeds)
     _pool, _in_library, ranked_all, _held_back = _candidate_pool(
-        ctx, seeds, library_index, excluded_genres=set(), recent=ctx.recent_picks.get(slug, set())
+        ctx, seeds, library_index, excluded_genres=set(), recent=ctx.recent_picks.get(slug, set()), profile=agg
     )
     ranked = _media_filter(ranked_all, spec.media)
     k = spec.size

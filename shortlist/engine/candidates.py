@@ -6,8 +6,9 @@ recommendation engine is not locked to TMDB's per-seed similarity. Sources today
 
 * ``tmdb_similar`` — TMDB /recommendations + /similar for each seed (the recall baseline).
 * ``tmdb_discover`` — TMDB /discover in the genres a person's history skews toward (widens recall).
+* ``llm_library`` — the AI curator proposes owned titles from a taste-sliced library catalog.
 
-More sources (AI-from-library, Trakt, LLM+web-search) plug in as additional branches here.
+More sources (Trakt, LLM+web-search) plug in as additional branches here.
 """
 
 from __future__ import annotations
@@ -17,14 +18,29 @@ from collections import Counter
 from loguru import logger
 
 from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.curator import NullCurator
 from shortlist.engine.models import Candidate, MediaType, Seed
 
 DEFAULT_SOURCES = ("tmdb_similar",)
 _DISCOVER_TOP_GENRES = 3  # how many of a person's dominant genres to widen into
+_LLM_LIBRARY_CAP = 300  # most catalog titles to show the LLM (a big library must be sliced to fit)
+_LLM_LIBRARY_K = 40  # how many owned titles the LLM proposes as candidates
 
 
-def gather_candidates(tmdb: TmdbClient, seeds: list[Seed], *, sources: list[str] | None = None) -> list[Candidate]:
-    """Pool candidates from every enabled source, deduped by (tmdb_id, media_type)."""
+def gather_candidates(
+    tmdb: TmdbClient,
+    seeds: list[Seed],
+    *,
+    sources: list[str] | None = None,
+    curator=None,
+    catalog: dict[MediaType, list[dict]] | None = None,
+    profile=None,
+) -> list[Candidate]:
+    """Pool candidates from every enabled source, deduped by (tmdb_id, media_type).
+
+    ``curator``/``catalog``/``profile`` are only needed by the ``llm_library`` source (the LLM
+    proposing owned titles); the TMDB sources ignore them.
+    """
     enabled = set(sources) if sources else set(DEFAULT_SOURCES)
     pool: dict[tuple[int, MediaType], Candidate] = {}
     genre_maps: dict[MediaType, dict[int, str]] = {}
@@ -71,8 +87,42 @@ def gather_candidates(tmdb: TmdbClient, seeds: list[Seed], *, sources: list[str]
             # tmdb_similar pool already gathered for this user. Degrade to "no widening", not a failure.
             logger.warning("tmdb_discover source failed ({}); continuing with the other sources", type(e).__name__)
 
+    # NullCurator isn't AI (it ranks heuristically), so "AI suggests from your library" needs a real
+    # curator; without one the source is a no-op — matching the UI, which blocks the toggle.
+    llm_ready = curator is not None and not isinstance(curator, NullCurator)
+    if "llm_library" in enabled and llm_ready and catalog and profile is not None:
+        try:
+            # Taste = the genres already in this person's pool; used only to slice a big library down
+            # to what the LLM can read. The curator then picks the owned titles that actually fit.
+            taste = {g for c in pool.values() for g in c.genres}
+            for media_type, items in catalog.items():
+                owned = [
+                    Candidate(
+                        tmdb_id=it["tmdb_id"],
+                        title=it["title"],
+                        media_type=media_type,
+                        year=it.get("year"),
+                        genres=list(it.get("genres") or []),
+                        rating_key=it.get("rating_key"),
+                    )
+                    for it in _slice_for_llm(items, taste, _LLM_LIBRARY_CAP)
+                ]
+                chosen = {p.tmdb_id for p in curator.curate(profile, owned, _LLM_LIBRARY_K)}
+                for cand in owned:
+                    if cand.tmdb_id in chosen:
+                        pool.setdefault((cand.tmdb_id, media_type), cand)
+        except Exception as e:
+            logger.warning("llm_library source failed ({}); continuing with the other sources", type(e).__name__)
+
     logger.debug("candidate pool: {} unique titles from {} seeds via {}", len(pool), len(seeds), sorted(enabled))
     return list(pool.values())
+
+
+def _slice_for_llm(items: list[dict], taste_genres: set[str], cap: int) -> list[dict]:
+    """Trim a library down to what an LLM can read, favouring titles in the person's taste genres."""
+    if len(items) <= cap:
+        return items
+    return sorted(items, key=lambda it: len(set(it.get("genres") or []) & taste_genres), reverse=True)[:cap]
 
 
 def _dominant_genre_ids(tmdb: TmdbClient, seeds: list[Seed], media_type: MediaType) -> list[int]:

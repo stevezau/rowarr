@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   CurationStyleFields,
   type CurationStyleValue,
 } from "@/components/curation-style";
 import { SavedIndicator } from "@/components/saved-indicator";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { apiErrorMessage } from "@/lib/api";
 import { settingString } from "@/lib/format";
@@ -22,17 +21,27 @@ export function CurationSection({ settings }: { settings: Settings }) {
   });
   const [justSaved, setJustSaved] = useState(false);
 
-  const save = () => {
-    setJustSaved(false);
-    saveSettings.mutate(
-      {
-        "curator.prompt_tone": curation.tone,
-        "curator.prompt_guidance": curation.guidance,
-        "curator.prompt_template": curation.template,
-      },
-      { onSuccess: () => setJustSaved(true) },
-    );
-  };
+  // Auto-save ~600ms after the last change (text never saves mid-keystroke), skipping first render.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      setJustSaved(false);
+      saveSettings.mutate(
+        {
+          "curator.prompt_tone": curation.tone,
+          "curator.prompt_guidance": curation.guidance,
+          "curator.prompt_template": curation.template,
+        },
+        { onSuccess: () => setJustSaved(true) },
+      );
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curation]);
 
   return (
     <section aria-labelledby="curation-heading" className="space-y-3">
@@ -47,13 +56,11 @@ export function CurationSection({ settings }: { settings: Settings }) {
             person on their page.
           </p>
           <CurationStyleFields value={curation} onChange={setCuration} />
-          <div className="flex items-center gap-3">
-            <Button onClick={save} loading={saveSettings.isPending}>
-              Save curation style
-            </Button>
+          <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
+            {saveSettings.isPending && <span>Saving…</span>}
             <SavedIndicator show={justSaved && !saveSettings.isPending} />
             {saveSettings.isError && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="text-destructive">
                 {apiErrorMessage(
                   saveSettings.error,
                   "Saving failed. Try again.",

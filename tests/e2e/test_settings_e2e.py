@@ -65,16 +65,20 @@ class TestDefaults:
         expect(page.get_by_text("🍿 Tonight's picks for Fargo")).to_be_visible()
 
         page.get_by_role("button", name="20", exact=True).click()
-        page.get_by_role("button", name="Save defaults").click()
+        # No Save button — the section auto-saves (debounced). Poll until it reaches the database.
+        for _ in range(24):
+            stored = app.api("GET", "/api/settings").json()
+            if stored.get("row.name_template") == "🍿 Tonight's picks for {top_seed}" and stored.get("row.size") == 20:
+                break
+            page.wait_for_timeout(250)
+        stored = app.api("GET", "/api/settings").json()
+        assert stored["row.name_template"] == "🍿 Tonight's picks for {top_seed}"
+        assert stored["row.size"] == 20
 
         # Reload: only a value that reached the database can come back.
         page.reload()
         expect(page.get_by_label("Row name template")).to_have_value("🍿 Tonight's picks for {top_seed}", timeout=LOAD)
         expect(page.get_by_role("button", name="20", exact=True)).to_have_attribute("aria-pressed", "true")
-
-        stored = app.api("GET", "/api/settings").json()
-        assert stored["row.name_template"] == "🍿 Tonight's picks for {top_seed}"
-        assert stored["row.size"] == 20
 
     def test_pause_all_stops_runs_without_disabling_anyone(self, page: Page, app: RowarrApp):
         """The Danger Zone switch must actually pause runs — it used to 422 as an unknown key."""
@@ -103,12 +107,17 @@ class TestSchedule:
 
         page.get_by_label("Run at").fill("04:45")
         page.get_by_role("button", name="weekly", exact=True).click()
-        page.get_by_role("button", name="Save schedule").click()
-
         expect(page.get_by_text(re.compile(r"Rows refresh weekly at 04:45"))).to_be_visible()
+
+        # No Save button — the section auto-saves (debounced). Poll until it reaches the database.
+        for _ in range(24):
+            if app.api("GET", "/api/settings").json().get("schedule.cron") == "45 4 * * 0":
+                break
+            page.wait_for_timeout(250)
+        assert app.api("GET", "/api/settings").json()["schedule.cron"] == "45 4 * * 0"
+
         page.reload()
         expect(page.get_by_label("Run at")).to_have_value("04:45", timeout=LOAD)
-        assert app.api("GET", "/api/settings").json()["schedule.cron"] == "45 4 * * 0"
 
     def test_an_invalid_cron_is_rejected_with_a_readable_message(self, page: Page, app: RowarrApp):
         """The backend must never accept a cron that would silently kill the nightly run.

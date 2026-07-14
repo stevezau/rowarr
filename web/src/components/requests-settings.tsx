@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Film, PlugZap, Tv } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { SavedIndicator } from "@/components/saved-indicator";
 import { Segmented } from "@/components/segmented";
@@ -261,6 +261,21 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
     );
   };
 
+  // Auto-save: no Save button. Any change persists ~600ms after you stop (so text fields never save
+  // mid-keystroke; toggles feel instant). Skip the first render so merely opening the page writes
+  // nothing. saveRef keeps the effect's dep list just [form] without re-firing every render.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const timer = setTimeout(() => saveRef.current(), 600);
+    return () => clearTimeout(timer);
+  }, [form]);
+
   return (
     <Card>
       <CardContent className="space-y-5 pt-6">
@@ -281,6 +296,13 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
             aria-label="Turn automatic requests on or off"
           />
         </div>
+
+        {!form.enabled && (
+          <p className="text-sm text-muted-foreground">
+            Off — turn this on to set up automatic requests and choose the
+            rules.
+          </p>
+        )}
 
         {form.enabled && (
           <div className="space-y-5 border-t pt-5">
@@ -573,13 +595,11 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
           </div>
         )}
 
-        <div className="flex items-center gap-3">
-          <Button onClick={save} loading={saveSettings.isPending}>
-            Save requests
-          </Button>
+        <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
+          {saveSettings.isPending && <span>Saving…</span>}
           <SavedIndicator show={saved && !saveSettings.isPending} />
           {saveSettings.isError && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-destructive">
               {apiErrorMessage(
                 saveSettings.error,
                 "Saving failed. Check the server log and try again.",

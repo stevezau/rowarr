@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -73,7 +73,7 @@ describe("RequestsSettings", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("saves the enabled flag and thresholds", async () => {
+  it("auto-saves the enabled flag and thresholds (no Save button)", async () => {
     renderPanel({
       "requests.min_rating": 7,
       "requests.min_votes": 100,
@@ -82,12 +82,11 @@ describe("RequestsSettings", () => {
     await userEvent.click(
       screen.getByLabelText(/Turn automatic requests on or off/i),
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Save requests/i }),
-    );
+    // No Save button — flipping the toggle persists on its own (debounced).
+    expect(screen.queryByRole("button", { name: /Save requests/i })).toBeNull();
+    await waitFor(() => expect(putSettings).toHaveBeenCalled());
 
-    expect(putSettings).toHaveBeenCalledTimes(1);
-    const payload = putSettings.mock.calls[0]?.[0] ?? {};
+    const payload = putSettings.mock.calls.at(-1)?.[0] ?? {};
     expect(payload["requests.enabled"]).toBe(true);
     expect(payload["requests.min_rating"]).toBe(7);
     expect(payload["requests.max_per_run"]).toBe(5);

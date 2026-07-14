@@ -1,8 +1,7 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { SavedIndicator } from "@/components/saved-indicator";
 import { Segmented } from "@/components/segmented";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,13 +23,23 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
   const [justSaved, setJustSaved] = useState(false);
   const rowNameId = useId();
 
-  const save = () => {
-    setJustSaved(false);
-    saveSettings.mutate(
-      { "row.name_template": rowNameTpl, "row.size": rowSize },
-      { onSuccess: () => setJustSaved(true) },
-    );
-  };
+  // Auto-save ~600ms after the last change (text never saves mid-keystroke), skipping first render.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      setJustSaved(false);
+      saveSettings.mutate(
+        { "row.name_template": rowNameTpl, "row.size": rowSize },
+        { onSuccess: () => setJustSaved(true) },
+      );
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowNameTpl, rowSize]);
 
   return (
     <section aria-labelledby="defaults-heading" className="space-y-3">
@@ -68,20 +77,18 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
             }))}
             onChange={(size) => setRowSize(Number(size))}
           />
-          <div className="flex items-center gap-3">
-            <Button onClick={save} loading={saveSettings.isPending}>
-              Save defaults
-            </Button>
+          <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
+            {saveSettings.isPending && <span>Saving…</span>}
             <SavedIndicator show={justSaved && !saveSettings.isPending} />
+            {saveSettings.isError && (
+              <p role="alert" className="text-destructive">
+                {apiErrorMessage(
+                  saveSettings.error,
+                  "Saving failed. Check the server log and try again.",
+                )}
+              </p>
+            )}
           </div>
-          {saveSettings.isError && (
-            <p role="alert" className="text-sm text-destructive">
-              {apiErrorMessage(
-                saveSettings.error,
-                "Saving failed. Check the server log and try again.",
-              )}
-            </p>
-          )}
         </CardContent>
       </Card>
     </section>

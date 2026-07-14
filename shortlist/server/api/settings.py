@@ -118,6 +118,13 @@ async def test_connection(service: str, request: Request) -> dict:
             if not api_key:
                 raise RuntimeError("An OMDb API key is required for IMDb ratings")
             return OmdbClient(api_key).ping()
+        if service == "trakt":
+            from shortlist.engine.clients.trakt import TraktClient
+
+            client_id = config["trakt.client_id"] or ""
+            if not client_id:
+                raise RuntimeError("A Trakt API key (client id) is required")
+            return TraktClient(client_id).ping()
         if service == "llm":
             from shortlist.engine.curator import make_curator
 

@@ -35,11 +35,12 @@ def gather_candidates(
     curator=None,
     catalog: dict[MediaType, list[dict]] | None = None,
     profile=None,
+    trakt=None,
 ) -> list[Candidate]:
     """Pool candidates from every enabled source, deduped by (tmdb_id, media_type).
 
-    ``curator``/``catalog``/``profile`` are only needed by the ``llm_library`` source (the LLM
-    proposing owned titles); the TMDB sources ignore them.
+    ``curator``/``catalog``/``profile`` are only needed by the ``llm_library`` source and ``trakt``
+    by the Trakt source; the TMDB sources ignore them.
     """
     enabled = set(sources) if sources else set(DEFAULT_SOURCES)
     pool: dict[tuple[int, MediaType], Candidate] = {}
@@ -63,6 +64,15 @@ def gather_candidates(
                 genres=[gmap[g] for g in item.get("genre_ids", []) if g in gmap],
                 rating=float(item.get("vote_average") or 0.0),
                 vote_count=int(item.get("vote_count") or 0),
+            )
+        return pool[key]
+
+    def merge(tmdb_id: int, title: str, media_type: MediaType, year, genres) -> Candidate:
+        """Merge a candidate described by explicit fields (non-TMDB sources) into the pool."""
+        key = (tmdb_id, media_type)
+        if key not in pool:
+            pool[key] = Candidate(
+                tmdb_id=tmdb_id, title=title, media_type=media_type, year=year, genres=list(genres or [])
             )
         return pool[key]
 
@@ -90,6 +100,16 @@ def gather_candidates(
     # NullCurator isn't AI (it ranks heuristically), so "AI suggests from your library" needs a real
     # curator; without one the source is a no-op — matching the UI, which blocks the toggle.
     llm_ready = curator is not None and not isinstance(curator, NullCurator)
+    if "trakt" in enabled and trakt is not None:
+        try:
+            for seed in seeds:
+                for item in trakt.related(seed.tmdb_id, seed.media_type):
+                    # Related-to-a-seed, so keep the provenance (a real "because you watched X").
+                    cand = merge(item["tmdb_id"], item["title"], seed.media_type, item.get("year"), item.get("genres"))
+                    cand.seeds.append(seed)
+        except Exception as e:
+            logger.warning("trakt source failed ({}); continuing with the other sources", type(e).__name__)
+
     if "llm_library" in enabled and llm_ready and catalog and profile is not None:
         try:
             # Taste = the genres already in this person's pool; used only to slice a big library down

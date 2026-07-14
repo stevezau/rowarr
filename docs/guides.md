@@ -35,6 +35,8 @@ wider reach. Available today:
 - **AI — suggests from your library** (needs an AI curator): the curator reads each person's taste
   and proposes owned titles that fit, reaching across your whole library rather than just what's
   similar to one seed. Large libraries are sliced to each person's genres before the LLM sees them.
+- **Trakt — related titles** (needs a Trakt API key, added in Connections): uses Trakt's
+  recommendation graph, which often surfaces "what to watch next" picks TMDB's similar list misses.
 
 ## Requests (Radarr / Sonarr)
 

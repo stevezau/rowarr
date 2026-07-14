@@ -67,6 +67,7 @@ SECRET_KEYS = {
     "requests.radarr.apikey",
     "requests.sonarr.apikey",
     "requests.omdb.apikey",
+    "trakt.client_id",
 }
 
 ENV_SEEDS = {

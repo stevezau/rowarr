@@ -1,4 +1,4 @@
-import { Film, Sparkles, Tv } from "lucide-react";
+import { Compass, Film, Sparkles, Tv } from "lucide-react";
 
 import {
   PlexGlyph,
@@ -153,6 +153,23 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
             {
               key: "requests.sonarr.apikey",
               label: "API key",
+              kind: "password",
+            },
+          ]}
+        />
+        <ConnectionCard
+          service="trakt"
+          title="Trakt"
+          purpose="Optional. A recommendation source — Trakt's 'related titles' can surface picks TMDB misses."
+          settings={settings}
+          summary={
+            settingString(settings, "trakt.client_id") ? "API key saved" : ""
+          }
+          glyph={<Compass aria-hidden className="text-primary" />}
+          fields={[
+            {
+              key: "trakt.client_id",
+              label: "API key (Trakt app client ID)",
               kind: "password",
             },
           ]}

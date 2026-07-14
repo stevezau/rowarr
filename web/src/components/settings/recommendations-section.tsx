@@ -14,7 +14,7 @@ const SOURCES: {
   id: string;
   label: string;
   desc: string;
-  requiresCurator?: boolean;
+  requires?: "curator" | "trakt";
 }[] = [
   {
     id: "tmdb_similar",
@@ -30,7 +30,13 @@ const SOURCES: {
     id: "llm_library",
     label: "AI — suggests from your library",
     desc: "Your AI curator reads each person's taste and picks owned titles that fit — reaching across your whole library, not just what's similar to one seed.",
-    requiresCurator: true,
+    requires: "curator",
+  },
+  {
+    id: "trakt",
+    label: "Trakt — related titles",
+    desc: "Uses Trakt's recommendation graph — often surfaces 'what to watch next' picks TMDB's similar list misses.",
+    requires: "trakt",
   },
 ];
 
@@ -49,6 +55,14 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
   const hasCurator = !["", "none"].includes(
     settingString(settings, "curator.provider"),
   );
+  const hasTrakt = Boolean(settingString(settings, "trakt.client_id"));
+  const missingDep = (source: (typeof SOURCES)[number]): string | null => {
+    if (source.requires === "curator" && !hasCurator)
+      return "Needs an AI curator — set one up in Connections first.";
+    if (source.requires === "trakt" && !hasTrakt)
+      return "Needs a Trakt API key — add it in Connections first.";
+    return null;
+  };
 
   const toggle = (id: string) =>
     setEnabled((current) =>
@@ -76,7 +90,8 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
             the AI re-ranks. More sources means wider reach.
           </p>
           {SOURCES.map((source) => {
-            const blocked = Boolean(source.requiresCurator) && !hasCurator;
+            const blockedReason = missingDep(source);
+            const blocked = blockedReason !== null;
             return (
               <div
                 key={source.id}
@@ -86,9 +101,7 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
                   <p className="text-sm font-medium">{source.label}</p>
                   <p className="text-sm text-muted-foreground">{source.desc}</p>
                   {blocked && (
-                    <p className="text-xs text-warning">
-                      Needs an AI curator — set one up in Connections first.
-                    </p>
+                    <p className="text-xs text-warning">{blockedReason}</p>
                   )}
                 </div>
                 <Switch

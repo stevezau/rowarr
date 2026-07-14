@@ -15,6 +15,7 @@ from shortlist.engine.clients.plex_pms import MIN_PMS_VERSION, PlexClient, parse
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.clients.tautulli import TautulliClient
 from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.clients.trakt import TraktClient, TraktError
 from shortlist.engine.models import MediaType, OwnedRow, UserType
 from tests.conftest import fake_media_item
 
@@ -399,3 +400,46 @@ class TestSectionsByType:
         mock_plex._server.library.sections.return_value = [movies_4k, movies, shows]
 
         assert mock_plex.sections_by_type() == {MediaType.MOVIE: movies, MediaType.SHOW: shows}
+
+
+class TestTraktClient:
+    @respx.mock
+    def test_related_crosses_tmdb_then_normalizes(self):
+        respx.get("https://api.trakt.tv/search/tmdb/550").mock(
+            return_value=httpx.Response(200, json=[{"movie": {"ids": {"slug": "fight-club-1999", "tmdb": 550}}}])
+        )
+        respx.get("https://api.trakt.tv/movies/fight-club-1999/related").mock(
+            return_value=httpx.Response(
+                200, json=[{"title": "Se7en", "year": 1995, "ids": {"tmdb": 807}, "genres": ["thriller"]}]
+            )
+        )
+        out = TraktClient("cid").related(550, MediaType.MOVIE)
+        assert out == [{"tmdb_id": 807, "title": "Se7en", "year": 1995, "genres": ["thriller"]}]
+
+    @respx.mock
+    def test_related_uses_the_show_endpoints_for_shows(self):
+        search = respx.get("https://api.trakt.tv/search/tmdb/1399").mock(
+            return_value=httpx.Response(200, json=[{"show": {"ids": {"slug": "game-of-thrones"}}}])
+        )
+        related = respx.get("https://api.trakt.tv/shows/game-of-thrones/related").mock(
+            return_value=httpx.Response(
+                200, json=[{"title": "Rome", "year": 2005, "ids": {"tmdb": 1234}, "genres": ["drama"]}]
+            )
+        )
+        out = TraktClient("cid").related(1399, MediaType.SHOW)
+        assert out == [{"tmdb_id": 1234, "title": "Rome", "year": 2005, "genres": ["drama"]}]
+        assert related.called  # the /shows/ endpoint (not /movies/) was used
+        assert search.calls.last.request.url.params.get("type") == "show"
+
+    @respx.mock
+    def test_unknown_seed_returns_empty_not_error(self):
+        respx.get("https://api.trakt.tv/search/tmdb/999").mock(return_value=httpx.Response(200, json=[]))
+        assert TraktClient("cid").related(999, MediaType.MOVIE) == []
+
+    @respx.mock
+    def test_bad_key_raises_clean_error_without_leaking_it(self):
+        respx.get("https://api.trakt.tv/movies/trending").mock(return_value=httpx.Response(403))
+        with pytest.raises(TraktError) as excinfo:
+            TraktClient("secret-cid").ping()
+        assert "rejected the API key" in str(excinfo.value)
+        assert "secret-cid" not in str(excinfo.value)

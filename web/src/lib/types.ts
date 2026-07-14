@@ -237,7 +237,7 @@ export interface ConnectionTestResult {
 }
 
 export type TestableService =
-  "plex" | "tautulli" | "tmdb" | "llm" | "radarr" | "sonarr" | "omdb";
+  "plex" | "tautulli" | "tmdb" | "llm" | "radarr" | "sonarr" | "omdb" | "trakt";
 
 /** GET /api/settings/arr/{service}/options — dropdown data for a connected Sonarr/Radarr. */
 export interface ArrOptions {

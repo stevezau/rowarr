@@ -16,6 +16,7 @@ from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.clients.tautulli import TautulliClient
 from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import make_curator
 from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource
 from shortlist.engine.models import (
@@ -54,6 +55,7 @@ class ContextBuilder:
             plex = PlexClient(plex_url, plex_token)
             plextv = PlexTvClient(plex_token, plex.machine_id, min_write_interval=float(store.get("plextv.throttle_s")))
             tmdb = TmdbClient(store.get("tmdb.apikey"), cache=DbCache(self._sessions))
+            trakt = TraktClient(store.get("trakt.client_id")) if store.get("trakt.client_id") else None
             history = self._history_source(store, plex)
             provider = store.get("curator.provider")
             curator_kwargs = {}
@@ -90,6 +92,7 @@ class ContextBuilder:
             plex=plex,
             plextv=plextv,
             tmdb=tmdb,
+            trakt=trakt,
             history_source=history,
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),

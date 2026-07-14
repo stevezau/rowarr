@@ -20,6 +20,7 @@ from shortlist.engine import requests as requests_mod
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import Curator
 from shortlist.engine.delivery import row_marker, sweep_broken_rows
 from shortlist.engine.history import HistorySource
@@ -48,6 +49,8 @@ class EngineContext:
     history_source: HistorySource
     curator: Curator
     snapshots: SnapshotStore
+    # Optional 'related titles' candidate source; None when no Trakt key is configured.
+    trakt: TraktClient | None = None
     # slug -> {(tmdb_id, media_type)}: the staleness guard. Keyed on the PAIR because TMDB ids
     # are unique only within a namespace — movie 550 and TV 550 are different titles.
     recent_picks: dict[str, set[tuple[int, MediaType]]] = field(default_factory=dict)

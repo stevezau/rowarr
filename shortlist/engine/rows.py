@@ -93,6 +93,7 @@ def _candidate_pool(
         curator=ctx.curator,
         catalog=ctx.library_catalog,
         profile=profile,
+        trakt=ctx.trakt,
     )
     valid = candidates_mod.filter_candidates(
         pool,

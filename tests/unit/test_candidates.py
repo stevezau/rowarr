@@ -26,6 +26,16 @@ class _BoomCurator:
         raise RuntimeError("llm down")
 
 
+class _FakeTrakt:
+    def __init__(self, items):
+        self._items = items
+        self.calls: list[tuple[int, MediaType]] = []
+
+    def related(self, tmdb_id, media_type):
+        self.calls.append((tmdb_id, media_type))
+        return self._items
+
+
 def seed(tmdb_id: int, title: str = "Seed") -> Seed:
     return Seed(tmdb_id=tmdb_id, title=title, media_type=MediaType.MOVIE, weight=1.0)
 
@@ -139,6 +149,28 @@ class TestGatherCandidates:
             catalog=catalog,
             profile=object(),
         )
+        assert {c.tmdb_id for c in pool} == {1}
+
+    def test_trakt_source_adds_related_titles(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        trakt = _FakeTrakt([{"tmdb_id": 700, "title": "Related", "year": 2019, "genres": ["drama"]}])
+        s = seed(1)
+        pool = gather_candidates(mock_tmdb, [s], sources=["trakt"], trakt=trakt)
+        assert trakt.calls == [(1, MediaType.MOVIE)]  # queried with the seed's id + media type
+        cand = next(c for c in pool if c.tmdb_id == 700)
+        assert cand.media_type is MediaType.MOVIE
+        assert s in cand.seeds  # provenance kept — this is a real "because you watched X"
+
+    def test_trakt_failure_keeps_the_other_sources(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 1, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+
+        class _Boom:
+            def related(self, *a):
+                raise RuntimeError("trakt down")
+
+        pool = gather_candidates(mock_tmdb, [seed(1)], sources=["tmdb_similar", "trakt"], trakt=_Boom())
         assert {c.tmdb_id for c in pool} == {1}
 
 

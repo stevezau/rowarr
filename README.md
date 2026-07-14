@@ -21,7 +21,7 @@ Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on tha
 
 - 🔒 **Private by design** — each user's row is a labeled collection excluded on the share of
   every other account on your server (one row per library, since Plex filters per library).
-  Verified by probe before first write, re-verified weekly, snapshotted and reversible.
+  Verified by probe before the first write and re-verified by every run that finds the check stale, snapshotted and reversible.
 - 🧠 **AI that can't hallucinate** — the LLM (Claude / GPT / Gemini / local Ollama) only
   re-ranks titles verified to exist in your library. **Works with zero AI** too (heuristic
   mode) — no keys required.

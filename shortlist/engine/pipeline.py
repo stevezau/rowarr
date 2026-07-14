@@ -35,7 +35,7 @@ from shortlist.engine.models import (
     UserProfile,
     UserRunReport,
 )
-from shortlist.engine.privacy import SnapshotStore, sync_user_restrictions
+from shortlist.engine.privacy import SnapshotStore, shared_label_audiences, sync_user_restrictions
 
 
 @dataclass
@@ -57,6 +57,9 @@ class EngineContext:
     # media_type -> [{tmdb_id, rating_key, title, year, genres}] for the delivery libraries, built
     # once per run and only when the AI-from-library candidate source is enabled (else empty).
     library_catalog: dict[MediaType, list[dict]] = field(default_factory=dict)
+    # The same catalog split per library, so a row pinned to specific libraries only ever offers
+    # the AI titles it could actually deliver.
+    section_catalog: dict[str, list[dict]] = field(default_factory=dict)
     # section key -> {tmdb_id: ratingKey}: per-library index so a row delivered into a specific
     # library uses that library's ratingKeys. Built by _build_indexes each run.
     section_index: dict[str, dict[int, int]] = field(default_factory=dict)
@@ -68,6 +71,10 @@ class EngineContext:
     # people rename themselves, and two display names can slugify to the same string — either
     # would silently hand one account another's row.
     known_slugs: dict[int, str] = field(default_factory=dict)
+    # (tmdb_id, media_type) the owner has already actioned in the Requests inbox — sent or rejected.
+    # Keeps a slow download from re-winning a request slot every night, and a "no" from being undone
+    # by a later auto-send. Empty for the CLI, which has no inbox.
+    handled_requests: set[tuple[int, str]] = field(default_factory=set)
     progress: Callable[[str, str, dict], None] | None = None  # (user_slug, stage, counts) -> None
 
 
@@ -135,14 +142,17 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
 
 def _build_indexes(
     ctx: EngineContext, users: list[UserProfile], sections: list, targets: dict
-) -> tuple[dict[MediaType, dict[int, int]], dict[MediaType, dict[int, int]]]:
+) -> tuple[dict[int, int], dict[MediaType, dict[int, int]]]:
     """Build the library indexes a run reads from.
 
     Three indexes, because they answer different questions.
 
-    `seed_index` covers EVERY library: it turns what a user WATCHED into a TMDB id, and people
-    watch films in "4K Movies" too. Narrowing it would silently give those users no seeds, no
-    candidates, and an empty row — while the run still reported success.
+    `seed_index` (ratingKey -> tmdb_id, across EVERY library) turns what a user WATCHED into a TMDB
+    id, and people watch films in "4K Movies" too. It is keyed by ratingKey, not by tmdb_id, because
+    that is the direction it is READ in: the same film in two movie libraries is ONE tmdb id and TWO
+    ratingKeys, so a tmdb-keyed index would keep only the last library scanned — and every watch in
+    the other library would resolve to nothing, leaving that user seedless with an empty row and a
+    run that still reported success.
 
     `library_index` (per media type) decides what may be RECOMMENDED: a title is deliverable if it
     lives in ANY library of its type, since a row can target any of them. A pick in no delivery
@@ -152,9 +162,10 @@ def _build_indexes(
     library and can only hold that library's items (its ratingKeys), so delivering a row into a
     specific library needs that library's ratingKey for each pick.
     """
-    seed_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
+    seed_index: dict[int, int] = {}
     library_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
     section_index: dict[str, dict[int, int]] = {}
+    section_catalog: dict[str, list[dict]] = {}
     # Only when there is someone to recommend to. The indexes walk every item in every library, and
     # are read only inside _run_user — so with no users this is thousands of PMS reads thrown away,
     # in front of the sweep, on the one path (a closed gate) where the sweep is the entire point and
@@ -162,17 +173,40 @@ def _build_indexes(
     for section in sections if users else []:
         kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
         index = ctx.plex.build_library_index(section)
-        seed_index[kind].update(index)
+        seed_index.update({rating_key: tmdb_id for tmdb_id, rating_key in index.items()})
         # Every library of a deliverable type is both a recommendation source (union) and a possible
         # delivery target (its own per-section index) — a row picks which ones under library_keys.
         library_index[kind].update(index)
         section_index[section.key] = index
     ctx.section_index = section_index
     ctx.delivery_sections = list(sections) if users else []
-    # The AI-from-library source needs titles/genres, so build the catalog once (only when it's on).
-    if users and "llm_library" in ctx.config.candidate_sources:
-        ctx.library_catalog = {kind: ctx.plex.build_library_catalog(section) for kind, section in targets.items()}
+    # The AI-from-library source needs titles/genres. Built when ANY row wants it — not just the
+    # global setting: a row overriding its sources to llm_library found an empty catalog and
+    # produced nothing, forever, while reporting ok. And built from EVERY library, not one
+    # representative per type, or a row pinned to "4K Movies" would be offered the "Movies" catalog.
+    if users and _wants_library_catalog(ctx.config):
+        catalog: dict[MediaType, list[dict]] = {MediaType.MOVIE: [], MediaType.SHOW: []}
+        seen: dict[MediaType, set[int]] = {MediaType.MOVIE: set(), MediaType.SHOW: set()}
+        for section in sections:
+            kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
+            items = ctx.plex.build_library_catalog(section)
+            section_catalog[section.key] = items
+            # Deduped across libraries: the same film in "Movies" and "4K Movies" is one title to
+            # recommend, and listing it twice would spend the LLM's slice of the catalog on itself.
+            for item in items:
+                if item["tmdb_id"] not in seen[kind]:
+                    seen[kind].add(item["tmdb_id"])
+                    catalog[kind].append(item)
+        ctx.library_catalog = catalog
+        ctx.section_catalog = section_catalog
     return seed_index, library_index
+
+
+def _wants_library_catalog(config) -> bool:
+    """Whether any row on this server uses the AI-from-library source (globally or as an override)."""
+    if "llm_library" in config.candidate_sources:
+        return True
+    return any("llm_library" in (spec.candidate_sources or []) for spec in config.rows)
 
 
 def _sweep_phase(ctx: EngineContext, report: RunReport) -> bool:
@@ -210,7 +244,7 @@ def _sweep_phase(ctx: EngineContext, report: RunReport) -> bool:
 def _deliver_phase(
     ctx: EngineContext,
     users: list[UserProfile],
-    seed_index: dict[MediaType, dict[int, int]],
+    seed_index: dict[int, int],
     library_index: dict[MediaType, dict[int, int]],
     stored_labels: dict[str, str],
     report: RunReport,
@@ -308,7 +342,7 @@ def _privacy_sync_phase(
     # authoritative "what is a shared row", so the exclusion classifies by config, never by the
     # label string — a private row is never mistaken for a shared one, and a stale shared collection
     # not in the config is excluded (hidden) rather than treated as public.
-    shared_labels = {spec.label.lower(): spec.audience for spec in ctx.config.shared_rows() if spec.label}
+    shared_labels = shared_label_audiences(ctx.config)
     reports = {r.slug: r for r in report.users}
     for user in audience:
         user_report = reports.get(user.slug)
@@ -404,7 +438,11 @@ def _request_phase(ctx: EngineContext, requests_on: bool, demand: requests_mod.D
     if requests_on and demand:
         try:
             report.requests = requests_mod.request_missing(
-                ctx.config.requests, ctx.tmdb, demand, dry_run=ctx.config.dry_run
+                ctx.config.requests,
+                ctx.tmdb,
+                demand,
+                dry_run=ctx.config.dry_run,
+                already_handled=ctx.handled_requests,
             )
         except Exception as e:
             # A wholesale request-pass failure (e.g. building a client) is a footnote, never a run

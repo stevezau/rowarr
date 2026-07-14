@@ -131,6 +131,64 @@ class TestRequestMissing:
     def _demand(self, *titles: MissingTitle) -> requests_mod.DemandMap:
         return {(t.tmdb_id, t.media_type): t for t in titles}
 
+    def test_a_title_already_sent_never_consumes_a_slot_again(self, monkeypatch):
+        """A title asked for last night is still downloading — so it is still 'missing', still the
+        most-wanted, and used to re-win a request slot EVERY night. With max_per_run=2, the same two
+        titles starved the queue forever and nothing new was ever requested."""
+        fake = FakeArr()
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(
+            MissingTitle(1, "still downloading", MediaType.MOVIE, 2020, rating=9.5, vote_count=900, demand=5),
+            MissingTitle(2, "also downloading", MediaType.MOVIE, 2020, rating=9.4, vote_count=900, demand=4),
+            MissingTitle(3, "new title", MediaType.MOVIE, 2020, rating=8.5, vote_count=900, demand=3),
+        )
+        cfg = _cfg(radarr=RADARR, max_per_run=2, auto_min_demand=1, auto_min_rating=8.0)
+
+        report = requests_mod.request_missing(
+            cfg,
+            FakeTmdb(),
+            demand,
+            dry_run=False,
+            already_handled={(1, "movie"), (2, "movie")},
+        )
+
+        assert [c[0] for c in fake.movie_calls] == [3]  # the slot went to the NEW title
+        assert report.considered == 1
+
+    def test_a_rejected_title_is_never_auto_sent(self, monkeypatch):
+        """The owner said no in the inbox. The engine's auto-send never consulted that ledger, so a
+        rejected title came back the moment its demand and rating cleared the bar."""
+        fake = FakeArr()
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(
+            MissingTitle(9, "rejected", MediaType.MOVIE, 2020, rating=9.9, vote_count=5000, demand=10),
+        )
+        cfg = _cfg(radarr=RADARR, auto_min_demand=1, auto_min_rating=8.0)
+
+        report = requests_mod.request_missing(cfg, FakeTmdb(), demand, dry_run=False, already_handled={(9, "movie")})
+
+        assert fake.movie_calls == []
+        assert report.queued == []  # nor does it clutter the inbox again
+
+    def test_a_handled_movie_does_not_silence_the_show_that_shares_its_id(self, monkeypatch):
+        # TMDB ids are unique only within a namespace: movie 550 and show 550 are different titles.
+        fake = FakeArr()
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        monkeypatch.setattr(requests_mod, "SonarrClient", lambda *a, **k: fake)
+        demand = self._demand(
+            MissingTitle(550, "the movie", MediaType.MOVIE, 2020, rating=9.0, vote_count=900, demand=3),
+            MissingTitle(550, "the show", MediaType.SHOW, 2020, rating=9.0, vote_count=900, demand=3),
+        )
+        cfg = _cfg(radarr=RADARR, sonarr=SONARR, auto_min_demand=1, auto_min_rating=8.0)
+
+        # The show needs a TVDB id to be requestable at all.
+        requests_mod.request_missing(
+            cfg, FakeTmdb({550: 1550}), demand, dry_run=False, already_handled={(550, "movie")}
+        )
+
+        assert fake.movie_calls == []  # the MOVIE was handled
+        assert len(fake.series_calls) == 1  # ...but the show that shares its id was still requested
+
     def test_thresholds_exclude_low_rating_or_thin_votes(self, monkeypatch):
         fake = FakeArr()
         monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)

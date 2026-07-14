@@ -281,6 +281,41 @@ class TestPerRowOverrides:
 
         assert len(report.users[0].picks) == 1
 
+    def test_a_tone_only_override_keeps_the_rows_guidance_and_template(self, ctx: EngineContext, mock_plextv):
+        """The headline overlay bug: a per-person override REPLACED the row's whole recipe, so setting
+        only a tone for one person wiped that row's guidance and custom prompt. It must overlay,
+        field by field — blank means inherit."""
+        from shortlist.engine.models import PromptConfig, RowSpec
+
+        ctx.config.rows = [
+            RowSpec(
+                slug="picked",
+                name_template="",
+                size=5,
+                prompt=PromptConfig(tone="cinephile", guidance="deep cuts", template="ROW TEMPLATE"),
+            )
+        ]
+        sarah = make_profile(
+            "sarah",
+            account_id=100,
+            row_overrides={"picked": RowOverride(prompt=PromptConfig(tone="playful"))},  # tone only
+        )
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        seen: dict[str, str] = {}
+
+        def capture(profile, ranked, k):
+            seen["tone"] = profile.prompt.tone
+            seen["guidance"] = profile.prompt.guidance
+            seen["template"] = profile.prompt.template
+            return curated_picks(profile, ranked, k)
+
+        ctx.curator.curate.side_effect = capture
+        pipeline_mod.run(ctx, [sarah])
+
+        assert seen["tone"] == "playful"  # the person's override
+        assert "deep cuts" in seen["guidance"]  # the row's guidance SURVIVES
+        assert seen["template"] == "ROW TEMPLATE"  # ...and its template
+
     def test_per_row_prompt_override_reaches_the_curator(self, ctx: EngineContext, mock_plextv):
         from shortlist.engine.models import PromptConfig
 
@@ -379,6 +414,161 @@ class TestPerRowOverrides:
         promoted_sections = {getattr(call.args[0], "_section", None) for call in ctx.plex.promote.call_args_list}
         assert lib2 in promoted_sections, "the row in the non-lowest-key library was never promoted (leak)"
 
+    def test_a_pinned_row_only_recommends_titles_its_own_library_holds(self, ctx: EngineContext, mock_plextv):
+        """A row pinned to a library was curated against the UNION of every library of its type, and
+        delivery then dropped every pick the pinned library didn't hold — a short row, or an empty
+        one, reported as ok. The pool must be narrowed to the row's own libraries first."""
+        lib1 = MagicMock()
+        lib1.type = "movie"
+        lib1.key = "1"
+        lib2 = MagicMock()
+        lib2.type = "movie"
+        lib2.key = "2"
+        ctx.plex.sections.return_value = [lib1, lib2]
+        ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: lib1}
+        # Candidate 10 is in BOTH libraries; candidate 20 lives only in lib1.
+        ctx.plex.build_library_index.side_effect = lambda s: (
+            {900: 999, 10: 1010, 20: 1020} if s is lib1 else {900: 999, 10: 2010}
+        )
+        ctx.config.rows = [RowSpec(slug="picked", name_template="", size=5, library_keys=["2"])]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        offered: list[int] = []
+
+        def curate(profile, candidates, k):
+            offered.extend(c.tmdb_id for c in candidates)
+            return curated_picks(profile, candidates, k)
+
+        ctx.curator.curate.side_effect = curate
+
+        pipeline_mod.run(ctx, [sarah])
+
+        # 20 isn't in lib2, so the curator must never have been offered it.
+        assert 10 in offered
+        assert 20 not in offered, "the row was offered a title its own library doesn't hold"
+
+    def test_a_shows_only_row_survives_a_movie_heavy_pool(self, ctx: EngineContext, mock_plextv):
+        """The media filter used to run AFTER the pre-rank truncation, so a movie-heavy watcher's
+        shows-only row could lose every show to the 40-candidate cut and deliver nothing."""
+        movie_section = MagicMock()
+        movie_section.type = "movie"
+        movie_section.key = "1"
+        show_section = MagicMock()
+        show_section.type = "show"
+        show_section.key = "2"
+        ctx.plex.sections.return_value = [movie_section, show_section]
+        ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movie_section, MediaType.SHOW: show_section}
+        ctx.config.candidates_pre_rank = 5  # a tiny cut, so crowding-out is easy to trigger
+        movies = {900: 999, **{i: 1000 + i for i in range(1, 60)}}
+        shows = {5000: 5999, 5001: 5001}
+        ctx.plex.build_library_index.side_effect = lambda s: movies if s is movie_section else shows
+        ctx.config.rows = [RowSpec(slug="tv", name_template="TV Picks", size=2, media="show")]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+
+        # 59 high-rated movies flood the pool and ONE lower-rated show — from the SAME source, so a
+        # source quota can't rescue it. Only filtering by media BEFORE the cut can.
+        def suggestions(tid, mt):
+            if mt is MediaType.MOVIE:
+                return [{"id": i, "title": f"Movie {i}", "genre_ids": [], "vote_average": 9.0} for i in range(1, 60)]
+            return [{"id": 5001, "title": "A Show", "genre_ids": [], "vote_average": 6.0}]
+
+        ctx.tmdb.suggestions.side_effect = suggestions
+        ctx.config.candidate_sources = ["tmdb_similar"]
+        ctx.tmdb.genre_ids_for.side_effect = lambda tid, mt: [18]
+        # A show seed so the SHOW media type is in play at all (typed as a SHOW, or no show seed is
+        # derived and tmdb_discover is never asked for shows).
+        ctx.history_source.fetch.return_value = [
+            *[make_watched("Fargo", days_ago=i, rating_key=999) for i in range(1, 5)],
+            make_watched("Breaking Bad", days_ago=2, rating_key=5999, media_type=MediaType.SHOW),
+        ]
+        offered: list[int] = []
+
+        def curate(profile, candidates, k):
+            offered.extend(c.tmdb_id for c in candidates)
+            return curated_picks(profile, candidates, k)
+
+        ctx.curator.curate.side_effect = curate
+
+        pipeline_mod.run(ctx, [sarah])
+
+        assert offered, "the shows-only row was offered no candidates at all"
+        assert all(i >= 5000 for i in offered), f"a shows-only row was offered movies: {offered}"
+
+    def test_the_ai_library_catalog_is_built_when_only_a_ROW_asks_for_it(self, ctx: EngineContext, mock_plextv):
+        """A row overriding its sources to llm_library found an empty catalog — it was only built when
+        the GLOBAL setting listed the source — so it produced nothing, forever, reporting ok."""
+        ctx.config.candidate_sources = ["tmdb_similar"]  # global set does NOT include llm_library
+        ctx.config.rows = [RowSpec(slug="gems", name_template="Gems", size=5, candidate_sources=["llm_library"])]
+        ctx.plex.build_library_catalog.return_value = [
+            {"tmdb_id": 10, "rating_key": 1010, "title": "Owned Ten", "year": 2010, "genres": []},
+        ]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+
+        pipeline_mod.run(ctx, [sarah])
+
+        assert ctx.plex.build_library_catalog.called, "the AI-from-library catalog was never built"
+
+    def test_one_rows_dead_source_does_not_kill_the_users_other_rows(self, ctx: EngineContext, mock_plextv):
+        """A row pinned to a single source (Trakt-only) whose source is down must fail alone. It used
+        to raise out of the whole user, so their healthy rows delivered nothing either."""
+        trakt = MagicMock()
+        trakt.related.side_effect = RuntimeError("trakt 502")
+        ctx.trakt = trakt
+        ctx.config.rows = [
+            RowSpec(slug="picked", name_template="", size=5),  # inherits the (working) global sources
+            RowSpec(slug="next", name_template="What to watch next", size=5, candidate_sources=["trakt"]),
+        ]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+
+        report = pipeline_mod.run(ctx, [sarah])
+
+        assert report.users[0].status == "ok", "a healthy row's user must not be failed by a dead sibling"
+        assert {p.collection_slug for p in report.users[0].picks} == {"picked"}
+
+    def test_a_user_whose_every_source_is_down_is_an_error_not_a_cheerful_ok(self, ctx: EngineContext, mock_plextv):
+        """The other half: if nothing worked, we know nothing about this person — reporting ok would
+        leave yesterday's row in place and call it a success."""
+        ctx.tmdb.suggestions.side_effect = RuntimeError("tmdb 429")
+        ctx.config.rows = [RowSpec(slug="picked", name_template="", size=5, candidate_sources=["tmdb_similar"])]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+
+        report = pipeline_mod.run(ctx, [sarah])
+
+        assert report.users[0].status == "error"
+        assert "429" in report.users[0].error
+
+    def test_disabling_every_row_delivers_nothing(self, ctx: EngineContext, mock_plextv):
+        """When the server manages rows (rows_defined=True), an empty row list means every row is
+        DISABLED — deliver nothing. It used to resurrect the synthesized default for everyone."""
+        ctx.config.rows = []
+        ctx.config.rows_defined = True
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+
+        pipeline_mod.run(ctx, [sarah])
+
+        ctx.plex.create_collection.assert_not_called()
+        ctx.plex.promote.assert_not_called()
+
+    def test_the_cli_still_gets_a_default_row_when_none_are_configured(self, ctx: EngineContext, mock_plextv):
+        """The CLI does not manage rows (rows_defined=False), so an empty list means 'unconfigured' —
+        synthesize the legacy default so a bare `shortlist run` still builds a row."""
+        ctx.config.rows = []
+        ctx.config.rows_defined = False
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+
+        pipeline_mod.run(ctx, [sarah])
+
+        ctx.plex.create_collection.assert_called()  # the synthesized "Picked for You"
+
     def test_muting_removes_an_already_delivered_row(self, ctx: EngineContext, mock_plextv):
         from shortlist.engine.delivery import row_marker
 
@@ -435,9 +625,10 @@ class TestRequestsWiring:
         captured = {}
         sentinel = RequestReport(considered=1)
 
-        def spy(cfg, tmdb, demand, *, dry_run):
+        def spy(cfg, tmdb, demand, *, dry_run, already_handled=None, **kw):
             captured["demand"] = demand
             captured["dry_run"] = dry_run
+            captured["already_handled"] = already_handled
             return sentinel
 
         monkeypatch.setattr(pipeline_mod.requests_mod, "request_missing", spy)
@@ -484,7 +675,7 @@ class TestRequestsWiring:
         monkeypatch.setattr(
             pipeline_mod.requests_mod,
             "request_missing",
-            lambda cfg, tmdb, demand, *, dry_run: captured.setdefault("demand", demand) or RequestReport(),
+            lambda cfg, tmdb, demand, **kw: captured.setdefault("demand", demand) or RequestReport(),
         )
 
         report = pipeline_mod.run(ctx, [sarah])

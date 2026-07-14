@@ -14,6 +14,13 @@ Existing rows are backfilled as "movie" because nothing in the table can tell us
 and some of them really are shows (that is the bug this column exists to prevent). The only
 consequence is that a mislabeled title becomes eligible for the row again one run early, which
 is a freshness wobble, not a correctness problem: the next run records the true type.
+
+Idempotent like 0003+, and this is the one where it matters most: unlike 0001 it runs against an
+EXISTING database with real data in it. SQLite auto-commits DDL, so a crash after the ALTER but
+before alembic stamps the version leaves the column present and the version at 0001 — and the
+re-run on the next boot dies on "duplicate column name: media_type". The container then fails to
+start on every subsequent boot, with the owner's data sitting behind a migration that can never
+complete. The guard makes the re-run a no-op instead.
 """
 
 import sqlalchemy as sa
@@ -26,7 +33,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("picks", sa.Column("media_type", sa.String(16), nullable=False, server_default="movie"))
+    inspector = sa.inspect(op.get_bind())
+    if "media_type" not in {column["name"] for column in inspector.get_columns("picks")}:
+        op.add_column("picks", sa.Column("media_type", sa.String(16), nullable=False, server_default="movie"))
 
 
 def downgrade() -> None:

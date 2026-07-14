@@ -77,6 +77,7 @@ def request_missing(
     *,
     dry_run: bool,
     min_write_interval: float = 1.0,
+    already_handled: set[tuple[int, str]] | None = None,
 ) -> RequestReport:
     """Auto-request the strongest missing titles; queue the rest for the owner to approve.
 
@@ -88,11 +89,18 @@ def request_missing(
     One title's failure never stops the rest: each is caught and recorded as its own outcome.
     """
     report = RequestReport()
+    # Titles the owner has already actioned — asked for, or said no to — are out of the running
+    # entirely. Two bugs lived here: a title still DOWNLOADING was still "missing", so it re-won a
+    # slot every night and `max_per_run` starved forever on the same five titles; and a REJECTED
+    # title could still be auto-sent later, so a "no" wasn't a no.
+    handled = already_handled or set()
     # Cheap, source-independent floors first: enough distinct wanters, and recent enough.
     pool = [
         m
         for m in demand.values()
-        if m.demand >= cfg.min_demand and (cfg.min_year <= 0 or (m.year or 0) >= cfg.min_year)
+        if (m.tmdb_id, str(m.media_type)) not in handled
+        and m.demand >= cfg.min_demand
+        and (cfg.min_year <= 0 or (m.year or 0) >= cfg.min_year)
     ]
     # Then the rating gate, from whichever source the owner chose (it ranks the survivors too).
     if cfg.rating_source == "imdb" and cfg.omdb_api_key:
@@ -117,6 +125,10 @@ def request_missing(
         return report
 
     report.outcomes = _send(cfg, tmdb, auto, dry_run=dry_run, min_write_interval=min_write_interval)
+    # Only the ones the Arr actually accepted. A send that failed, or was skipped for want of a TVDB
+    # id, must stay requestable — suppressing it would lose the title silently.
+    landed = {o.tmdb_id for o in report.outcomes if o.status in ("requested", "would_request")}
+    report.sent = [m for m in auto if m.tmdb_id in landed]
     logger.info(
         "requests: {} of {} auto-{}, {} queued for approval ({} considered)",
         report.requested,

@@ -1,11 +1,11 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 
-import { SavedIndicator } from "@/components/saved-indicator";
+import { SaveStatus } from "@/components/save-status";
 import { Segmented } from "@/components/segmented";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiErrorMessage } from "@/lib/api";
+import { useAutosave } from "@/lib/autosave";
 import { ROW_SIZES } from "@/lib/constants";
 import { renderRowName, settingNumber, settingString } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
@@ -23,23 +23,13 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
   const [justSaved, setJustSaved] = useState(false);
   const rowNameId = useId();
 
-  // Auto-save ~600ms after the last change (text never saves mid-keystroke), skipping first render.
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      setJustSaved(false);
-      saveSettings.mutate(
-        { "row.name_template": rowNameTpl, "row.size": rowSize },
-        { onSuccess: () => setJustSaved(true) },
-      );
-    }, 600);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowNameTpl, rowSize]);
+  const retry = useAutosave({ rowNameTpl, rowSize }, () => {
+    setJustSaved(false);
+    saveSettings.mutate(
+      { "row.name_template": rowNameTpl, "row.size": rowSize },
+      { onSuccess: () => setJustSaved(true) },
+    );
+  });
 
   return (
     <section aria-labelledby="defaults-heading" className="space-y-3">
@@ -77,18 +67,13 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
             }))}
             onChange={(size) => setRowSize(Number(size))}
           />
-          <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
-            {saveSettings.isPending && <span>Saving…</span>}
-            <SavedIndicator show={justSaved && !saveSettings.isPending} />
-            {saveSettings.isError && (
-              <p role="alert" className="text-destructive">
-                {apiErrorMessage(
-                  saveSettings.error,
-                  "Saving failed. Check the server log and try again.",
-                )}
-              </p>
-            )}
-          </div>
+          <SaveStatus
+            isPending={saveSettings.isPending}
+            isError={saveSettings.isError}
+            error={saveSettings.error}
+            saved={justSaved}
+            onRetry={retry}
+          />
         </CardContent>
       </Card>
     </section>

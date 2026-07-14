@@ -1,8 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
 import { Film, PlugZap, Tv } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
-import { SavedIndicator } from "@/components/saved-indicator";
+import { SaveStatus } from "@/components/save-status";
 import { Segmented } from "@/components/segmented";
 import { TestResult } from "@/components/test-result";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { api, apiErrorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useAutosave } from "@/lib/autosave";
 import { settingBool, settingNumber, settingString } from "@/lib/format";
 import { useArrOptions, useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
@@ -234,47 +235,38 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
       .getElementById("connections")
       ?.scrollIntoView({ behavior: "smooth" });
 
-  const save = () => {
+  // Auto-save: no Save button. Any change persists shortly after you stop (so text fields never
+  // save mid-keystroke; toggles feel instant).
+  const retry = useAutosave(form, () => {
     setSaved(false);
-    saveSettings.mutate(
-      {
-        "requests.enabled": form.enabled,
-        // Address + API key are owned by Settings → Connections now; this form only saves the
-        // request-filing choices (quality profile + folder) and the policy below.
-        "requests.radarr.quality_profile_id": form.radarr.qualityProfileId,
-        "requests.radarr.root_folder": form.radarr.rootFolder,
-        "requests.sonarr.quality_profile_id": form.sonarr.qualityProfileId,
-        "requests.sonarr.root_folder": form.sonarr.rootFolder,
-        "requests.rating_source": form.ratingSource,
-        "requests.omdb.apikey": form.omdbKey,
-        "requests.min_rating": form.minRating,
-        "requests.min_votes": form.minVotes,
-        "requests.min_demand": form.minDemand,
-        "requests.min_year": form.minYear,
-        "requests.max_per_run": form.maxPerRun,
-        "requests.auto_send": form.autoSend,
-        "requests.auto_min_demand": form.autoMinDemand,
-        "requests.auto_min_rating": form.autoMinRating,
-        "requests.tag": form.tag.trim(),
-      },
-      { onSuccess: () => setSaved(true) },
-    );
-  };
-
-  // Auto-save: no Save button. Any change persists ~600ms after you stop (so text fields never save
-  // mid-keystroke; toggles feel instant). Skip the first render so merely opening the page writes
-  // nothing. saveRef keeps the effect's dep list just [form] without re-firing every render.
-  const saveRef = useRef(save);
-  saveRef.current = save;
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
+    const values: Settings = {
+      "requests.enabled": form.enabled,
+      // Address + API key are owned by Settings → Connections now; this form only saves the
+      // request-filing choices (quality profile + folder) and the policy below.
+      "requests.radarr.quality_profile_id": form.radarr.qualityProfileId,
+      "requests.radarr.root_folder": form.radarr.rootFolder,
+      "requests.sonarr.quality_profile_id": form.sonarr.qualityProfileId,
+      "requests.sonarr.root_folder": form.sonarr.rootFolder,
+      "requests.rating_source": form.ratingSource,
+      "requests.min_rating": form.minRating,
+      "requests.min_votes": form.minVotes,
+      "requests.min_demand": form.minDemand,
+      "requests.min_year": form.minYear,
+      "requests.max_per_run": form.maxPerRun,
+      "requests.auto_send": form.autoSend,
+      "requests.auto_min_demand": form.autoMinDemand,
+      "requests.auto_min_rating": form.autoMinRating,
+      "requests.tag": form.tag.trim(),
+    };
+    // A saved key reads back as the redacted sentinel, and focusing the field blanks it. Sending
+    // either would be a write, not a no-op: the sentinel would be stored AS the key (and, with
+    // auto-save, "•••••abc" the moment anyone typed without selecting all first), and a blank would
+    // wipe the key just for clicking into the box. Same guard as ConnectionCard.commit().
+    if (form.omdbKey !== REDACTED && form.omdbKey !== "") {
+      values["requests.omdb.apikey"] = form.omdbKey;
     }
-    const timer = setTimeout(() => saveRef.current(), 600);
-    return () => clearTimeout(timer);
-  }, [form]);
+    saveSettings.mutate(values, { onSuccess: () => setSaved(true) });
+  });
 
   return (
     <Card>
@@ -386,6 +378,22 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                         type="password"
                         placeholder="Free key from omdbapi.com"
                         value={form.omdbKey}
+                        onFocus={(e) => {
+                          // Clear the redacted placeholder on focus so a new key is typed clean —
+                          // otherwise the caret lands after the dots and the key becomes "•••••abc".
+                          if (e.target.value === REDACTED) set({ omdbKey: "" });
+                        }}
+                        onBlur={() => {
+                          // Left blank without typing? Put the dots back: the saved key is still
+                          // there, and the save above leaves it untouched.
+                          if (
+                            form.omdbKey === "" &&
+                            settingString(settings, "requests.omdb.apikey") ===
+                              REDACTED
+                          ) {
+                            set({ omdbKey: REDACTED });
+                          }
+                        }}
                         onChange={(e) => set({ omdbKey: e.target.value })}
                         className="max-w-xs"
                       />
@@ -411,11 +419,16 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                         <TestResult error={omdbTest.error} as="span" />
                       )}
                     </div>
-                    {!omdbOnFile && (
+                    {omdbOnFile ? (
+                      <p className="text-sm text-muted-foreground">
+                        A saved key shows as dots. Type a new one to replace it;
+                        leave it blank to keep the one you have.
+                      </p>
+                    ) : (
                       <p role="alert" className="text-sm text-warning">
                         Without a saved OMDb key, Shortlist falls back to TMDB
                         ratings — IMDb gating won&rsquo;t actually be used. Add
-                        and save a key above.
+                        a key above.
                       </p>
                     )}
                   </div>
@@ -595,18 +608,13 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
           </div>
         )}
 
-        <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
-          {saveSettings.isPending && <span>Saving…</span>}
-          <SavedIndicator show={saved && !saveSettings.isPending} />
-          {saveSettings.isError && (
-            <p role="alert" className="text-destructive">
-              {apiErrorMessage(
-                saveSettings.error,
-                "Saving failed. Check the server log and try again.",
-              )}
-            </p>
-          )}
-        </div>
+        <SaveStatus
+          isPending={saveSettings.isPending}
+          isError={saveSettings.isError}
+          error={saveSettings.error}
+          saved={saved}
+          onRetry={retry}
+        />
       </CardContent>
     </Card>
   );

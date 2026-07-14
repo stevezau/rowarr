@@ -23,7 +23,7 @@ export function blankInput(): CollectionInput {
     request_tag: "",
     candidate_sources: [],
     library_keys: [],
-    prompt: { tone: "balanced", guidance: "", template: "" },
+    prompt: { tone: "", guidance: "", template: "" },
   };
 }
 
@@ -44,7 +44,7 @@ export function toInput(collection: Collection): CollectionInput {
     candidate_sources: collection.candidate_sources,
     library_keys: collection.library_keys,
     prompt: {
-      tone: collection.prompt.tone ?? "balanced",
+      tone: collection.prompt.tone ?? "",
       guidance: collection.prompt.guidance ?? "",
       template: collection.prompt.template ?? "",
     },
@@ -96,10 +96,11 @@ export function rowOverrides(
   // badging one here would advertise a setting no run will ever apply.
   if (collection.slug !== DEFAULT_ROW_SLUG) {
     const { tone, guidance, template } = collection.prompt ?? {};
-    const toneLabel = TONE_LABELS[tone ?? "balanced"] ?? tone;
+    // A blank tone means the row inherits Settings → Curation style, so there's nothing to badge.
+    const toneLabel = tone ? (TONE_LABELS[tone] ?? tone) : "";
     if (template) parts.push("Style: custom prompt");
-    else if (guidance) parts.push(`Style: ${toneLabel} + notes`);
-    else if (tone && tone !== "balanced") parts.push(`Style: ${toneLabel}`);
+    else if (guidance) parts.push(`Style: ${toneLabel || "Inherited"} + notes`);
+    else if (tone) parts.push(`Style: ${toneLabel}`);
   }
 
   return parts;

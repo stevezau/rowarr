@@ -1,6 +1,7 @@
 import { Trash2, UserCheck, Users as UsersIcon } from "lucide-react";
 import { useState } from "react";
 
+import { MutationAlert } from "@/components/mutation-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -117,6 +118,25 @@ export function RowCard({
             </Button>
           )}
         </div>
+        {/* The Switch mirrors the saved row, so a rejected save just snaps it back — silently
+            reverting is exactly what a click that never landed looks like. */}
+        {save.isError && (
+          <MutationAlert
+            className="w-full"
+            error={save.error}
+            lead={
+              collection.enabled
+                ? "This row is still on."
+                : "This row is still off."
+            }
+            fallback="Couldn’t change this row. Try again."
+            onRetry={() => {
+              const last = save.variables;
+              if (last) save.mutate(last);
+            }}
+          />
+        )}
+
         {remove.isError && (
           <p role="alert" className="w-full text-sm text-destructive">
             {apiErrorMessage(

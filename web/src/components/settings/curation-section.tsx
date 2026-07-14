@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import {
   CurationStyleFields,
   type CurationStyleValue,
 } from "@/components/curation-style";
-import { SavedIndicator } from "@/components/saved-indicator";
+import { SaveStatus } from "@/components/save-status";
 import { Card, CardContent } from "@/components/ui/card";
-import { apiErrorMessage } from "@/lib/api";
+import { useAutosave } from "@/lib/autosave";
 import { settingString } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
@@ -21,27 +21,17 @@ export function CurationSection({ settings }: { settings: Settings }) {
   });
   const [justSaved, setJustSaved] = useState(false);
 
-  // Auto-save ~600ms after the last change (text never saves mid-keystroke), skipping first render.
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      setJustSaved(false);
-      saveSettings.mutate(
-        {
-          "curator.prompt_tone": curation.tone,
-          "curator.prompt_guidance": curation.guidance,
-          "curator.prompt_template": curation.template,
-        },
-        { onSuccess: () => setJustSaved(true) },
-      );
-    }, 600);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curation]);
+  const retry = useAutosave(curation, () => {
+    setJustSaved(false);
+    saveSettings.mutate(
+      {
+        "curator.prompt_tone": curation.tone,
+        "curator.prompt_guidance": curation.guidance,
+        "curator.prompt_template": curation.template,
+      },
+      { onSuccess: () => setJustSaved(true) },
+    );
+  });
 
   return (
     <section aria-labelledby="curation-heading" className="space-y-3">
@@ -56,18 +46,13 @@ export function CurationSection({ settings }: { settings: Settings }) {
             person on their page.
           </p>
           <CurationStyleFields value={curation} onChange={setCuration} />
-          <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
-            {saveSettings.isPending && <span>Saving…</span>}
-            <SavedIndicator show={justSaved && !saveSettings.isPending} />
-            {saveSettings.isError && (
-              <p role="alert" className="text-destructive">
-                {apiErrorMessage(
-                  saveSettings.error,
-                  "Saving failed. Try again.",
-                )}
-              </p>
-            )}
-          </div>
+          <SaveStatus
+            isPending={saveSettings.isPending}
+            isError={saveSettings.isError}
+            error={saveSettings.error}
+            saved={justSaved}
+            onRetry={retry}
+          />
         </CardContent>
       </Card>
     </section>

@@ -78,10 +78,13 @@ class TestUsersApi:
         users = client.get("/api/users").json()
         assert [u["username"] for u in users] == ["mike", "sarah"]
         target = next(u for u in users if u["username"] == "mike")
-        r = client.patch(f"/api/users/{target['id']}", json={"enabled": True, "prefs": {"row_size": 10}})
+        # NB: `row_size`/`max_rating` used to live in prefs and were read by NOTHING. Per-person row
+        # size is a row override (PUT /users/{id}/rows/{cid}); a maturity cap filtered no content at
+        # all, so it was removed rather than left looking enforced.
+        r = client.patch(f"/api/users/{target['id']}", json={"enabled": True, "prefs": {"excluded_genres": ["Horror"]}})
         assert r.status_code == 200
         assert r.json()["enabled"] is True
-        assert r.json()["prefs"]["row_size"] == 10
+        assert r.json()["prefs"]["excluded_genres"] == ["Horror"]
 
     def test_patch_unknown_user_404(self, client: TestClient):
         assert client.patch("/api/users/9999", json={"enabled": True}).status_code == 404
@@ -178,6 +181,47 @@ class TestRunsApi:
 
     def test_unknown_run_404(self, client: TestClient):
         assert client.get("/api/runs/424242").status_code == 404
+
+
+class TestSettingsValidation:
+    """PUT /api/settings validated the KEY but never the VALUE, so any non-UI client could push a
+    value the engine then choked on — or, worse, one that quietly disabled a safety rule."""
+
+    def test_a_throttle_below_one_write_per_second_is_refused(self, client: TestClient):
+        # plex-safety rule 6: <=1 write/s to plex.tv. 0 removed the throttle entirely.
+        r = client.put("/api/settings", json={"values": {"plextv.throttle_s": 0}})
+        assert r.status_code == 422
+        assert "plextv.throttle_s" in r.json()["detail"]
+        assert client.put("/api/settings", json={"values": {"plextv.throttle_s": 2.5}}).status_code == 200
+
+    def test_a_non_numeric_row_size_is_refused(self, client: TestClient):
+        # "abc" was stored happily, then raised ValueError inside every run and 500'd two endpoints.
+        assert client.put("/api/settings", json={"values": {"row.size": "abc"}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"row.size": 99}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"row.size": 20}}).status_code == 200
+
+    def test_paused_all_must_be_a_real_boolean(self, client: TestClient):
+        # A non-empty string is truthy in Python, so "false" PAUSED every run while the UI read "off".
+        assert client.put("/api/settings", json={"values": {"paused_all": "false"}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"paused_all": False}}).status_code == 200
+
+    def test_an_unknown_candidate_source_is_refused(self, client: TestClient):
+        # POST /collections already rejected this; the global key accepted it.
+        r = client.put("/api/settings", json={"values": {"candidates.sources": ["totally_bogus"]}})
+        assert r.status_code == 422
+        ok = client.put("/api/settings", json={"values": {"candidates.sources": ["trakt", "tmdb_similar"]}})
+        assert ok.status_code == 200
+
+    def test_an_unknown_curator_provider_is_refused(self, client: TestClient):
+        assert client.put("/api/settings", json={"values": {"curator.provider": "bogus"}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"curator.provider": "none"}}).status_code == 200
+
+    def test_a_valid_settings_payload_still_saves(self, client: TestClient):
+        r = client.put(
+            "/api/settings",
+            json={"values": {"row.size": 15, "requests.min_rating": 7.5, "requests.max_per_run": 5}},
+        )
+        assert r.status_code == 200
 
 
 class TestSettingsApi:
@@ -406,6 +450,45 @@ class TestCollectionsApi:
         patched = client.patch(f"/api/collections/{cid}", json={"name": "4K Only", "library_keys": ["3", "5"]})
         assert patched.status_code == 200
         assert patched.json()["library_keys"] == ["3", "5"]
+
+    def test_a_custom_row_inherits_the_global_curation_style(self, client: TestClient):
+        """Settings -> Curation style said it wrote "everyone's rows". It wrote exactly one: the
+        default. Every custom row got a bare `balanced` recipe that beat the global one downstream."""
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
+
+        client.put(
+            "/api/settings",
+            json={"values": {"curator.prompt_tone": "cinephile", "curator.prompt_guidance": "no horror"}},
+        )
+        client.post("/api/collections", json={"name": "Hidden Gems"})
+        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
+        with client.app.state.sessions() as session:
+            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
+        gems = next(spec for spec in specs if spec.slug == "hidden_gems")
+
+        assert gems.prompt.tone == "cinephile"  # inherited, not a bare "balanced"
+        assert "no horror" in gems.prompt.guidance
+
+    def test_a_rows_own_style_still_beats_the_global_one(self, client: TestClient):
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
+
+        client.put("/api/settings", json={"values": {"curator.prompt_tone": "cinephile"}})
+        created = client.post(
+            "/api/collections",
+            json={"name": "Family Night", "prompt": {"tone": "playful", "guidance": "keep it light", "template": ""}},
+        )
+        assert created.status_code == 201
+        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
+        with client.app.state.sessions() as session:
+            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
+        row = next(spec for spec in specs if spec.slug == "family_night")
+
+        assert row.prompt.tone == "playful"  # the row's own choice wins
+        assert "keep it light" in row.prompt.guidance
 
     def test_default_row_never_stores_a_prompt_the_engine_would_ignore(self, client: TestClient):
         # The default row is curated with the GLOBAL recipe (ContextBuilder passes prompt=None for

@@ -1,6 +1,7 @@
 import { ListChecks, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +86,16 @@ export function RunsPage() {
           </Button>
         }
       />
+
+      {/* The write gate refuses a run in plain English (no passing Privacy Check, PMS too old).
+          Swallowing that left the button looking like it had done nothing at all. */}
+      {startRun.isError && (
+        <MutationAlert
+          className="mb-4"
+          error={startRun.error}
+          fallback="Couldn’t start that run. Check the server log and try again."
+        />
+      )}
 
       <QueryBoundary
         query={runsQuery}

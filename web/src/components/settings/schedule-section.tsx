@@ -1,11 +1,11 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 
-import { SavedIndicator } from "@/components/saved-indicator";
+import { SaveStatus } from "@/components/save-status";
 import { Segmented } from "@/components/segmented";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiErrorMessage } from "@/lib/api";
+import { useAutosave } from "@/lib/autosave";
 import { cronFromTime, settingString, timeFromCron } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
@@ -25,23 +25,13 @@ export function ScheduleSection({ settings }: { settings: Settings }) {
   const [justSaved, setJustSaved] = useState(false);
   const timeId = useId();
 
-  // Auto-save ~600ms after the last change (no Save button), skipping first render.
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      setJustSaved(false);
-      saveSettings.mutate(
-        { "schedule.cron": cronFromTime(scheduleTime, cadence === "weekly") },
-        { onSuccess: () => setJustSaved(true) },
-      );
-    }, 600);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduleTime, cadence]);
+  const retry = useAutosave({ scheduleTime, cadence }, () => {
+    setJustSaved(false);
+    saveSettings.mutate(
+      { "schedule.cron": cronFromTime(scheduleTime, cadence === "weekly") },
+      { onSuccess: () => setJustSaved(true) },
+    );
+  });
 
   return (
     <section aria-labelledby="schedule-heading" className="space-y-3">
@@ -70,18 +60,13 @@ export function ScheduleSection({ settings }: { settings: Settings }) {
               }))}
               onChange={setCadence}
             />
-            <div className="flex h-5 items-center gap-3 text-sm text-muted-foreground">
-              {saveSettings.isPending && <span>Saving…</span>}
-              <SavedIndicator show={justSaved && !saveSettings.isPending} />
-              {saveSettings.isError && (
-                <p role="alert" className="text-destructive">
-                  {apiErrorMessage(
-                    saveSettings.error,
-                    "Saving failed. Try again.",
-                  )}
-                </p>
-              )}
-            </div>
+            <SaveStatus
+              isPending={saveSettings.isPending}
+              isError={saveSettings.isError}
+              error={saveSettings.error}
+              saved={justSaved}
+              onRetry={retry}
+            />
           </div>
           <p className="text-sm text-muted-foreground">
             Rows refresh {cadence} at {scheduleTime} server time.

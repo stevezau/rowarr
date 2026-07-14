@@ -37,12 +37,16 @@ def make_candidate(
     media_type: MediaType = MediaType.MOVIE,
     **kw,
 ) -> Candidate:
+    # `is None`, not `or`: seeds=[] must produce a genuinely SEEDLESS candidate. `or` quietly handed
+    # one back, so no test could express what tmdb_discover/llm_library/llm_web actually produce —
+    # which is why nothing caught those three sources being ranked at zero and dropped.
+    default_seed = [Seed(tmdb_id=1, title="Seed Movie", media_type=media_type, weight=1.0)]
     return Candidate(
         tmdb_id=tmdb_id,
         title=title,
         media_type=media_type,
         rating=rating,
-        seeds=seeds or [Seed(tmdb_id=1, title="Seed Movie", media_type=media_type, weight=1.0)],
+        seeds=default_seed if seeds is None else list(seeds),
         **kw,
     )
 

@@ -34,7 +34,11 @@ _SORT_KEYS = {
 
 @dataclass
 class FakeMovie:
-    """A library item. `media_type` is what decides which library it belongs in."""
+    """A library item. `media_type` decides how the PMS serves it (<Video> vs <Directory>).
+
+    Which library it lives in is decided by the FakeSection that holds it — NOT by this field. The
+    same title can exist in two libraries ("Movies" and "4K Movies") under different ratingKeys.
+    """
 
     rating_key: int
     title: str
@@ -43,6 +47,31 @@ class FakeMovie:
     tmdb_id: int
     audience_rating: float
     media_type: str = "movie"  # "movie" | "show"
+
+
+@dataclass
+class FakeSection:
+    """One Plex library: its own key, type, title and items.
+
+    A server can have SEVERAL libraries of one type — "Movies" + "4K Movies" is a very common
+    layout. A fake that can only model one library per type cannot reproduce it, and that blind
+    spot hid two production bugs: a row delivered to a non-lowest-keyed library was never promoted
+    (so it stayed visible in library browse to everyone), and a row pinned to one library was
+    curated against the union of all of them.
+    """
+
+    key: int
+    type: str  # "movie" | "show"
+    title: str
+    items: dict[int, FakeMovie] = field(default_factory=dict)
+
+
+def _default_sections() -> dict[int, FakeSection]:
+    """The one-library-per-type layout every existing test assumes: Movies(1), TV Shows(2)."""
+    return {
+        1: FakeSection(key=1, type="movie", title="Movies"),
+        2: FakeSection(key=2, type="show", title="TV Shows"),
+    }
 
 
 @dataclass
@@ -91,27 +120,75 @@ class FakePlexState:
     owner_token: str = "owner-token"
     owner_account_id: int = 555000001
     pms_url: str = "http://127.0.0.1:32400"  # set by the harness once the fake PMS has a port
-    section_id: int = 1  # Movies
-    show_section_id: int = 2  # TV Shows
-    movies: dict[int, FakeMovie] = field(default_factory=dict)
-    shows: dict[int, FakeMovie] = field(default_factory=dict)
+    sections: dict[int, FakeSection] = field(default_factory=_default_sections)
     collections: dict[int, FakeCollection] = field(default_factory=dict)
     users: dict[int, FakeUser] = field(default_factory=dict)  # owner is NOT in this dict
     history: list[FakeHistoryEntry] = field(default_factory=list)
     next_rating_key: int = 5000
+
+    @property
+    def section_id(self) -> int:
+        """The default (lowest-keyed) movie library — what a one-library-per-type test means."""
+        return self.default_section("movie").key
+
+    @property
+    def show_section_id(self) -> int:
+        return self.default_section("show").key
+
+    @property
+    def movies(self) -> dict[int, FakeMovie]:
+        """Items of the DEFAULT movie library. A test with several movie libraries must address
+        them through `sections`, since "the movie library" is no longer a single thing."""
+        return self.default_section("movie").items
+
+    @property
+    def shows(self) -> dict[int, FakeMovie]:
+        return self.default_section("show").items
+
+    def default_section(self, kind: str) -> FakeSection:
+        """The lowest-keyed library of a type — the one `sections_by_type()` picks."""
+        return min((s for s in self.sections.values() if s.type == kind), key=lambda s: s.key)
+
+    def add_section(self, key: int, kind: str, title: str) -> FakeSection:
+        """Add a library. A second library of an existing type is the point: see FakeSection."""
+        section = FakeSection(key=key, type=kind, title=title)
+        self.sections[key] = section
+        return section
+
+    def sections_of(self, kind: str) -> list[FakeSection]:
+        return sorted((s for s in self.sections.values() if s.type == kind), key=lambda s: s.key)
 
     def new_rating_key(self) -> int:
         self.next_rating_key += 1
         return self.next_rating_key
 
     def item(self, rating_key: int) -> FakeMovie | None:
-        return self.movies.get(rating_key) or self.shows.get(rating_key)
+        for section in self.sections.values():
+            if rating_key in section.items:
+                return section.items[rating_key]
+        return None
+
+    def section_of(self, rating_key: int) -> FakeSection | None:
+        """Which library holds this item. RatingKeys are server-unique, so at most one does."""
+        return next((s for s in self.sections.values() if rating_key in s.items), None)
 
     def section_type(self, section_id: int) -> str:
-        return "movie" if section_id == self.section_id else "show"
+        return self.sections[section_id].type
 
     def items_in(self, section_id: int) -> dict[int, FakeMovie]:
-        return self.movies if section_id == self.section_id else self.shows
+        return self.sections[section_id].items
+
+    def titles_of_type(self, kind: str) -> list[FakeMovie]:
+        """Every distinct TMDB title of a type, across every library of that type.
+
+        Deduped by tmdb_id: the same film in "Movies" and "4K Movies" is ONE title as far as
+        anything upstream of Plex (TMDB, the curator) is concerned.
+        """
+        by_tmdb: dict[int, FakeMovie] = {}
+        for section in self.sections_of(kind):
+            for item in section.items.values():
+                by_tmdb.setdefault(item.tmdb_id, item)
+        return list(by_tmdb.values())
 
     def members(self, collection: FakeCollection) -> list[int]:
         """The items a collection actually contains, per Plex's real model.
@@ -239,6 +316,7 @@ def _container(**attrs) -> Element:
 def _movie_xml(parent: Element, state: FakePlexState, movie: FakeMovie) -> Element:
     """One library item. Plex serves movies as <Video> and shows as <Directory>."""
     is_show = movie.media_type == "show"
+    section = state.section_of(movie.rating_key)
     element = _el(
         parent,
         "Directory" if is_show else "Video",
@@ -249,7 +327,9 @@ def _movie_xml(parent: Element, state: FakePlexState, movie: FakeMovie) -> Eleme
         year=movie.year,
         addedAt=movie.added_at,
         audienceRating=movie.audience_rating,
-        librarySectionID=state.show_section_id if is_show else state.section_id,
+        # The library that actually holds it — never inferred from the type, or a second movie
+        # library's items would all claim to live in the first one.
+        librarySectionID=section.key if section else state.section_id,
     )
     _el(element, "Guid", id=f"tmdb://{movie.tmdb_id}")
     return element
@@ -311,13 +391,14 @@ def _meta_xml(state: FakePlexState, section_id: int, total: int) -> Element:
     """Filter metadata plexapi loads before validating any sort= argument."""
     root = _container(size=0, totalSize=total)
     meta = SubElement(root, "Meta")
-    kind = state.section_type(section_id)
+    section = state.sections[section_id]
+    kind = section.type
     item_type = _el(
         meta,
         "Type",
         key=f"/library/sections/{section_id}/all?type={1 if kind == 'movie' else 2}",
         type=kind,
-        title="Movies" if kind == "movie" else "TV Shows",
+        title=section.title,
     )
     for key, direction, title in (
         ("addedAt", "asc", "Date Added"),
@@ -361,17 +442,17 @@ def make_fake_plex(state: FakePlexState) -> FastAPI:
 
     @app.get("/library/sections")
     def sections() -> Response:
-        root = _container(size=2, allowSync="0", title1="Plex Library")
-        _el(root, "Directory", key=state.section_id, type="movie", title="Movies", uuid="section-uuid-1", filters="1")
-        _el(
-            root,
-            "Directory",
-            key=state.show_section_id,
-            type="show",
-            title="TV Shows",
-            uuid="section-uuid-2",
-            filters="1",
-        )
+        root = _container(size=len(state.sections), allowSync="0", title1="Plex Library")
+        for section in state.sections.values():
+            _el(
+                root,
+                "Directory",
+                key=section.key,
+                type=section.type,
+                title=section.title,
+                uuid=f"section-uuid-{section.key}",
+                filters="1",
+            )
         return _xml(root)
 
     @app.get("/library/sections/{section_id}/all")

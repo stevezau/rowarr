@@ -20,6 +20,87 @@ class SettingsUpdate(BaseModel):
     values: dict[str, object]
 
 
+def _bounded_int(low: int, high: int):
+    def check(value: object) -> str | None:
+        try:
+            number = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return f"must be a whole number between {low} and {high}"
+        return None if low <= number <= high else f"must be between {low} and {high}"
+
+    return check
+
+
+def _bounded_float(low: float, high: float):
+    def check(value: object) -> str | None:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return f"must be a number between {low} and {high}"
+        return None if low <= number <= high else f"must be between {low} and {high}"
+
+    return check
+
+
+def _one_of(*allowed: str):
+    def check(value: object) -> str | None:
+        return None if str(value) in allowed else f"must be one of {', '.join(allowed)}"
+
+    return check
+
+
+def _is_bool(value: object) -> str | None:
+    # A non-empty STRING is truthy in Python, so "false" would have switched paused_all ON while the
+    # UI read it as off. Only real booleans are accepted.
+    return None if isinstance(value, bool) else "must be true or false"
+
+
+def _known_sources(value: object) -> str | None:
+    from shortlist.engine.candidates import KNOWN_SOURCES
+
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        return "must be a list of source names"
+    unknown = [v for v in value if v not in KNOWN_SOURCES]
+    return f"unknown source(s) {unknown}; valid: {sorted(KNOWN_SOURCES)}" if unknown else None
+
+
+# Values the UI already constrains — but the API accepted anything, so a bad value from any other
+# client reached the engine. `plextv.throttle_s: 0` silently REMOVED the <=1 write/s plex.tv throttle
+# (plex-safety rule 6); `row.size: "abc"` crashed every run and 500'd two endpoints.
+VALIDATORS = {
+    "row.size": _bounded_int(5, 30),
+    "staleness_runs": _bounded_int(0, 50),
+    "plextv.throttle_s": _bounded_float(1.0, 60.0),  # never below the 1 write/s rule
+    "paused_all": _is_bool,
+    "requests.enabled": _is_bool,
+    "requests.auto_send": _is_bool,
+    "candidates.sources": _known_sources,
+    "curator.provider": _one_of("anthropic", "openai", "google", "ollama", "none"),
+    "curator.prompt_tone": _one_of("balanced", "warm", "concise", "cinephile", "playful"),
+    "requests.rating_source": _one_of("tmdb", "imdb"),
+    "requests.min_rating": _bounded_float(0.0, 10.0),
+    "requests.auto_min_rating": _bounded_float(0.0, 10.0),
+    "requests.min_votes": _bounded_int(0, 1_000_000),
+    "requests.min_demand": _bounded_int(1, 1000),
+    "requests.auto_min_demand": _bounded_int(1, 1000),
+    "requests.min_year": _bounded_int(0, 2100),
+    "requests.max_per_run": _bounded_int(0, 100),
+    "requests.radarr.quality_profile_id": _bounded_int(0, 1_000_000),
+    "requests.sonarr.quality_profile_id": _bounded_int(0, 1_000_000),
+}
+
+
+def _validate_values(values: dict[str, object]) -> None:
+    problems = [f"{key}: {problem}" for key, value in values.items() if (problem := _check(key, value))]
+    if problems:
+        raise HTTPException(status_code=422, detail="; ".join(sorted(problems)))
+
+
+def _check(key: str, value: object) -> str | None:
+    validator = VALIDATORS.get(key)
+    return validator(value) if validator else None
+
+
 class PromptPreviewRequest(BaseModel):
     tone: str = "balanced"
     guidance: str = ""
@@ -56,6 +137,7 @@ async def put_settings(update: SettingsUpdate, request: Request) -> dict:
     unknown = set(update.values) - KNOWN_KEYS
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown settings: {sorted(unknown)}")
+    _validate_values(update.values)
     if "schedule.cron" in update.values:
         from apscheduler.triggers.cron import CronTrigger
 

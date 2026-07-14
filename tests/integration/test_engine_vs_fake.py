@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -30,6 +31,7 @@ from tests.fakes.fake_plex import (
     FakeCollection,
     FakeHistoryEntry,
     FakePlexState,
+    FakeSection,
     make_fake_plex,
     make_fake_plextv,
     seed_state,
@@ -255,6 +257,92 @@ def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
     assert result.detail["hidden_after_exclusion"] is True
     assert "probe" not in plex.owned_collections()  # probe collection deleted in finally
     assert state.users[203].filters == filters_before_probe  # canary filters restored byte-identical
+
+
+def _add_4k_movie_library(state: FakePlexState) -> FakeSection:
+    """Mirror the movie catalog into a second movie library: "4K Movies", key 3.
+
+    Same titles, same TMDB ids, DIFFERENT ratingKeys — which is the entire point. A Plex collection
+    can only hold items from its own library, so a row built in "4K Movies" out of the "Movies"
+    library's ratingKeys is not a cosmetic mistake: it is a collection of items that library does
+    not contain.
+    """
+    section = state.add_section(key=3, kind="movie", title="4K Movies")
+    for movie in state.default_section("movie").items.values():
+        section.items[movie.rating_key + 400] = replace(movie, rating_key=movie.rating_key + 400)
+    return section
+
+
+def test_a_row_builds_in_every_movie_library_with_that_librarys_own_rating_keys(fakes, tmp_path):
+    """ "Movies" + "4K Movies": the very common layout that hid two live bugs.
+
+    An unpinned row targets EVERY library of its type, so a user with movie picks gets a collection
+    in both movie libraries. Two things have to hold, and neither can be observed on a server with
+    one library per type:
+
+    * Each collection holds its OWN library's ratingKeys for the same picks — the other library's
+      keys name items this library does not have.
+    * BOTH collections are promoted. `promote()` is the only call that hides a collection from the
+      library's normal browse view (`modeUpdate(mode="hide")`), so a row promoted in only the
+      lowest-keyed library sits browse-visible to every user in whatever other library it landed in
+      — a leak that the `label!=` excludes, which govern browse, do nothing about while the mode is
+      still "library default".
+    """
+    state, pms_url, _tmdb_app = fakes
+    movies_4k = _add_4k_movie_library(state)
+    plex = PlexClient(pms_url, state.owner_token)
+    plextv = PlexTvClient(state.owner_token, plex.machine_id, min_write_interval=0.0)
+    ctx = EngineContext(
+        config=EngineConfig(row_size=12, min_history=5, candidates_pre_rank=40, max_seeds=12),
+        plex=plex,
+        plextv=plextv,
+        tmdb=TmdbClient("test-key"),
+        history_source=PlexHistorySource(plex),
+        curator=NullCurator(),
+        snapshots=FileSnapshotStore(tmp_path / "snapshots"),
+    )
+    users = [
+        UserProfile(username=u.username, plex_account_id=u.id, user_type=UserType.SHARED)
+        for u in sorted(plextv.list_users(), key=lambda u: u.id)
+    ]
+
+    report = engine_run(ctx, users)
+    assert report.ok, [(u.username, u.error) for u in report.users]
+
+    # sarah watches films, so she has a row in EVERY movie library — plus her TV row.
+    owned = plex.owned_collections()
+    rows_by_library: dict[int, FakeCollection] = {}
+    for rating_key in owned["sarah"].rating_keys:
+        collection = state.collections[rating_key]
+        assert collection.section_id not in rows_by_library, "two rows for one user in one library"
+        rows_by_library[collection.section_id] = collection
+    assert sorted(rows_by_library) == [state.section_id, state.show_section_id, movies_4k.key]
+
+    movies_row = rows_by_library[state.section_id]
+    movies_4k_row = rows_by_library[movies_4k.key]
+
+    # Each collection holds only items its own library actually has...
+    for section_id, row in ((state.section_id, movies_row), (movies_4k.key, movies_4k_row)):
+        assert row.item_keys, f"section {section_id}: the row is empty"
+        assert set(row.item_keys) <= set(state.items_in(section_id)), (
+            f"section {section_id}: the row holds ratingKeys from another library"
+        )
+    # ...and they are DIFFERENT keys for the SAME films: the picks were remapped per library, not
+    # copied. Identical key sets would mean one library's keys were written into both collections.
+    assert not set(movies_row.item_keys) & set(movies_4k_row.item_keys)
+    assert {state.item(k).title for k in movies_row.item_keys} == {state.item(k).title for k in movies_4k_row.item_keys}
+
+    # BOTH are promoted: hidden from library browse (mode 0) and on shared Home.
+    for section_id, row in rows_by_library.items():
+        assert row.mode == 0, f"the row in section {section_id} is still visible in library browse"
+        assert row.promoted_shared_home and row.promoted_own_home, f"the row in section {section_id} was not promoted"
+        assert state.filterable(row)
+
+    # And the excludes hide every one of them from everyone else — through the canary's own eyes.
+    for account_id in (202, 203):
+        assert "Rowarr_sarah" in state.users[account_id].filters["filterMovies"]
+        visible = {collection_id_from_hub(h) for h in plex.user_hubs(f"server-{account_id}")}
+        assert not (set(owned["sarah"].rating_keys) & visible), f"account {account_id} sees sarah's row"
 
 
 def _strip_marker(title: str) -> str:

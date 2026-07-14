@@ -1,6 +1,7 @@
 import { Users as UsersIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { UserAvatar } from "@/components/user-avatar";
@@ -39,6 +40,20 @@ export function UsersPage() {
         title="Users"
         subtitle="Everyone on your Plex server. Turn a user on to give them a nightly Picked-for-You row."
       />
+
+      {/* The Switch reads the server's answer, so a rejected PATCH just snaps it back — which is
+          indistinguishable from the click never landing unless we say what happened. */}
+      {patchUser.isError && (
+        <MutationAlert
+          className="mb-4"
+          error={patchUser.error}
+          fallback="Couldn’t change that user. Try again."
+          onRetry={() => {
+            const last = patchUser.variables;
+            if (last) patchUser.mutate(last);
+          }}
+        />
+      )}
 
       <QueryBoundary
         query={usersQuery}

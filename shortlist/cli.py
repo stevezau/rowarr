@@ -43,7 +43,7 @@ from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, T
 from shortlist.engine.models import EngineConfig, FilterSnapshot, MediaType, UserProfile, dedupe_slug, slugify
 from shortlist.engine.pipeline import EngineContext
 from shortlist.engine.pipeline import run as engine_run
-from shortlist.engine.privacy import restore_user_restrictions
+from shortlist.engine.privacy import restore_user_restrictions, shared_label_audiences
 from shortlist.engine.verify import check_t1, check_t2
 from shortlist.logging_config import configure_logging
 
@@ -408,7 +408,8 @@ def verify_cmd(config_dir: Path, probe: bool) -> None:
         sys.exit(0 if result.passed else 1)
     collections = ctx.plex.owned_collections("rowarr")
     stored = {slug: row.label for slug, row in collections.items()}  # real casing from the PMS
-    t1 = check_t1(ctx.plextv, ctx.known_slugs, stored)
+    shared = shared_label_audiences(ctx.config)
+    t1 = check_t1(ctx.plextv, ctx.known_slugs, stored, shared_labels=shared)
     click.echo(f"T1 filter read-back: {'PASS' if t1.passed else 'FAIL ' + json.dumps(t1.detail)}")
     ok = t1.passed
     t2 = None
@@ -417,7 +418,7 @@ def verify_cmd(config_dir: Path, probe: bool) -> None:
         canary = next((u for u in users if u.username == canary_name or u.slug == canary_name), None)
         if canary is None:
             raise click.ClickException(f"canary {canary_name!r} is not an enabled user")
-        t2 = check_t2(ctx.plex, ctx.plextv, canary, collections)
+        t2 = check_t2(ctx.plex, ctx.plextv, canary, collections, shared_labels=shared)
         click.echo(f"T2 canary view ({canary.username}): {'PASS' if t2.passed else 'FAIL ' + json.dumps(t2.detail)}")
         ok = ok and t2.passed
     (config_dir / "privacy_check.json").write_text(

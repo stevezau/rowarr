@@ -49,6 +49,8 @@ def gather_candidates(
     """
     enabled = set(sources) if sources else set(DEFAULT_SOURCES)
     pool: dict[tuple[int, MediaType], Candidate] = {}
+    attempted: set[str] = set()
+    failures: dict[str, str] = {}  # source -> why it failed; named in the raise when ALL of them do
     genre_maps: dict[MediaType, dict[int, str]] = {}
 
     def genres_for(media_type: MediaType) -> dict[int, str]:
@@ -56,7 +58,7 @@ def gather_candidates(
             genre_maps[media_type] = tmdb.genre_names(media_type)
         return genre_maps[media_type]
 
-    def add(item: dict, media_type: MediaType) -> Candidate:
+    def add(item: dict, media_type: MediaType, source: str) -> Candidate:
         key = (item["id"], media_type)
         if key not in pool:
             date = item.get("release_date") or item.get("first_air_date") or ""
@@ -70,15 +72,18 @@ def gather_candidates(
                 rating=float(item.get("vote_average") or 0.0),
                 vote_count=int(item.get("vote_count") or 0),
             )
+        # A title two sources both found belongs to both — it competes in each one's share.
+        pool[key].sources.add(source)
         return pool[key]
 
-    def merge(tmdb_id: int, title: str, media_type: MediaType, year, genres) -> Candidate:
+    def merge(tmdb_id: int, title: str, media_type: MediaType, year, genres, source: str) -> Candidate:
         """Merge a candidate described by explicit fields (non-TMDB sources) into the pool."""
         key = (tmdb_id, media_type)
         if key not in pool:
             pool[key] = Candidate(
                 tmdb_id=tmdb_id, title=title, media_type=media_type, year=year, genres=list(genres or [])
             )
+        pool[key].sources.add(source)
         return pool[key]
 
     # Fetch each media type's genre map once up front (used to name every candidate, whatever source
@@ -87,35 +92,49 @@ def gather_candidates(
         genres_for(media_type)
 
     if "tmdb_similar" in enabled:
-        for seed in seeds:
-            for item in tmdb.suggestions(seed.tmdb_id, seed.media_type):
-                add(item, seed.media_type).seeds.append(seed)
+        attempted.add("tmdb_similar")
+        try:
+            for seed in seeds:
+                for item in tmdb.suggestions(seed.tmdb_id, seed.media_type):
+                    add(item, seed.media_type, "tmdb_similar").seeds.append(seed)
+        except Exception as e:
+            # The only source that used to have no isolation: a TMDB hiccup here killed the user's
+            # whole run, discarding the pools every other source had already gathered.
+            failures["tmdb_similar"] = f"{type(e).__name__}: {e}"
+            logger.warning("tmdb_similar source failed ({}); continuing with the other sources", type(e).__name__)
 
     if "tmdb_discover" in enabled:
+        attempted.add("tmdb_discover")
         try:
             for media_type in {s.media_type for s in seeds}:
                 # No seed provenance — this is "in genres you like", not "because you watched X".
                 for item in tmdb.discover(media_type, _dominant_genre_ids(tmdb, seeds, media_type)):
-                    add(item, media_type)
+                    add(item, media_type, "tmdb_discover")
         except Exception as e:
             # Discover is a supplementary "widen" source: a TMDB hiccup here must never discard the
             # tmdb_similar pool already gathered for this user. Degrade to "no widening", not a failure.
+            failures["tmdb_discover"] = f"{type(e).__name__}: {e}"
             logger.warning("tmdb_discover source failed ({}); continuing with the other sources", type(e).__name__)
 
     # NullCurator isn't AI (it ranks heuristically), so "AI suggests from your library" needs a real
     # curator; without one the source is a no-op — matching the UI, which blocks the toggle.
     llm_ready = curator is not None and not isinstance(curator, NullCurator)
     if "trakt" in enabled and trakt is not None:
+        attempted.add("trakt")
         try:
             for seed in seeds:
                 for item in trakt.related(seed.tmdb_id, seed.media_type):
                     # Related-to-a-seed, so keep the provenance (a real "because you watched X").
-                    cand = merge(item["tmdb_id"], item["title"], seed.media_type, item.get("year"), item.get("genres"))
+                    cand = merge(
+                        item["tmdb_id"], item["title"], seed.media_type, item.get("year"), item.get("genres"), "trakt"
+                    )
                     cand.seeds.append(seed)
         except Exception as e:
+            failures["trakt"] = f"{type(e).__name__}: {e}"
             logger.warning("trakt source failed ({}); continuing with the other sources", type(e).__name__)
 
     if "llm_web" in enabled and llm_ready and profile is not None and hasattr(curator, "recommend_web"):
+        attempted.add("llm_web")
         try:
             # The curator uses its provider's live web search to propose titles to watch next; each
             # is resolved to a real TMDB id and (later) library-verified, so a hallucinated title
@@ -124,11 +143,13 @@ def gather_candidates(
                 media_type = MediaType.SHOW if rec.get("media") == "show" else MediaType.MOVIE
                 found = tmdb.search(rec["title"], media_type, year=rec.get("year"))
                 if found:
-                    add(found, media_type)
+                    add(found, media_type, "llm_web")
         except Exception as e:
+            failures["llm_web"] = f"{type(e).__name__}: {e}"
             logger.warning("llm_web source failed ({}); continuing with the other sources", type(e).__name__)
 
     if "llm_library" in enabled and llm_ready and catalog and profile is not None:
+        attempted.add("llm_library")
         try:
             # Taste = the genres already in this person's pool; used only to slice a big library down
             # to what the LLM can read. The curator then picks the owned titles that actually fit.
@@ -148,9 +169,19 @@ def gather_candidates(
                 chosen = {p.tmdb_id for p in curator.curate(profile, owned, _LLM_LIBRARY_K)}
                 for cand in owned:
                     if cand.tmdb_id in chosen:
-                        pool.setdefault((cand.tmdb_id, media_type), cand)
+                        cand.sources.add("llm_library")
+                        pool.setdefault((cand.tmdb_id, media_type), cand).sources.add("llm_library")
         except Exception as e:
+            failures["llm_library"] = f"{type(e).__name__}: {e}"
             logger.warning("llm_library source failed ({}); continuing with the other sources", type(e).__name__)
+
+    # One source down is a degradation the other sources absorb. EVERY source down is not: we know
+    # nothing about this person tonight, and returning an empty pool would report a cheerful "ok"
+    # while quietly leaving yesterday's row in place. Fail loudly instead — the caller isolates it
+    # to this one user, and the run report names them.
+    if attempted and set(failures) == attempted and not pool:
+        detail = "; ".join(f"{source}: {why}" for source, why in sorted(failures.items()))
+        raise RuntimeError(f"every candidate source failed — no candidates gathered ({detail})")
 
     logger.debug("candidate pool: {} unique titles from {} seeds via {}", len(pool), len(seeds), sorted(enabled))
     return list(pool.values())

@@ -4,8 +4,8 @@
 
 - **Dashboard** — privacy badge (last verified), next scheduled run, per-user cards with
   their current row, hit rate, and a Run now button. Live-updates during runs.
-- **Users** — enable/disable, per-user overrides (row name, size, excluded genres, max
-  rating), pause, and each user's restriction status.
+- **Users** — enable/disable, pause, a request tag, per-row overrides (size, curation style,
+  mute), and each user's restriction status.
 - **Runs** — every run with per-user diffs ("added X, removed Y (watched ✓)"), errors as
   first-class rows with copy-for-GitHub buttons, LLM token usage.
 - **Settings** — every connection re-testable in place; **Recommendations** (which candidate
@@ -15,8 +15,8 @@
 ## Schedules
 
 Default is nightly at 03:30 server-local. Settings → Schedules takes a full cron expression
-(`30 3 * * *`) with a human-readable preview. Per-user cadence overrides live on each user's
-detail page.
+(`30 3 * * *`) with a human-readable preview. One schedule covers the whole server; to skip someone,
+pause them on their detail page.
 
 ## Hit rate
 
@@ -75,8 +75,9 @@ audience are its own, exactly like any other row.
 
 ## Requests (Radarr / Sonarr)
 
-Off by default. When on, Shortlist notices the titles the curator surfaced that your library doesn't
-have yet, and asks Radarr (movies) or Sonarr (shows) to grab a few of the best ones on each run.
+Off by default. When on, Shortlist notices the titles your people's taste surfaced that your library
+doesn't have yet — everything the recommendation sources turned up, not just what made it into a row —
+and asks Radarr (movies) or Sonarr (shows) to grab a few of the best ones on each run.
 
 Set it up under **Settings → Requests**:
 
@@ -113,8 +114,10 @@ like the global one.
 
 The **Requests** tab (in the sidebar) is your approval queue. Each run adds the wanted-but-missing
 titles it didn't auto-send — with the title, year, rating, and how many people wanted it. Tick the
-ones you want and click **Send to Sonarr/Radarr**, or **Reject** the rest. Rejected titles are never
-re-queued, and a title already in the library stops appearing on its own. Sent and dismissed titles
+ones you want and click **Send to Sonarr/Radarr**, or **Reject** the rest. A rejected title is never
+re-queued AND never auto-sent by a later run — a "no" is a no. A title already in the library stops
+appearing on its own, and one that's already been sent (still downloading, say) never re-consumes an
+auto-request slot, so a slow grab can't starve the queue. Sent and dismissed titles
 move to **Already handled** so you can see what you've actioned.
 
 It stays cautious on purpose. Missing titles are deduplicated across all your users — three people

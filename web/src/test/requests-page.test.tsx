@@ -121,4 +121,31 @@ describe("RequestsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /Reject/i }));
     await waitFor(() => expect(rejectRequests).toHaveBeenCalledWith([9]));
   });
+
+  it("reads as off — and cannot send — when requests are disabled but candidates are on file", async () => {
+    // The "off" state used to depend on the inbox being EMPTY, so stale candidates rendered the
+    // full inbox with a live Send button on a feature the owner had turned off.
+    getSettings.mockResolvedValue({ "requests.enabled": false });
+    listRequests.mockResolvedValue([candidate({ id: 3, title: "Fallout" })]);
+    renderPage();
+
+    expect(await screen.findByText(/Requests are off/i)).toBeTruthy();
+    expect(screen.getByText("Fallout")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /to Sonarr\/Radarr/i }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Reject/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Fallout/i })).toBeDisabled();
+  });
+
+  it("keeps the inbox actionable while requests are on", async () => {
+    listRequests.mockResolvedValue([candidate({ id: 3, title: "Fallout" })]);
+    renderPage();
+
+    expect(await screen.findByText("Fallout")).toBeTruthy();
+    expect(screen.queryByText(/Requests are off/i)).toBeNull();
+    expect(
+      screen.getByRole("checkbox", { name: /Fallout/i }),
+    ).not.toBeDisabled();
+  });
 });

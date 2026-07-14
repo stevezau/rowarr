@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 
@@ -79,6 +79,10 @@ class Candidate:
     vote_count: int = 0  # TMDB vote_count — a 9.0 from 12 votes is noise; the request gate needs both
     seeds: list[Seed] = field(default_factory=list)  # every seed that suggested it
     rating_key: int | None = None  # set once matched to the library
+    # Which candidate source(s) produced it. Ranking needs this: seedless sources (tmdb_discover,
+    # llm_library, llm_web) would otherwise be crowded out wholesale by the seeded ones — see
+    # ranking.pre_rank, which gives each source a fair share of the pool it hands the curator.
+    sources: set[str] = field(default_factory=set)
 
     @property
     def seed_frequency(self) -> int:
@@ -126,6 +130,28 @@ class PromptConfig:
     shared: bool = False  # True -> aggregate ("popular on this server") framing, no "because you watched"
 
 
+def overlay_prompt(base: PromptConfig | None, over: PromptConfig | None) -> PromptConfig | None:
+    """Lay ``over``'s SET fields on top of ``base``. A blank field means INHERIT.
+
+    Used twice, with the same meaning both times: a row's recipe over the global one, and one
+    person's override over their row's. Guidance is additive (the house note plus the specific one),
+    matching how the global+per-user recipe has always resolved; tone and template are replacements.
+
+    Blank-means-inherit is the whole point. When an override replaced the recipe wholesale, setting
+    just the tone for one person silently wiped that row's guidance and custom prompt.
+    """
+    if over is None:
+        return base
+    if base is None:
+        return over
+    return replace(
+        base,
+        tone=over.tone or base.tone,
+        guidance="\n".join(part for part in (base.guidance, over.guidance) if part),
+        template=over.template or base.template,
+    )
+
+
 @dataclass
 class RowOverride:
     """One person's per-row tweaks. Any None/False field falls through to the row's own settings."""
@@ -145,8 +171,6 @@ class UserProfile:
     slug: str = ""
     history: list[WatchedItem] = field(default_factory=list)
     excluded_genres: set[str] = field(default_factory=set)
-    max_rating: str | None = None
-    row_size: int | None = None  # None -> engine default
     row_name_template: str | None = None
     prompt: PromptConfig | None = None  # resolved effective recipe; None -> built-in defaults
     request_tag: str = ""  # tag added to titles requested for this user (layered onto global + row tags)
@@ -283,6 +307,10 @@ class RequestReport:
     # Cleared the base floors but not the auto-send bar (or overflowed max_per_run): not requested,
     # handed back for the server to persist so the owner can approve them by hand.
     queued: list[MissingTitle] = field(default_factory=list)
+    # The titles actually ASKED FOR this run. The server files these in the inbox as `sent`, which is
+    # what stops tomorrow's run re-requesting a title that is merely still downloading — and spending
+    # one of `max_per_run` on it every night, forever.
+    sent: list[MissingTitle] = field(default_factory=list)
 
     @property
     def requested(self) -> int:
@@ -308,6 +336,11 @@ class EngineConfig:
     # The curated rows to deliver. Empty -> a single default per-person row synthesized from
     # row_name_template/row_size, so the CLI and existing callers behave exactly as before.
     rows: list[RowSpec] = field(default_factory=list)
+    # Whether the caller MANAGES rows (the server does; the CLI doesn't). It is the difference
+    # between "no rows configured" — synthesize the legacy default — and "every row is switched
+    # OFF", which must deliver nothing. Without it, disabling every row in the UI silently rebuilt
+    # "✨ Picked for You" for everyone: the Rows page said off, Plex said on.
+    rows_defined: bool = False
     # Sonarr/Radarr requests for picks the library lacks. None -> the feature is entirely off, so
     # no missing-title bookkeeping happens at all (the common case pays nothing for it).
     requests: RequestConfig | None = None
@@ -321,9 +354,9 @@ class EngineConfig:
         return RowSpec(slug="picked", name_template="", size=self.row_size)
 
     def per_person_rows(self) -> list[RowSpec]:
-        """Per-person specs to deliver; a single default row when none are configured."""
+        """Per-person specs to deliver; a single default row only when rows aren't managed at all."""
         if not self.rows:
-            return [self.default_row_spec()]
+            return [] if self.rows_defined else [self.default_row_spec()]
         return [row for row in self.rows if not row.shared]
 
     def shared_rows(self) -> list[RowSpec]:

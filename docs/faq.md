@@ -48,5 +48,5 @@ Supported as canaries and recommendation targets. Their _restriction profiles_ (
 controls) are never modified — Shortlist only merges label filters on shares.
 
 **What happens if Plex breaks label restrictions in an update?**
-The weekly scheduled re-verification catches it and flips the dashboard privacy badge red
+The next run re-verifies (every run re-checks all three tiers when the gate is stale or shut), which flips the dashboard privacy badge red
 with a notification. The README carries version advisories.

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { MutationAlert } from "@/components/mutation-alert";
 import { EmptyState, QueryBoundary } from "@/components/query-boundary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,21 @@ export function StepUsers() {
           will show every user's row. Tip: watch on a non-owner account.
         </p>
       </div>
+
+      {/* Both writes here decide who gets a row at all, and the Switch mirrors the server — so a
+          rejected one has to say so rather than just springing back. */}
+      {(patchUser.isError || setAll.isError) && (
+        <MutationAlert
+          error={patchUser.error ?? setAll.error}
+          fallback="Couldn’t change who gets a row. Try again."
+          onRetry={() => {
+            const one = patchUser.variables;
+            const all = setAll.variables;
+            if (patchUser.isError && one) patchUser.mutate(one);
+            if (setAll.isError && all) setAll.mutate(all);
+          }}
+        />
+      )}
 
       <QueryBoundary
         query={usersQuery}

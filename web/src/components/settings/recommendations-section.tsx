@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { SavedIndicator } from "@/components/saved-indicator";
+import { SaveStatus } from "@/components/save-status";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { apiErrorMessage } from "@/lib/api";
-import { SOURCES, sourceBlockedReason } from "@/lib/sources";
+import { useAutosave } from "@/lib/autosave";
+import { cleanSources, SOURCES, sourceBlockedReason } from "@/lib/sources";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
@@ -26,32 +26,13 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
       current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
     );
 
-  // Auto-save toggles shortly after the last change (no Save button), skipping first render.
-  const firstRender = useRef(true);
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      setSaved(false);
-      // Never persist a source whose dependency is gone (e.g. llm_library after the curator is
-      // removed) — else the stored value contradicts the disabled toggle and springs back later.
-      const clean = enabled.filter(
-        (id) =>
-          !sourceBlockedReason(
-            SOURCES.find((s) => s.id === id) ?? { id, label: id, desc: "" },
-            settings,
-          ),
-      );
-      save.mutate(
-        { "candidates.sources": clean },
-        { onSuccess: () => setSaved(true) },
-      );
-    }, 500);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  const retry = useAutosave(enabled, () => {
+    setSaved(false);
+    save.mutate(
+      { "candidates.sources": cleanSources(enabled, settings) },
+      { onSuccess: () => setSaved(true) },
+    );
+  });
 
   return (
     <section aria-labelledby="recs-heading" className="space-y-3">
@@ -98,14 +79,14 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
               </div>
             );
           })}
-          <div className="flex h-5 items-center gap-3 pt-1 text-sm text-muted-foreground">
-            {save.isPending && <span>Saving…</span>}
-            <SavedIndicator show={saved && !save.isPending} />
-            {save.isError && (
-              <p role="alert" className="text-destructive">
-                {apiErrorMessage(save.error, "Saving failed. Try again.")}
-              </p>
-            )}
+          <div className="pt-1">
+            <SaveStatus
+              isPending={save.isPending}
+              isError={save.isError}
+              error={save.error}
+              saved={saved}
+              onRetry={retry}
+            />
           </div>
         </CardContent>
       </Card>

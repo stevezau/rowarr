@@ -10,19 +10,37 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
-from shortlist.engine.models import PrivacyCheckResult
+from shortlist.engine.models import SHARED_SLUG_PREFIX, PrivacyCheckResult
 from shortlist.engine.pipeline import EngineContext
 from shortlist.engine.pipeline import run as engine_run
 from shortlist.server.db.models import Event, PickRow, PrivacyCheck, RequestCandidate, Run, RunUser, Server, User
 from shortlist.server.services.context_builder import ContextBuilder
 from shortlist.server.services.privacy_state import gate_error
 from shortlist.server.services.sse import EventBus
+
+HIT_WINDOW_DAYS = 30  # a pick counts as a hit if it is watched within 30 days of being recommended
+
+
+def _candidate_row(m, run_id: int, *, status: str) -> RequestCandidate:
+    """One inbox row for a missing title, in whichever state the run left it."""
+    return RequestCandidate(
+        tmdb_id=m.tmdb_id,
+        media_type=m.media_type.value,
+        title=m.title,
+        year=m.year,
+        rating=m.rating,
+        vote_count=m.vote_count,
+        demand=m.demand,
+        tags=sorted(m.tags),
+        status=status,
+        first_seen_run_id=run_id,
+    )
 
 
 class RunService:
@@ -52,6 +70,7 @@ class RunService:
         falls back to the read-only T1/T2 checks when none does. This is the single place the check
         runs: the dashboard's manual re-check and the automatic pre-write check both call it.
         """
+        from shortlist.engine.privacy import shared_label_audiences
         from shortlist.engine.probe import run_privacy_probe
         from shortlist.engine.verify import check_t1, check_t2
 
@@ -68,29 +87,43 @@ class RunService:
             (p for p in profiles if p.plex_account_id in home and not home[p.plex_account_id].get("protected")),
             None,
         )
+        shared = shared_label_audiences(ctx.config)
+        results = []
         if probe:
             if canary is not None:
-                results = [run_privacy_probe(ctx.plex, ctx.plextv, canary, ctx.snapshots, on_step=on_step)]
+                results.append(run_privacy_probe(ctx.plex, ctx.plextv, canary, ctx.snapshots, on_step=on_step))
             else:
                 # No canary means the end-to-end probe can't run — and T1 alone passes trivially on a
                 # fresh server, so it must NOT be allowed to open the gate. Record a FAILED PROBE with
                 # an actionable reason: fail-closed until the owner adds a Home user without a PIN to
                 # verify against. This keeps the automatic path at least as strict as the old wizard,
                 # which also required the probe.
-                results = [
+                results.append(
                     PrivacyCheckResult(
                         tier="PROBE",
                         passed=False,
                         detail={"reason": "no canary — add a Plex Home user without a PIN so privacy can be verified"},
                     )
-                ]
-        else:
-            results = [check_t1(ctx.plextv, ctx.known_slugs, stored)]
-            if canary is not None:
-                try:
-                    results.append(check_t2(ctx.plex, ctx.plextv, canary, collections))
-                except Exception:
-                    logger.exception("T2 check failed to execute")
+                )
+
+        # The read-only tiers run EVERY time, probe or not. The gate reads the latest result of each
+        # tier across all history (privacy_state.latest_by_tier), so a tier nothing ever re-runs
+        # latches it: a T1 failure would survive the very remedy pass that fixed it, and a T1 that
+        # PASSED would simply age past max_age_days and shut the gate for good. They cost a plex.tv
+        # read and a hub fetch, so the nightly automatic check can afford to refresh all three.
+        # Each tier is wrapped: a plex.tv hiccup in T1 must not throw away a PROBE that already did
+        # its ~90s of work (and its throwaway collection write) — and on the manual re-check, that
+        # button is the owner's only escape hatch when the gate is shut. A skipped tier simply leaves
+        # its previous verdict standing, which still ages out.
+        try:
+            results.append(check_t1(ctx.plextv, ctx.known_slugs, stored, shared_labels=shared))
+        except Exception:
+            logger.exception("T1 check failed to execute")
+        if canary is not None:
+            try:
+                results.append(check_t2(ctx.plex, ctx.plextv, canary, collections, shared_labels=shared))
+            except Exception:
+                logger.exception("T2 check failed to execute")
         with self._sessions() as session:
             for result in results:
                 session.add(PrivacyCheck(tier=result.tier, passed=result.passed, detail=result.detail))
@@ -169,6 +202,11 @@ class RunService:
                 ctx = self.build_context(dry_run=dry_run, loop=loop)
                 report = await loop.run_in_executor(None, engine_run, ctx, profiles)
                 self._persist_report(run_id, report)
+                # The engine filled each profile's history in place, so this is the one moment we hold
+                # both "what we recommended" and "what they have since watched". A dry run is a
+                # preview and mutates nothing, matching the rest of persistence.
+                if not dry_run:
+                    self._reconcile_watched(profiles)
                 status = "ok" if report.ok else "error"
             except Exception as e:
                 logger.exception("run {} failed", run_id)
@@ -260,6 +298,58 @@ class RunService:
 
     # -- persistence ---------------------------------------------------------------------
 
+    def _reconcile_watched(self, profiles) -> None:
+        """Mark the picks a person actually watched — the hit rate, and the whole point of the app.
+
+        `picks.watched_at` was declared, migrated and read by the hit-rate query, but never WRITTEN:
+        every user's hit rate was structurally 0%, while the docs promised "expect 20-40%".
+
+        A pick counts as a hit only when the watch happened AFTER we recommended it (the run that
+        produced it) and within 30 days — recommending something they had already seen isn't a hit,
+        and neither is a watch a year later. `history_depth` is refreshed here too; it was likewise
+        surfaced in the UI and written nowhere, so every user read "0 titles watched".
+        """
+        with self._sessions() as session:
+            for profile in profiles:
+                user = session.query(User).filter_by(slug=profile.slug).first()
+                if user is None:
+                    continue
+                user.prefs = {**(user.prefs or {}), "history_depth": len(profile.history)}
+
+                latest_watch: dict[tuple[int, str], datetime] = {}
+                for item in profile.history:
+                    if item.tmdb_id is None:
+                        continue
+                    key = (item.tmdb_id, str(item.media_type))
+                    when = item.watched_at if item.watched_at.tzinfo else item.watched_at.replace(tzinfo=UTC)
+                    if key not in latest_watch or when > latest_watch[key]:
+                        latest_watch[key] = when
+                if not latest_watch:
+                    continue
+
+                # Only picks recent enough to still be creditable: a pick older than the window can
+                # never become a hit, so scanning every unwatched pick ever recorded is dead work
+                # that grows without bound.
+                cutoff = datetime.now(UTC) - timedelta(days=HIT_WINDOW_DAYS)
+                unwatched = (
+                    session.query(PickRow, Run.started_at)
+                    .join(Run, PickRow.run_id == Run.id)
+                    .filter(
+                        PickRow.user_id == user.id,
+                        PickRow.watched_at.is_(None),
+                        Run.started_at >= cutoff,
+                    )
+                    .all()
+                )
+                for pick, recommended_at in unwatched:
+                    watched = latest_watch.get((pick.tmdb_id, pick.media_type))
+                    if watched is None:
+                        continue
+                    since = recommended_at if recommended_at.tzinfo else recommended_at.replace(tzinfo=UTC)
+                    if since <= watched <= since + timedelta(days=HIT_WINDOW_DAYS):
+                        pick.watched_at = watched
+            session.commit()
+
     def _persist_report(self, run_id: int, report, *, status: str | None = None, error: str | None = None) -> None:
         """Persist a run's outcome. `status`/`error` override what the report says — the gated
         path uses them so a refused run is never even momentarily written as a success."""
@@ -270,6 +360,15 @@ class RunService:
             for user_report in report.users:
                 user = users_by_slug.get(user_report.slug)
                 if user is None:
+                    # A SHARED row files its report under `shared_<slug>`, which is nobody's user
+                    # slug — so this `continue` silently dropped it: a real Plex collection was
+                    # created, labelled and promoted with no run record and NO AUDIT EVENT at all
+                    # (plex-safety rule 10), and a failed shared row produced an errored run with
+                    # nothing to show for it.
+                    if user_report.slug.startswith(f"{SHARED_SLUG_PREFIX}_"):
+                        if user_report.status == "error":
+                            errors += 1
+                        self._emit_shared_row_event(session, run_id, user_report, report.dry_run)
                     continue
                 if user_report.status == "error":
                     errors += 1
@@ -284,6 +383,29 @@ class RunService:
                 session.add(Event(scope="run", level="error", message={"run_id": run_id, "error": report.error}))
             self._finalize_run(run, report, status, error, ok, errors)
             session.commit()
+
+    @staticmethod
+    def _emit_shared_row_event(session: Session, run_id: int, user_report, dry_run: bool) -> None:
+        """The audit record for a shared row — it has no user, so it gets no RunUser row.
+
+        Rule 10: every write, real or dry-run, leaves a structured event with its diff. "What changed
+        on the shared row at 03:31" must be answerable from the UI.
+        """
+        session.add(
+            Event(
+                scope="run.shared",
+                level="error" if user_report.status == "error" else "info",
+                message={
+                    "run_id": run_id,
+                    "row": user_report.slug,
+                    "status": user_report.status,
+                    "picks": len(user_report.picks),
+                    "error": user_report.error,
+                    "dry_run": dry_run,
+                    "diff": user_report.diff.__dict__ if user_report.diff else {},
+                },
+            )
+        )
 
     @staticmethod
     def _persist_user_report(session: Session, run_id: int, user: User, user_report, dry_run: bool) -> None:
@@ -432,20 +554,7 @@ class RunService:
         for m in report.requests.queued:
             row = existing.get((m.tmdb_id, m.media_type.value))
             if row is None:
-                session.add(
-                    RequestCandidate(
-                        tmdb_id=m.tmdb_id,
-                        media_type=m.media_type.value,
-                        title=m.title,
-                        year=m.year,
-                        rating=m.rating,
-                        vote_count=m.vote_count,
-                        demand=m.demand,
-                        tags=sorted(m.tags),
-                        status="pending",
-                        first_seen_run_id=run_id,
-                    )
-                )
+                session.add(_candidate_row(m, run_id, status="pending"))
             elif row.status == "pending":
                 row.title, row.year, row.rating, row.vote_count, row.demand, row.tags = (
                     m.title,
@@ -455,6 +564,17 @@ class RunService:
                     m.demand,
                     sorted(m.tags),
                 )
+
+        # The titles this run AUTO-SENT are filed as `sent` too. Without this the ledger only knew
+        # about titles the owner sent by hand, so an auto-sent title still downloading was "missing"
+        # again tomorrow: it out-ranked everything by demand, re-consumed one of `max_per_run` every
+        # single night, and the queue starved on the same few titles forever.
+        for m in report.requests.sent:
+            row = existing.get((m.tmdb_id, m.media_type.value))
+            if row is None:
+                session.add(_candidate_row(m, run_id, status="sent"))
+            else:
+                row.status = "sent"
 
     @staticmethod
     def _finalize_run(run: Run, report, status: str | None, error: str | None, ok: int, errors: int) -> None:

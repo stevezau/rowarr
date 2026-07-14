@@ -1,5 +1,6 @@
 import { RefreshCw } from "lucide-react";
 
+import { MutationAlert } from "@/components/mutation-alert";
 import { UserAvatar } from "@/components/user-avatar";
 import { UserBadges } from "@/components/user-badges";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +65,27 @@ export function UserDetailHeader({ user }: { user: User }) {
         <p className="text-sm text-muted-foreground">
           Run started — watch it live on the Dashboard.
         </p>
+      )}
+
+      {/* A run the write gate refuses says exactly why; it used to be dropped, leaving the button
+          simply stopping. */}
+      {startRun.isError && (
+        <MutationAlert
+          error={startRun.error}
+          fallback="Couldn’t start that run. Check the server log and try again."
+        />
+      )}
+
+      {patchUser.isError && (
+        <MutationAlert
+          error={patchUser.error}
+          lead={paused ? "They are still paused." : "They are still active."}
+          fallback="Couldn’t save that change. Try again."
+          onRetry={() => {
+            const last = patchUser.variables;
+            if (last) patchUser.mutate(last);
+          }}
+        />
       )}
     </div>
   );

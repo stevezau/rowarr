@@ -206,7 +206,13 @@ class TestSyncUserRestrictions:
             snapshot_store,
         )
         call = mock_plextv.update_user_filters.call_args
+        assert call.args[0] == 400
+        # The FIELDS: only the two filter fields, never a restriction-profile write (rule 5)...
         assert sorted(call.args[1]) == ["filterMovies", "filterTelevision"]
+        # ...and their VALUES. Asserting only the field names is bug-blind: a managed user written
+        # the wrong exclude sees every row the filter was supposed to hide, with the test still green.
+        assert call.args[1]["filterMovies"] == "label!=Rowarr_sarah"
+        assert call.args[1]["filterTelevision"] == "label!=Rowarr_sarah"
 
     def test_owner_is_never_restricted(self, mock_plextv, snapshot_store):
         _sarah, _mike, owner = self._users()

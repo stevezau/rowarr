@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { StatTile } from "@/components/stat-tile";
@@ -185,6 +186,29 @@ export function DashboardPage() {
             "The Privacy Check could not run. Try again from Settings.",
           )}
         </p>
+      )}
+
+      {/* A refused run (the write gate says why) must be readable, not just a card that stops
+          spinning. Same for a rejected enable/disable — the Switch snaps back to the server's
+          answer, which without this reads as the click never landing. */}
+      {startRun.isError && (
+        <MutationAlert
+          className="mb-4"
+          error={startRun.error}
+          fallback="Couldn’t start that run. Check the server log and try again."
+        />
+      )}
+
+      {patchUser.isError && (
+        <MutationAlert
+          className="mb-4"
+          error={patchUser.error}
+          fallback="Couldn’t change that person’s row. Try again."
+          onRetry={() => {
+            const last = patchUser.variables;
+            if (last) patchUser.mutate(last);
+          }}
+        />
       )}
 
       {stats ? (

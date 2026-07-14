@@ -311,40 +311,102 @@ class TestDeliverRows:
 
 
 class TestServerWithTwoLibrariesOfTheSameType:
-    """ "Movies" + "4K Movies" is a very common Plex layout. Rows are built in exactly one of
-    them, and the choice must not depend on the order the PMS happens to list them in."""
+    """ "Movies" + "4K Movies" is a very common Plex layout, and an UNPINNED row builds in EVERY
+    library of its type — one collection per library, each holding that library's own ratingKeys.
 
-    def test_rows_go_to_the_lowest_keyed_library_of_each_type(self, engine_config: EngineConfig):
-        movies, movies_4k = _section("Movies", "movie", 1), _section("4K Movies", "movie", 3)
+    That is what production does: the pipeline always passes `sections=ctx.delivery_sections` (every
+    library), and only a row's `library_keys` narrows it. These tests used to assert the opposite —
+    "never both" — because they called `deliver_rows` WITHOUT `sections=`, exercising a fallback no
+    caller takes. Two live bugs hid behind that fiction: a row delivered to a non-lowest-keyed
+    library was never promoted (so it stayed visible in library browse to everyone), and a row
+    pinned to one library was curated against the union of all of them.
+    """
+
+    def _plex(self, *sections: MagicMock) -> MagicMock:
         plex = MagicMock(spec=PlexClient)
-        plex.sections.return_value = [movies_4k, movies]  # PMS lists 4K first — must not matter
-        plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
+        plex.sections.return_value = list(sections)
         plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
         plex.stored_label.return_value = "Rowarr_sarah"
+        return plex
+
+    def test_an_unpinned_row_builds_in_every_library_of_its_type(self, engine_config: EngineConfig):
+        movies, movies_4k = _section("Movies", "movie", "1"), _section("4K Movies", "movie", "3")
+        plex = self._plex(movies_4k, movies)  # PMS lists 4K first — order must not decide anything
+        # The same two films, under each library's own ratingKeys.
+        section_index = {"1": {1: 1001, 2: 1002}, "3": {1: 4001, 2: 4002}}
+
+        deliver_rows(
+            plex,
+            make_profile(),
+            picks(),
+            engine_config,
+            sections=[movies_4k, movies],
+            section_index=section_index,
+        )
+
+        assert [call.args[0] for call in plex.create_collection.call_args_list] == [movies_4k, movies]
+        # Each collection is built from ITS library's ratingKeys. A Plex collection can only hold
+        # items of the library it lives in, so the other library's keys name items that are not there.
+        assert [call.args[0] for call in plex.fetch_items.call_args_list] == [[4001, 4002], [1001, 1002]]
+        # One label across both, because one `label!=` exclude on everyone else has to hide the pair.
+        assert [call.args[1] for call in plex.stored_label.call_args_list] == ["rowarr_sarah", "rowarr_sarah"]
+
+    def test_a_pinned_row_builds_only_in_the_library_it_names(self, engine_config: EngineConfig):
+        """`library_keys` is the ONLY thing that narrows a row to one library of its type."""
+        from shortlist.engine.models import RowSpec
+
+        movies, movies_4k = _section("Movies", "movie", "1"), _section("4K Movies", "movie", "3")
+        plex = self._plex(movies, movies_4k)
+        section_index = {"1": {1: 1001, 2: 1002}, "3": {1: 4001, 2: 4002}}
+        spec = RowSpec(slug="gems", name_template="Gems", size=5, library_keys=["3"])
+
+        deliver_rows(
+            plex,
+            make_profile(),
+            picks(),
+            engine_config,
+            spec,
+            sections=[movies, movies_4k],
+            section_index=section_index,
+        )
+
+        plex.create_collection.assert_called_once()
+        assert plex.create_collection.call_args.args[0] is movies_4k
+        plex.fetch_items.assert_called_once_with([4001, 4002])
+
+    def test_the_legacy_no_sections_fallback_uses_one_library_per_type(self, engine_config: EngineConfig):
+        """LEGACY PATH — no production caller reaches it.
+
+        `rows.py` always passes `sections=ctx.delivery_sections`. Omitting it falls back to
+        `sections_by_type()` (one library per type, lowest key wins), which is kept only so an
+        older/simpler caller cannot crash. It is pinned here so the fallback stays deterministic —
+        NOT as a statement of what a real run does. Believing this was the real contract is what
+        let a row leak in the library nobody promoted it in.
+        """
+        movies, movies_4k = _section("Movies", "movie", "1"), _section("4K Movies", "movie", "3")
+        plex = self._plex(movies_4k, movies)
+        plex.sections_by_type.return_value = {MediaType.MOVIE: movies}  # lowest key of the type
 
         deliver_rows(plex, make_profile(), picks(), engine_config)
 
+        plex.create_collection.assert_called_once()
         assert plex.create_collection.call_args.args[0] is movies
-        assert plex.create_collection.call_count == 1  # never both
 
     def test_a_well_typed_row_in_the_other_library_is_left_alone(self, engine_config: EngineConfig):
-        """It is not the row we maintain, but it still carries its label — so it is still hidden
-        from everyone else, and deleting someone's collection we aren't going to replace is not
-        our call to make."""
-        movies, movies_4k = _section("Movies", "movie", 1), _section("4K Movies", "movie", 3)
+        """A foreign row that already carries our label still gets its own fresh row built beside
+        it, and the old one is NOT deleted: it still carries the label, so it is still hidden from
+        everyone else, and destroying a collection we are not going to replace is not our call."""
+        movies, movies_4k = _section("Movies", "movie", "1"), _section("4K Movies", "movie", "3")
         stray = MagicMock()
-        stray.title = "✨ Picked for You"
-        plex = MagicMock(spec=PlexClient)
-        plex.sections.return_value = [movies, movies_4k]
-        plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
+        stray.title = "✨ Picked for You"  # no marker: a pre-marker row, whose tag is shared
+        plex = self._plex(movies, movies_4k)
         plex.find_owned_collections.side_effect = lambda section, label: [stray] if section is movies_4k else []
-        plex.matches_section.return_value = True
-        plex.stored_label.return_value = "Rowarr_sarah"
 
-        deliver_rows(plex, make_profile(), picks(), engine_config)
+        deliver_rows(plex, make_profile(), picks(), engine_config, sections=[movies, movies_4k])
 
         plex.delete_owned_collection.assert_not_called()
+        stray.editTitle.assert_not_called()  # never renamed into ours either
 
 
 class TestSweepBrokenRows:

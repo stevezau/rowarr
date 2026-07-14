@@ -1,5 +1,9 @@
+import { RefreshCw } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiErrorMessage } from "@/lib/api";
 import { useLibraries } from "@/lib/queries";
 import type { PlexLibrary } from "@/lib/types";
 
@@ -17,6 +21,19 @@ function deriveMedia(selectedKeys: string[], libraries: PlexLibrary[]): Media {
 }
 
 /**
+ * What this row keeps doing while the library list is unavailable — which is NOT "build in all of
+ * them". A row with saved `library_keys` goes on building only in those; the picker just can't
+ * name them.
+ */
+function currentTargets(libraryKeys: string[]): string {
+  if (libraryKeys.length === 0)
+    return "For now it keeps building in every library, as it does today.";
+  return libraryKeys.length === 1
+    ? "For now it keeps building in the one library you already picked — that doesn’t change."
+    : `For now it keeps building in the ${libraryKeys.length} libraries you already picked — that doesn’t change.`;
+}
+
+/**
  * Per-row delivery-target picker. A Plex collection lives in one library, so a row builds one
  * collection per library it's pointed at. `library_keys` empty means "every library" (the default,
  * so a server with one movie + one show library needs no thought); any subset targets just those.
@@ -27,7 +44,6 @@ export function LibraryPicker({
   onChange,
 }: {
   libraryKeys: string[];
-  media: string;
   onChange: (next: { library_keys: string[]; media: Media }) => void;
 }) {
   const query = useLibraries();
@@ -37,11 +53,39 @@ export function LibraryPicker({
       <Label>Libraries</Label>
       {query.isPending ? (
         <Skeleton className="h-16 w-full" />
-      ) : query.isError || !query.data || query.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Couldn&rsquo;t list your Plex libraries right now — this row will
-          build in all of them.
-        </p>
+      ) : query.isError ? (
+        <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+          <p role="alert" className="text-sm text-foreground">
+            {apiErrorMessage(
+              query.error,
+              "Couldn’t list your Plex libraries — check the Plex connection in Settings.",
+            )}{" "}
+            {currentTargets(libraryKeys)}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw aria-hidden="true" />
+            Try again
+          </Button>
+        </div>
+      ) : query.data.length === 0 ? (
+        <div className="space-y-2 rounded-md border border-dashed bg-muted/30 p-3">
+          <p className="text-sm text-muted-foreground">
+            This Plex server has no movie or TV libraries yet, so there is
+            nowhere to build a row. Add one in Plex, then try again.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw aria-hidden="true" />
+            Try again
+          </Button>
+        </div>
       ) : (
         (() => {
           const libraries = query.data;

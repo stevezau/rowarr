@@ -18,7 +18,7 @@ from loguru import logger
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.models import OwnedRow, PrivacyCheckResult, UserProfile, UserType
-from shortlist.engine.privacy import desired_excludes, rowarr_labels_in
+from shortlist.engine.privacy import desired_excludes, rowarr_labels_in, visible_shared_slugs
 
 _COLLECTION_KEY = re.compile(r"/library/collections/(\d+)")
 
@@ -35,6 +35,7 @@ def check_t1(
     stored_labels: dict[str, str],
     *,
     label_prefix: str = "rowarr",
+    shared_labels: dict[str, set[int] | None] | None = None,
 ) -> PrivacyCheckResult:
     """Assert EVERY account sharing this server excludes every row that isn't theirs.
 
@@ -52,7 +53,15 @@ def check_t1(
         if remote.user_type is UserType.OWNER:
             continue  # Plex cannot restrict the owner (rule 5)
         own_slug = known_slugs.get(remote.id)
-        wanted = desired_excludes(stored_labels.get(own_slug) if own_slug else None, stored_labels)
+        # The SAME inputs the writer used (privacy.sync_user_restrictions). Asking for excludes
+        # without `shared_labels`/`account_id` would demand an exclude for every shared row — the
+        # rows the writer deliberately leaves visible — and fail a correctly-configured server.
+        wanted = desired_excludes(
+            stored_labels.get(own_slug) if own_slug else None,
+            stored_labels,
+            account_id=remote.id,
+            shared_labels=shared_labels,
+        )
         if not wanted:
             continue
         for fieldname in ("filterMovies", "filterTelevision"):
@@ -70,16 +79,23 @@ def check_t2(
     plextv: PlexTvClient,
     canary: UserProfile,
     collections: dict[str, OwnedRow],
+    *,
+    shared_labels: dict[str, set[int] | None] | None = None,
 ) -> PrivacyCheckResult:
     """Fetch Home hubs AS the canary; assert no other user's collection id appears.
 
     Every id of every other user counts — a user owns one collection per library, and a leak in
     any one of them is a leak.
+
+    A shared "popular on this server" row the canary is entitled to see is NOT a leak — it is the
+    feature. `shared_labels` is what tells the two apart (the same config the writer restricts by):
+    without it, every shared row on the canary's Home reads as a leak and T2 fails forever.
     """
     token = plextv.canary_server_token(canary.plex_account_id)
     hubs = plex.user_hubs(token)
+    allowed = visible_shared_slugs(collections, shared_labels, canary.plex_account_id) | {canary.slug}
     foreign_ids = {
-        rating_key: slug for slug, row in collections.items() if slug != canary.slug for rating_key in row.rating_keys
+        rating_key: slug for slug, row in collections.items() if slug not in allowed for rating_key in row.rating_keys
     }
     own_ids = set(collections[canary.slug].rating_keys) if canary.slug in collections else set()
 

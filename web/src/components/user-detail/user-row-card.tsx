@@ -5,16 +5,17 @@ import {
   CurationStyleFields,
   type CurationStyleValue,
 } from "@/components/curation-style";
+import { MutationAlert } from "@/components/mutation-alert";
 import { PickList } from "@/components/pick-list";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
-import { SavedIndicator } from "@/components/saved-indicator";
+import { SaveStatus } from "@/components/save-status";
 import { Segmented } from "@/components/segmented";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { apiErrorMessage } from "@/lib/api";
+import { useAutosave } from "@/lib/autosave";
 import { useSetUserRowOverride, useUserRows } from "@/lib/queries";
 import type { User, UserRow } from "@/lib/types";
 
@@ -27,9 +28,11 @@ const SIZE_OPTIONS = [
 
 /** One of a person's rows: its live picks, and a per-person customization drawer. */
 function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
+  // Two mutations on purpose: the mute switch and the drawer fail independently, and a failed mute
+  // must never be reported (or hidden) as a failed customization.
+  const mute = useSetUserRowOverride(userId);
   const save = useSetUserRowOverride(userId);
   const [open, setOpen] = useState(false);
-  const [muted, setMuted] = useState(row.muted);
   const [size, setSize] = useState<string>(
     row.override.row_size ? String(row.override.row_size) : "default",
   );
@@ -40,17 +43,24 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
   });
   const [saved, setSaved] = useState(false);
 
-  // The mute switch sends ONLY {muted} so it can't persist unsaved drawer edits; the drawer's
-  // Save button sends size + curation (the server only writes the fields it receives).
-  const setMutedOnly = (nextMuted: boolean) => {
-    setMuted(nextMuted);
-    save.mutate({
+  // Muted is what the SERVER says, with the in-flight value laid over it only while the PUT is
+  // actually in flight. This card is a privacy claim: an optimistic local flag meant a rejected
+  // mute left it reading "muted", dimmed, switch off — while Plex was still delivering that row to
+  // the person. On failure it now snaps back to the truth, and says so.
+  const muted =
+    (mute.isPending ? mute.variables?.patch.muted : undefined) ?? row.muted;
+
+  // The mute sends ONLY {muted} so it can never persist half-typed drawer edits; the drawer sends
+  // only size + curation (the server writes just the fields it receives).
+  const setMuted = (nextMuted: boolean) =>
+    mute.mutate({
       collectionId: row.collection_id,
       patch: { muted: nextMuted },
     });
-  };
 
-  const saveCustomization = () => {
+  // The drawer auto-saves like every other section of the app, so collapsing it ("Hide
+  // customization" — which sounds harmless) or walking away can't silently discard an edit.
+  const retrySave = useAutosave({ size, curation }, () => {
     setSaved(false);
     save.mutate(
       {
@@ -64,7 +74,7 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
       },
       { onSuccess: () => setSaved(true) },
     );
-  };
+  });
 
   return (
     <Card className={muted ? "opacity-60" : ""}>
@@ -85,11 +95,29 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
             {muted ? "Off for them" : "On"}
             <Switch
               checked={!muted}
-              onCheckedChange={(on) => setMutedOnly(!on)}
+              onCheckedChange={(on) => setMuted(!on)}
               aria-label={`Show ${row.name} for this person`}
             />
           </label>
         </div>
+
+        {/* Always visible — never inside the collapsed drawer. A rejected mute is a privacy fact
+            about what this person can still see, so it can't be hidden behind a disclosure. */}
+        {mute.isError && (
+          <MutationAlert
+            error={mute.error}
+            lead={
+              row.muted
+                ? `“${row.name}” is still muted for this person.`
+                : `“${row.name}” is still showing for this person.`
+            }
+            fallback="Couldn’t change that. Check the server log and try again."
+            onRetry={() => {
+              const last = mute.variables;
+              if (last) mute.mutate(last);
+            }}
+          />
+        )}
 
         {!muted &&
           (row.picks.length > 0 ? (
@@ -102,14 +130,26 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
           ))}
 
         <div className="border-t pt-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-          >
-            {open ? "Hide customization" : "Customize for this person"}
-          </Button>
+          {/* The save state lives OUTSIDE the drawer: an auto-save can land (or fail) after the
+              drawer is collapsed, and a failure hidden behind a disclosure isn't a failure shown. */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+            >
+              {open ? "Hide customization" : "Customize for this person"}
+            </Button>
+            <SaveStatus
+              isPending={save.isPending}
+              isError={save.isError}
+              error={save.error}
+              saved={saved}
+              onRetry={retrySave}
+              fallback="Couldn’t save this person’s customization. Try again."
+            />
+          </div>
 
           {open && (
             <div className="mt-3 space-y-4">
@@ -122,28 +162,14 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
               <div className="space-y-2">
                 <p className="text-sm font-medium">Curation style</p>
                 <p className="text-sm text-muted-foreground">
-                  Leave a field blank to use this row&rsquo;s own style.
+                  Leave a field blank to use this row&rsquo;s own style. Changes
+                  save on their own.
                 </p>
                 <CurationStyleFields
                   value={curation}
                   onChange={setCuration}
                   allowInherit
                 />
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  size="sm"
-                  onClick={saveCustomization}
-                  loading={save.isPending}
-                >
-                  Save
-                </Button>
-                <SavedIndicator show={saved && !save.isPending} as="span" />
-                {save.isError && (
-                  <span role="alert" className="text-sm text-destructive">
-                    {apiErrorMessage(save.error, "Save failed.")}
-                  </span>
-                )}
               </div>
             </div>
           )}

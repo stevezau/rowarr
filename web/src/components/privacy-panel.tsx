@@ -9,7 +9,7 @@ export interface PrivacyPanelProps {
   phase: PrivacyPhase;
   /** Live log lines streamed from `privacy.probe.step` events. */
   logLines: string[];
-  /** Tier results (T1/T2/T3) once the check finished, else null. */
+  /** Tier results (T1/T2/PROBE) once the check finished, else null. */
   tiers: Record<string, boolean> | null;
   /** Error text when the check itself failed to run (not a privacy fail). */
   error: string | null;
@@ -64,9 +64,9 @@ export function PrivacyPanel({
       {phase === "idle" && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Shortlist creates a throwaway probe collection, hides it from a canary
-            user, and verifies they truly can't see it — then cleans everything
-            up. Your server is untouched either way.
+            Shortlist creates a throwaway probe collection, hides it from a
+            canary user, and verifies they truly can't see it — then cleans
+            everything up. Your server is untouched either way.
           </p>
           <Button onClick={onRun}>
             <ShieldCheck aria-hidden="true" />

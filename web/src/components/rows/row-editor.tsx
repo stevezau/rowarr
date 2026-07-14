@@ -130,7 +130,6 @@ export function RowEditor({
 
           <LibraryPicker
             libraryKeys={input.library_keys}
-            media={input.media}
             onChange={(next) => set(next)}
           />
 
@@ -177,11 +176,12 @@ export function RowEditor({
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">
-                  How the AI picks and writes up this row — its own tone,
-                  guidance, and (if you want) a full custom prompt, just for
-                  this row.
+                  How the AI picks and writes up this row. Leave a field on
+                  Inherit/blank to follow Settings → Curation style; set one to
+                  give this row a voice of its own.
                 </p>
                 <CurationStyleFields
+                  allowInherit
                   value={curation}
                   onChange={(next) =>
                     set({

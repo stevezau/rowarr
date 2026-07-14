@@ -6,7 +6,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import String, cast, func
 
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.server.auth import require_owner
@@ -29,10 +29,11 @@ def _pick_dict(pick: PickRow) -> dict:
 
 
 class UserPrefs(BaseModel):
+    # `row_size` and `max_rating` used to live here. Neither did anything: max_rating filtered no
+    # content at all, and a row's own size always won. Per-person row size lives on the row override
+    # (PUT /users/{id}/rows/{collection_id}), which the UI actually exposes.
     row_name_tpl: str | None = None
-    row_size: int | None = Field(default=None, ge=5, le=30)
     excluded_genres: list[str] | None = None
-    max_rating: str | None = None
     paused: bool | None = None
     # Per-person curation-recipe overrides. Empty string = inherit the global default.
     prompt_tone: str | None = None
@@ -77,14 +78,21 @@ async def list_users(request: Request) -> list[dict]:
     with request.app.state.sessions() as session:
         out = []
         for user in session.query(User).order_by(User.username).all():
-            picks_total = session.query(func.count(PickRow.id)).filter_by(user_id=user.id).scalar() or 0
-            picks_watched = (
-                session.query(func.count(PickRow.id))
+            # DISTINCT title, not pick row: a title recommended over several runs is one title, and a
+            # title watched after lingering a few runs is one hit — counting rows would skew both.
+            # `||` via .concat(), NOT func.concat: the latter compiles to SQLite's concat() scalar,
+            # which only exists in SQLite >= 3.44 — the runtime image ships 3.40, so it would 500.
+            title = cast(PickRow.tmdb_id, String).concat("-").concat(PickRow.media_type)
+            titles_total = (
+                session.query(func.count(func.distinct(title))).filter(PickRow.user_id == user.id).scalar() or 0
+            )
+            titles_watched = (
+                session.query(func.count(func.distinct(title)))
                 .filter(PickRow.user_id == user.id, PickRow.watched_at.isnot(None))
                 .scalar()
                 or 0
             )
-            hit_rate = round(picks_watched / picks_total, 3) if picks_total else None
+            hit_rate = round(titles_watched / titles_total, 3) if titles_total else None
             last = (
                 session.query(RunUser)
                 .filter_by(user_id=user.id)

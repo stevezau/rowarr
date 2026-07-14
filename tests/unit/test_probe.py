@@ -5,10 +5,29 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from shortlist.engine.probe import PROBE_TITLE, run_privacy_probe
+from shortlist.engine.probe import PROBE_LABEL, PROBE_TITLE, run_privacy_probe
 from tests.conftest import fake_media_item, make_profile, plextv_user
 
 PROBE_ID = 777001
+# The label PREFIX delete_owned_collection is given — its guard against deleting a collection that
+# is not Shortlist's (Kometa coexistence). NOT the probe's own full label.
+OWNED_PREFIX = "rowarr"
+
+
+def assert_deleted_only_its_own_probe(plex: MagicMock) -> None:
+    """The probe deleted the collection IT created, and nothing else.
+
+    `delete_owned_collection.assert_called_once()` on its own is bug-blind: the call count is right
+    no matter WHICH collection is passed. A regression that handed this a user's real "Picked for
+    You" row — the same call, one argument different — would satisfy it, and every Privacy Check
+    would quietly destroy somebody's row. Assert the argument the SUT actually controls
+    (.claude/rules/testing.md, "Asserting boundary calls").
+    """
+    plex.delete_owned_collection.assert_called_once()
+    call = plex.delete_owned_collection.call_args
+    assert call.args[0] is plex.create_collection.return_value, "the probe deleted a collection it did not create"
+    assert call.args[0].ratingKey == PROBE_ID
+    assert call.args[1] == OWNED_PREFIX, "the prefix guard that refuses to delete a collection we don't own"
 
 
 def _recording(inner, order: list[str], label: str):
@@ -72,9 +91,26 @@ class TestPrivacyProbe:
         assert result.detail["baseline_visible"] is True
         assert result.detail["t1_filter_persisted"] is True
         assert result.detail["hidden_after_exclusion"] is True
-        # Cleanup: filters restored byte-identical, probe deleted.
+
+        # The artifacts the probe made are the ones it was asked to make: a throwaway collection of
+        # the 2 oldest movies (a Related hub only renders at >=2 items — Phase 0), carrying the
+        # probe's own label, promoted so the canary can see it.
+        create = plex.create_collection.call_args
+        assert create.args[1] == PROBE_TITLE
+        assert [item.ratingKey for item in create.args[2]] == [1, 2]
+        assert plex.stored_label.call_args.args[1] == PROBE_LABEL
+        assert plex.promote.call_args.kwargs["shared"] is True
+
+        # The canary's share is excluded on the STORED (Plex title-cased) label — excluding the
+        # requested casing would prove nothing, since it is not what is on the collection.
+        wrote = plextv.update_user_filters.call_args_list[0]
+        assert wrote.args[0] == 555000100
+        assert wrote.args[1]["filterMovies"] == "label!=Rowarr_probe"
+        assert wrote.args[1]["filterTelevision"] == "label!=Rowarr_probe"
+
+        # Cleanup: filters restored byte-identical, and only the probe's own collection deleted.
         assert plextv.users[0].filters["filterMovies"] == ""
-        plex.delete_owned_collection.assert_called_once()
+        assert_deleted_only_its_own_probe(plex)
 
     def test_snapshot_persisted_before_the_share_is_touched(self, mock_plextv, snapshot_store):
         """plex-safety rule 2: process death mid-probe must still be recoverable."""
@@ -129,7 +165,7 @@ class TestPrivacyProbe:
 
         assert not result.passed
         assert plextv.users[0].filters["filterMovies"] == ""  # restored despite failure
-        plex.delete_owned_collection.assert_called_once()
+        assert_deleted_only_its_own_probe(plex)
 
     def test_baseline_never_visible_fails_without_touching_filters(self, mock_plextv, snapshot_store):
         plex = make_plex([[]])  # promotion apparently broken
@@ -143,7 +179,7 @@ class TestPrivacyProbe:
         assert not result.passed
         assert "promotion" in result.detail["error"]
         plextv.update_user_filters.assert_not_called()
-        plex.delete_owned_collection.assert_called_once()  # probe still cleaned up
+        assert_deleted_only_its_own_probe(plex)  # probe still cleaned up (rule 7)
 
     def test_no_movie_library_short_circuits(self, snapshot_store):
         plex = MagicMock()

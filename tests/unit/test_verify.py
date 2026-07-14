@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 from shortlist.engine.models import OwnedRow
@@ -159,3 +160,103 @@ class TestCheckT2:
 
         assert result.passed
         assert result.detail["own_row_visible"] is True
+
+
+class TestSharedRowsAreNotLeaks:
+    """The verifier must classify shared rows exactly as the WRITER does.
+
+    When it didn't, `desired_excludes` was asked for excludes with no `shared_labels`, so T1
+    demanded an exclude for the shared row that `sync_user_restrictions` deliberately never
+    writes — and T2 counted the shared row on the canary's own Home as a leak. A correctly
+    configured public shared row failed the check forever, which shut the write gate and stopped
+    the server building ANY row. Both tiers now take the same config the writer restricts by.
+    """
+
+    STORED_WITH_SHARED: ClassVar = {
+        "sarah": "Rowarr_sarah",
+        "mike": "Rowarr_mike",
+        "shared_popular": "Rowarr__shared_popular",
+    }
+    PUBLIC: ClassVar = {"rowarr__shared_popular": None}  # None = public: everyone may see it
+
+    def test_t1_passes_when_a_public_shared_row_is_excluded_from_nobody(self, mock_plextv):
+        mock_plextv.users = [
+            plextv_user(
+                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+            ),
+            plextv_user(
+                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+            ),
+        ]
+        result = check_t1(mock_plextv, KNOWN, self.STORED_WITH_SHARED, shared_labels=self.PUBLIC)
+        assert result.passed, result.detail
+
+    def test_t1_still_demands_the_exclude_for_a_shared_row_the_account_is_not_in(self, mock_plextv):
+        """A SUBSET shared row is private to everyone outside its audience — the writer excludes it,
+        so the check must insist on it. Sarah (100) is in the audience; mike (200) is not."""
+        subset = {"rowarr__shared_popular": {100}}
+        mock_plextv.users = [
+            plextv_user(
+                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+            ),
+            plextv_user(
+                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+            ),
+        ]
+        result = check_t1(mock_plextv, KNOWN, self.STORED_WITH_SHARED, shared_labels=subset)
+        assert not result.passed
+        assert "Rowarr__shared_popular" in result.detail["mike"]
+        assert "sarah" not in result.detail  # in the audience -> allowed to see it
+
+    def test_a_stale_shared_collection_not_in_the_config_is_still_demanded(self, mock_plextv):
+        """Fail-safe: a shared row the config no longer declares is treated as private and excluded
+        from everyone — a leak we never write beats one we can't unwrite."""
+        mock_plextv.users = [plextv_user(200, "mike", filters={"filterMovies": "label!=Rowarr_sarah"})]
+        result = check_t1(mock_plextv, KNOWN, self.STORED_WITH_SHARED, shared_labels={})
+        assert not result.passed
+        assert "Rowarr__shared_popular" in result.detail["mike"]
+
+    def test_t2_a_public_shared_row_on_the_canarys_home_is_the_feature_not_a_leak(self, mock_plextv):
+        sarah = make_profile("sarah", account_id=100)
+        collections = {
+            "sarah": OwnedRow("Rowarr_sarah", [571285]),
+            "_shared_popular": OwnedRow("Rowarr__shared_popular", [571400]),
+        }
+        plex = MagicMock()
+        mock_plextv.canary_server_token.return_value = "canary-tok"
+        plex.user_hubs.return_value = [
+            {"key": "/library/collections/571285/children", "title": "✨ Picked for You"},
+            {"key": "/library/collections/571400/children", "title": "Popular on this server"},
+        ]
+
+        result = check_t2(plex, mock_plextv, sarah, collections, shared_labels=self.PUBLIC)
+
+        assert result.passed, result.detail
+        assert result.detail["own_row_visible"] is True
+
+    def test_t2_a_subset_shared_row_the_canary_is_not_in_is_a_leak(self, mock_plextv):
+        sarah = make_profile("sarah", account_id=100)
+        collections = {
+            "sarah": OwnedRow("Rowarr_sarah", [571285]),
+            "_shared_popular": OwnedRow("Rowarr__shared_popular", [571400]),
+        }
+        plex = MagicMock()
+        mock_plextv.canary_server_token.return_value = "canary-tok"
+        plex.user_hubs.return_value = [{"key": "/library/collections/571400/children", "title": "Date Night"}]
+
+        result = check_t2(plex, mock_plextv, sarah, collections, shared_labels={"rowarr__shared_popular": {999}})
+
+        assert not result.passed
+        assert result.detail["leaked"][0]["collection_id"] == 571400
+
+    def test_t2_without_shared_config_a_shared_row_is_treated_as_private(self, mock_plextv):
+        """Fail-safe again: no config -> the row is not known to be shared -> its presence is a leak."""
+        sarah = make_profile("sarah", account_id=100)
+        collections = {"_shared_popular": OwnedRow("Rowarr__shared_popular", [571400])}
+        plex = MagicMock()
+        mock_plextv.canary_server_token.return_value = "canary-tok"
+        plex.user_hubs.return_value = [{"key": "/library/collections/571400/children", "title": "Stale row"}]
+
+        result = check_t2(plex, mock_plextv, sarah, collections)
+
+        assert not result.passed

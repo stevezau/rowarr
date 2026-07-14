@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from shortlist.engine.candidates import KNOWN_SOURCES
+from shortlist.engine.curator.base import TONE_PRESETS
 from shortlist.engine.models import dedupe_slug, slugify
 from shortlist.server.auth import require_owner
 from shortlist.server.db.models import DEFAULT_SLUG, Collection, CollectionAudience
@@ -24,7 +25,14 @@ MEDIA = {"movie", "show", "both"}
 
 
 class PromptIn(BaseModel):
-    tone: str = "balanced"
+    """A row's curation recipe. EVERY field is blank-means-inherit-the-global-one.
+
+    `tone` defaulted to "balanced", which is indistinguishable from "unset" — so a row could never
+    inherit Settings -> Curation style, and every row silently overrode it with a bare balanced
+    recipe. Blank is the only honest default.
+    """
+
+    tone: str = ""
     guidance: str = ""
     template: str = ""
 
@@ -56,6 +64,8 @@ def _validate(body: CollectionIn) -> None:
     unknown = [s for s in body.candidate_sources if s not in KNOWN_SOURCES]
     if unknown:
         raise HTTPException(422, f"unknown candidate source(s) {unknown}; valid: {sorted(KNOWN_SOURCES)}")
+    if body.prompt.tone and body.prompt.tone not in TONE_PRESETS:
+        raise HTTPException(422, f"unknown tone {body.prompt.tone!r}; valid: {sorted(TONE_PRESETS)} (or blank)")
 
 
 def _serialize(session, collection: Collection) -> dict:

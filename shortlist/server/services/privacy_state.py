@@ -8,17 +8,23 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from shortlist.server.db.models import PrivacyCheck
 
 
-def latest_by_tier(session: Session, limit: int = 20) -> dict[str, PrivacyCheck]:
-    """Most recent check per tier (T1/T2/PROBE)."""
-    latest: dict[str, PrivacyCheck] = {}
-    for check in session.query(PrivacyCheck).order_by(PrivacyCheck.id.desc()).limit(limit).all():
-        latest.setdefault(check.tier, check)
-    return latest
+def latest_by_tier(session: Session) -> dict[str, PrivacyCheck]:
+    """Most recent check per tier (T1/T2/PROBE) — across ALL history, never a recent window.
+
+    This once read only the last 20 rows. Every real run inserts a PROBE row, so ~20 nights after a
+    genuine T1/T2 FAILURE that failing row scrolled out of the window, vanished from `latest`, and
+    the gate re-opened — on a leak nobody had fixed, with the dashboard badge turning green with it.
+    A tier's verdict stands until that tier is re-run, however long that takes.
+    """
+    newest_ids = [row[0] for row in session.query(func.max(PrivacyCheck.id)).group_by(PrivacyCheck.tier).all()]
+    rows = session.query(PrivacyCheck).filter(PrivacyCheck.id.in_(newest_ids)).all()
+    return {check.tier: check for check in rows}
 
 
 def privacy_summary(session: Session) -> dict:

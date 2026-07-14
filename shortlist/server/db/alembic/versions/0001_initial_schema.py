@@ -3,6 +3,12 @@
 Revision ID: 0001
 Revises:
 Create Date: 2026-07-12
+
+Idempotent like 0003+: SQLite auto-commits DDL, so a first boot that dies part-way through this
+migration (the container is killed, two deployers race) leaves some tables created with
+`alembic_version` never stamped. Alembic then re-runs the whole revision on the next boot and dies
+on "table settings already exists" — a fresh install that can never start, and no state to roll
+back to. Guarding each create lets the re-run finish the job instead.
 """
 
 import sqlalchemy as sa
@@ -14,14 +20,23 @@ branch_labels = None
 depends_on = None
 
 
+def _create_if_missing(existing: set[str], table: str, *columns) -> None:
+    """Create a table only when it isn't already there (see the module docstring)."""
+    if table not in existing:
+        op.create_table(table, *columns)
+
+
 def upgrade() -> None:
-    op.create_table(
+    existing = set(sa.inspect(op.get_bind()).get_table_names())
+    _create_if_missing(
+        existing,
         "settings",
         sa.Column("key", sa.String(128), primary_key=True),
         sa.Column("value", sa.JSON(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "server",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("machine_id", sa.String(64), nullable=False, unique=True),
@@ -33,7 +48,8 @@ def upgrade() -> None:
         sa.Column("plex_pass", sa.Boolean(), nullable=False),
         sa.Column("capabilities", sa.JSON(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "users",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("plex_account_id", sa.Integer(), nullable=False, unique=True, index=True),
@@ -46,7 +62,8 @@ def upgrade() -> None:
         sa.Column("label", sa.String(255), nullable=False),
         sa.Column("prefs", sa.JSON(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "runs",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("trigger", sa.String(16), nullable=False),
@@ -56,7 +73,8 @@ def upgrade() -> None:
         sa.Column("dry_run", sa.Boolean(), nullable=False),
         sa.Column("stats", sa.JSON(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "run_users",
         sa.Column("run_id", sa.Integer(), sa.ForeignKey("runs.id"), primary_key=True),
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), primary_key=True),
@@ -66,7 +84,8 @@ def upgrade() -> None:
         sa.Column("llm_tokens", sa.Integer(), nullable=False),
         sa.Column("diff", sa.JSON(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "picks",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("run_id", sa.Integer(), sa.ForeignKey("runs.id"), nullable=False, index=True),
@@ -81,7 +100,8 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("watched_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "restriction_snapshots",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, index=True),
@@ -90,7 +110,8 @@ def upgrade() -> None:
         sa.Column("filters_before", sa.JSON(), nullable=False),
         sa.Column("filters_after", sa.JSON(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "privacy_checks",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("ran_at", sa.DateTime(timezone=True), nullable=False),
@@ -98,14 +119,16 @@ def upgrade() -> None:
         sa.Column("passed", sa.Boolean(), nullable=False),
         sa.Column("detail", sa.JSON(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "caches",
         sa.Column("kind", sa.String(32), primary_key=True),
         sa.Column("key", sa.String(512), primary_key=True),
         sa.Column("value", sa.JSON(), nullable=False),
         sa.Column("expires_at", sa.Float(), nullable=False),
     )
-    op.create_table(
+    _create_if_missing(
+        existing,
         "events",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("ts", sa.DateTime(timezone=True), nullable=False, index=True),

@@ -75,24 +75,49 @@ function TitleMeta({
   );
 }
 
+/**
+ * Requests are off, but titles queued before that are still on file. The inbox stays readable —
+ * hiding it would lose them — but nothing here can be acted on, and it has to say so: the live
+ * "Send to Sonarr/Radarr" button used to render exactly as it does when the feature is on.
+ */
+function RequestsOffBanner() {
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed bg-muted/30 p-4">
+      <p className="text-sm font-medium">Requests are off</p>
+      <p className="text-sm text-muted-foreground">
+        These titles were found before you turned requests off. Shortlist
+        isn&rsquo;t asking Sonarr or Radarr for anything, and nothing here can
+        be sent or rejected until you turn requests back on.
+      </p>
+      <Button asChild variant="outline" size="sm">
+        <Link to="/settings">Enable in Settings</Link>
+      </Button>
+    </div>
+  );
+}
+
 function PendingRow({
   item,
   checked,
   onToggle,
   globalTag,
+  disabled,
 }: {
   item: RequestCandidate;
   checked: boolean;
   onToggle: (id: number) => void;
   globalTag: string;
+  /** Requests are off — the row is still readable, but it cannot be selected for sending. */
+  disabled: boolean;
 }) {
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50">
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={() => onToggle(item.id)}
-        className="mt-1 h-4 w-4 shrink-0 accent-primary"
+        className="mt-1 h-4 w-4 shrink-0 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
       />
       <div className="min-w-0 space-y-1">
         <p className="font-medium">{item.title}</p>
@@ -125,12 +150,10 @@ function HandledRow({ item }: { item: RequestCandidate }) {
 
 export function RequestsPage() {
   const requestsQuery = useRequests();
-  const settings = useSettings();
+  const settingsQuery = useSettings();
   const send = useSendRequests();
   const reject = useRejectRequests();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const requestsEnabled = settingBool(settings.data ?? {}, "requests.enabled");
-  const globalTag = settingString(settings.data ?? {}, "requests.tag");
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -140,7 +163,9 @@ export function RequestsPage() {
       return next;
     });
 
-  const rows = requestsQuery.data ?? [];
+  // `?? []` inline would be a fresh array every render, so both memos below would recompute on
+  // every render (and eslint says so).
+  const rows = useMemo(() => requestsQuery.data ?? [], [requestsQuery.data]);
   const pending = useMemo(
     () => rows.filter((r) => r.status === "pending"),
     [rows],
@@ -175,115 +200,141 @@ export function RequestsPage() {
         subtitle="Titles your people wanted that aren't in the library yet. Send the ones you want to Sonarr/Radarr."
       />
 
-      <QueryBoundary
-        query={requestsQuery}
-        skeleton={<RequestsSkeleton />}
-        isEmpty={(data) => data.length === 0}
-        empty={
-          requestsEnabled ? (
-            <EmptyState
-              title="Nothing waiting"
-              hint="When a run turns up a great pick that isn't in your library, it lands here for your approval. Strong picks are sent automatically (tune that in Settings → Requests)."
-            />
-          ) : (
-            <EmptyState
-              title="Requests are off"
-              hint="Turn on Sonarr/Radarr requests to have Shortlist notice great picks your library is missing and offer to grab them."
-              action={
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/settings">Enable in Settings</Link>
-                </Button>
+      {/* Whether requests are ON is a fact about the SETTING, never about whether the inbox happens
+          to be empty — with the feature off and stale candidates on file, this page used to render
+          the full inbox with a live Send button. Settings gets its own boundary so a cold load
+          shows a skeleton rather than flashing "Requests are off" before the answer arrives. */}
+      <QueryBoundary query={settingsQuery} skeleton={<RequestsSkeleton />}>
+        {(settings) => {
+          const requestsEnabled = settingBool(settings, "requests.enabled");
+          const globalTag = settingString(settings, "requests.tag");
+          return (
+            <QueryBoundary
+              query={requestsQuery}
+              skeleton={<RequestsSkeleton />}
+              isEmpty={(data) => data.length === 0}
+              empty={
+                requestsEnabled ? (
+                  <EmptyState
+                    title="Nothing waiting"
+                    hint="When a run turns up a great pick that isn't in your library, it lands here for your approval. Strong picks are sent automatically (tune that in Settings → Requests)."
+                  />
+                ) : (
+                  <EmptyState
+                    title="Requests are off"
+                    hint="Turn on Sonarr/Radarr requests to have Shortlist notice great picks your library is missing and offer to grab them."
+                    action={
+                      <Button asChild variant="outline" size="sm">
+                        <Link to="/settings">Enable in Settings</Link>
+                      </Button>
+                    }
+                  />
+                )
               }
-            />
-          )
-        }
-      >
-        {() => (
-          <div className="space-y-8">
-            {pending.length > 0 ? (
-              <section className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      checked={allChecked}
-                      onChange={toggleAll}
-                      className="h-4 w-4 accent-primary"
+            >
+              {() => (
+                <div className="space-y-8">
+                  {!requestsEnabled && <RequestsOffBanner />}
+
+                  {pending.length > 0 ? (
+                    <section className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                          <input
+                            type="checkbox"
+                            checked={allChecked}
+                            disabled={!requestsEnabled}
+                            onChange={toggleAll}
+                            className="h-4 w-4 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+                          />
+                          {selectedPending.length > 0
+                            ? `${selectedPending.length} selected`
+                            : `${pending.length} waiting`}
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={
+                              !requestsEnabled ||
+                              selectedPending.length === 0 ||
+                              busy
+                            }
+                            onClick={() =>
+                              act(() => reject.mutate(selectedPending))
+                            }
+                          >
+                            <X aria-hidden="true" />
+                            Reject
+                          </Button>
+                          <Button
+                            size="sm"
+                            loading={send.isPending}
+                            disabled={
+                              !requestsEnabled ||
+                              selectedPending.length === 0 ||
+                              busy
+                            }
+                            onClick={() =>
+                              act(() => send.mutate({ ids: selectedPending }))
+                            }
+                          >
+                            {!send.isPending && <Send aria-hidden="true" />}
+                            Send{" "}
+                            {selectedPending.length > 0
+                              ? selectedPending.length
+                              : ""}{" "}
+                            to Sonarr/Radarr
+                          </Button>
+                        </div>
+                      </div>
+
+                      {(send.isError || reject.isError) && (
+                        <p role="alert" className="text-sm text-destructive">
+                          {apiErrorMessage(
+                            send.error ?? reject.error,
+                            "That didn't go through. Check the server log and try again.",
+                          )}
+                        </p>
+                      )}
+
+                      <div className="space-y-2">
+                        {pending.map((item) => (
+                          <PendingRow
+                            key={item.id}
+                            item={item}
+                            checked={selected.has(item.id)}
+                            onToggle={toggle}
+                            globalTag={globalTag}
+                            disabled={!requestsEnabled}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ) : (
+                    <EmptyState
+                      title="Inbox clear"
+                      hint="Nothing is waiting on you right now. New missing picks will show up here after the next run."
                     />
-                    {selectedPending.length > 0
-                      ? `${selectedPending.length} selected`
-                      : `${pending.length} waiting`}
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={selectedPending.length === 0 || busy}
-                      onClick={() => act(() => reject.mutate(selectedPending))}
-                    >
-                      <X aria-hidden="true" />
-                      Reject
-                    </Button>
-                    <Button
-                      size="sm"
-                      loading={send.isPending}
-                      disabled={selectedPending.length === 0 || busy}
-                      onClick={() =>
-                        act(() => send.mutate({ ids: selectedPending }))
-                      }
-                    >
-                      {!send.isPending && <Send aria-hidden="true" />}
-                      Send{" "}
-                      {selectedPending.length > 0
-                        ? selectedPending.length
-                        : ""}{" "}
-                      to Sonarr/Radarr
-                    </Button>
-                  </div>
-                </div>
+                  )}
 
-                {(send.isError || reject.isError) && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {apiErrorMessage(
-                      send.error ?? reject.error,
-                      "That didn't go through. Check the server log and try again.",
-                    )}
-                  </p>
-                )}
-
-                <div className="space-y-2">
-                  {pending.map((item) => (
-                    <PendingRow
-                      key={item.id}
-                      item={item}
-                      checked={selected.has(item.id)}
-                      onToggle={toggle}
-                      globalTag={globalTag}
-                    />
-                  ))}
+                  {handled.length > 0 && (
+                    <section className="space-y-3">
+                      <h2 className="text-sm font-medium text-muted-foreground">
+                        Already handled
+                      </h2>
+                      <div className="space-y-2">
+                        {handled.map((item) => (
+                          <HandledRow key={item.id} item={item} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
-              </section>
-            ) : (
-              <EmptyState
-                title="Inbox clear"
-                hint="Nothing is waiting on you right now. New missing picks will show up here after the next run."
-              />
-            )}
-
-            {handled.length > 0 && (
-              <section className="space-y-3">
-                <h2 className="text-sm font-medium text-muted-foreground">
-                  Already handled
-                </h2>
-                <div className="space-y-2">
-                  {handled.map((item) => (
-                    <HandledRow key={item.id} item={item} />
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        )}
+              )}
+            </QueryBoundary>
+          );
+        }}
       </QueryBoundary>
     </div>
   );

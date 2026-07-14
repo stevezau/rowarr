@@ -23,7 +23,7 @@ export function CurationStyleFields({
   value: CurationStyleValue;
   onChange: (next: CurationStyleValue) => void;
   /** Show an "Inherit" tone chip (blank tone) — for per-person overrides that fall back to the
-   * row/global tone. Off for the global and row recipes, which define the tone rather than inherit it. */
+   * row/global tone. Off for the global recipe only, which defines the tone rather than inherits it. */
   allowInherit?: boolean;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(Boolean(value.template));

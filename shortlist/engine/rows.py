@@ -34,6 +34,7 @@ from shortlist.engine.models import (
     UserRunReport,
     UserType,
     WatchedItem,
+    overlay_prompt,
 )
 
 if TYPE_CHECKING:
@@ -48,18 +49,66 @@ def _media_filter(items: list, media: str) -> list:
     return [item for item in items if item.media_type is kind]
 
 
-def _rating_key_resolver(seed_index: dict[MediaType, dict[int, int]]) -> Callable[[WatchedItem], int | None]:
+def _rating_key_resolver(seed_index: dict[int, int]) -> Callable[[WatchedItem], int | None]:
     """A resolver from a watched item to its tmdb_id, via ratingKey, across EVERY library.
 
-    A user's watches resolve against every library (seed_index), not just the delivery ones: what
-    they watched in a second movie library is still what they watched.
+    A user's watches resolve against every library, not just the delivery ones: what they watched in
+    a second movie library is still what they watched.
+
+    `seed_index` is keyed by ratingKey for that reason. Inverting a tmdb_id -> ratingKey index here
+    instead would silently drop libraries: the same film in "Movies" and "4K Movies" has ONE tmdb id
+    and TWO ratingKeys, so only the last library scanned would survive the inversion — and every
+    watch in the other one would resolve to nothing, leaving the user seedless and their row empty.
     """
-    by_rating_key = {key: tmdb_id for idx in seed_index.values() for tmdb_id, key in idx.items()}
 
     def resolve(item: WatchedItem) -> int | None:
-        return by_rating_key.get(item.rating_key) if item.rating_key else None
+        return seed_index.get(item.rating_key) if item.rating_key else None
 
     return resolve
+
+
+def row_library_index(
+    ctx: EngineContext,
+    spec: RowSpec,
+    library_index: dict[MediaType, dict[int, int]],
+) -> dict[MediaType, dict[int, int]]:
+    """What THIS row may recommend: the index of the libraries it actually delivers into.
+
+    An unpinned row keeps the union index (a title in any library of its type is deliverable). A row
+    pinned to `library_keys` must be narrowed to those libraries — it was curated against the union,
+    so a row pinned to a 200-title "Kids Movies" was choosing from the whole 5000-title movie
+    catalogue, and delivery then dropped every pick that library didn't hold: a one-item row, or no
+    row at all, reported as ok.
+    """
+    if not spec.library_keys:
+        return library_index
+    wanted = {str(key) for key in spec.library_keys}
+    narrowed: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
+    for section in ctx.delivery_sections:
+        if str(section.key) in wanted:
+            kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
+            narrowed[kind].update(ctx.section_index.get(section.key, {}))
+    return narrowed
+
+
+def _row_catalog(ctx: EngineContext, spec: RowSpec) -> dict[MediaType, list[dict]]:
+    """The AI-from-library catalog THIS row may propose from — its own libraries only."""
+    if not spec.library_keys or not ctx.section_catalog:
+        return ctx.library_catalog
+    wanted = {str(key) for key in spec.library_keys}
+    catalog: dict[MediaType, list[dict]] = {MediaType.MOVIE: [], MediaType.SHOW: []}
+    seen: dict[MediaType, set[int]] = {MediaType.MOVIE: set(), MediaType.SHOW: set()}
+    for section in ctx.delivery_sections:
+        if str(section.key) not in wanted:
+            continue
+        kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
+        for item in ctx.section_catalog.get(section.key, []):
+            # A row pinned to both "Movies" and "4K Movies" must not show the LLM the same film
+            # twice — that spends its slice of the catalog on duplicates.
+            if item["tmdb_id"] not in seen[kind]:
+                seen[kind].add(item["tmdb_id"])
+                catalog[kind].append(item)
+    return catalog
 
 
 def _candidate_pool(
@@ -71,6 +120,8 @@ def _candidate_pool(
     recent: set[tuple[int, MediaType]],
     profile=None,
     sources: list[str] | None = None,
+    media: str = "both",
+    catalog: dict[MediaType, list[dict]] | None = None,
 ) -> tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]]:
     """Gather TMDB candidates for ``seeds``, intersect with the library, split by staleness.
 
@@ -83,6 +134,10 @@ def _candidate_pool(
       runs). Still valid recommendations, so they backfill a row fresh candidates can't fill —
       without them a thin pool SHRINKS the row rather than repeating a title.
 
+    ``media`` narrows the pool BEFORE the pre-rank truncation. Filtering after it meant a
+    movie-heavy watcher's shows-only row could lose every show to the 40-candidate cut and deliver
+    nothing — a dead row on a green run.
+
     One ``filter_candidates`` pass, not two: the valid set is partitioned by ``recent``. Identity
     is (tmdb_id, media_type), never the bare id — movie 1399 and TV 1399 are different titles.
     """
@@ -92,7 +147,7 @@ def _candidate_pool(
         seeds,
         sources=sources if sources is not None else ctx.config.candidate_sources,
         curator=ctx.curator,
-        catalog=ctx.library_catalog,
+        catalog=ctx.library_catalog if catalog is None else catalog,
         profile=profile,
         trakt=ctx.trakt,
     )
@@ -103,6 +158,7 @@ def _candidate_pool(
         excluded_genres=excluded_genres,
         recent_pick_ids=set(),
     )
+    valid = _media_filter(valid, media)
     in_library = [c for c in valid if (c.tmdb_id, c.media_type) not in recent]
     held = [c for c in valid if (c.tmdb_id, c.media_type) in recent]
     ranked = ranking.pre_rank(in_library, ctx.config.candidates_pre_rank)
@@ -113,7 +169,7 @@ def _candidate_pool(
 def _run_user(
     ctx: EngineContext,
     user: UserProfile,
-    seed_index: dict[MediaType, dict[int, int]],
+    seed_index: dict[int, int],
     library_index: dict[MediaType, dict[int, int]],
     stored_labels: dict[str, str],
     user_report: UserRunReport,
@@ -168,7 +224,8 @@ def _run_user(
     # sources (the common case — every row inheriting the global set) reuse one pool; a row that
     # picks its own sources gets its own. Keyed by the sorted source tuple, memoised across the user.
     Pool = tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]]
-    pool_cache: dict[tuple[str, ...], Pool] = {}
+    pool_cache: dict[tuple, Pool] = {}
+    pool_failures: dict[tuple, str] = {}  # pool key -> why every source for it failed
     seeds: list = []
     recent: set[tuple[int, MediaType]] = set()
 
@@ -178,22 +235,45 @@ def _run_user(
         # the non-deterministic llm_* sources, possibly diverging despite identical configuration.
         return tuple(sorted(spec.candidate_sources or cfg.candidate_sources))
 
-    def pools_for(spec: RowSpec) -> Pool:
-        key = effective_sources(spec)
+    def pool_key(spec: RowSpec) -> tuple:
+        # Sources alone is not enough. A row's media and its libraries both change which candidates
+        # survive — and both now narrow the pool BEFORE the pre-rank truncation, so two rows that
+        # differ in either must not share a pool. Rows that differ in none of the three (the common
+        # case: everything inheriting the defaults) still share exactly one.
+        return (effective_sources(spec), spec.media, tuple(sorted(str(k) for k in spec.library_keys)))
+
+    def pools_for(spec: RowSpec) -> Pool | None:
+        """This row's pool, or None when every source it uses is down.
+
+        Per ROW, not per user: a row pinned to a single source (a Trakt-only row while Trakt 502s)
+        must not take the person's other rows down with it — those rows have working sources and a
+        row they can still fill.
+        """
+        key = pool_key(spec)
+        if key in pool_failures:
+            return None
         if key not in pool_cache:
-            pool_cache[key] = _candidate_pool(
-                ctx,
-                seeds,
-                library_index,
-                excluded_genres=user.excluded_genres,
-                recent=recent,
-                profile=user,
-                sources=list(key),
-            )
+            try:
+                pool_cache[key] = _candidate_pool(
+                    ctx,
+                    seeds,
+                    row_library_index(ctx, spec, library_index),
+                    excluded_genres=user.excluded_genres,
+                    recent=recent,
+                    profile=user,
+                    sources=list(key[0]),
+                    media=spec.media,
+                    catalog=_row_catalog(ctx, spec),
+                )
+            except Exception as e:
+                pool_failures[key] = f"{type(e).__name__}: {e}"
+                logger.warning("{}: row '{}' has no working candidate source ({})", user.username, spec.slug, e)
+                return None
         return pool_cache[key]
 
     if cold:
-        base_cold = _cold_start_picks(ctx, user, cfg)
+        # Enough picks for the LARGEST row this user is in; each row then takes its own k.
+        base_cold = _cold_start_picks(ctx, user, cfg, k=max(spec.size for spec in specs))
         user_report.status = "cold_start"
     else:
         resolve = _rating_key_resolver(seed_index)
@@ -203,6 +283,11 @@ def _run_user(
         recent = ctx.recent_picks.get(user.slug, set())
         for spec in specs:  # build every row's pool up front so counts and demand see them all
             pools_for(spec)
+        # Only if EVERY row's sources are down do we know nothing about this person: that's a failed
+        # user, not a quiet "ok" that leaves yesterday's rows in place. One dead row among several
+        # is just that one row.
+        if pool_failures and not pool_cache:
+            raise RuntimeError("; ".join(sorted(pool_failures.values())))
         # Counts are the distinct union across pools (a title in two rows' pools is one candidate).
         user_report.counts.candidates = len({(c.tmdb_id, c.media_type) for p in pool_cache.values() for c in p[0]})
         user_report.counts.in_library = len({(c.tmdb_id, c.media_type) for p in pool_cache.values() for c in p[1]})
@@ -215,7 +300,10 @@ def _run_user(
             first_seen: dict[tuple[int, MediaType], Candidate] = {}
             title_tags: dict[tuple[int, MediaType], set[str]] = {}
             for spec in specs:
-                for c in requests_mod.collect_missing(pools_for(spec)[0], library_index):
+                pools = pools_for(spec)
+                if pools is None:
+                    continue
+                for c in requests_mod.collect_missing(pools[0], library_index):
                     key = (c.tmdb_id, c.media_type)
                     first_seen.setdefault(key, c)
                     tags = title_tags.setdefault(key, set())
@@ -240,23 +328,31 @@ def _run_user(
     delivered_any = False
     for spec in specs:
         # A per-row override lets this one person resize or restyle this one row; each field falls
-        # through to the row's own setting, then the user-wide default, when unset.
+        # through to the row's own setting when unset. Row beats global — the same direction the
+        # name template and the curation recipe resolve in.
         override = user.row_overrides.get(spec.slug)
-        k = (override.size if override and override.size else None) or user.row_size or spec.size
+        k = (override.size if override and override.size else None) or spec.size or cfg.row_size
         if cold:
             picks = [
                 Pick(**{**pick.__dict__, "rank": i + 1})
                 for i, pick in enumerate(_media_filter(base_cold, spec.media)[:k])
             ]
         else:
-            row_prompt = (override.prompt if override and override.prompt else None) or spec.prompt
-            effective_prompt = row_prompt if row_prompt is not None else base_prompt
+            # The row's recipe (already the global one with the row's fields laid over it), then this
+            # person's override laid over THAT. Setting only a tone for one person used to wipe the
+            # row's guidance and custom prompt.
+            row_prompt = spec.prompt if spec.prompt is not None else base_prompt
+            effective_prompt = overlay_prompt(row_prompt, override.prompt if override else None)
             # A per-row copy carries the effective recipe to the curator; the real profile is never
             # mutated, so one row's recipe can't leak into the next row (or into delivery below).
             row_profile = _with_prompt(user, effective_prompt)
-            # This row's own pool (its chosen sources, or the global set when it inherits).
-            _pool, _in_library, ranked, held_back = pools_for(spec)
-            pool_for_row = _media_filter(ranked, spec.media)
+            # This row's own pool: its sources, its media and its libraries — already narrowed to
+            # all three BEFORE the pre-rank truncation, so nothing this row could show was cut by
+            # candidates it could never show.
+            pools = pools_for(spec)
+            if pools is None:
+                continue  # every source this row uses is down; its siblings still deliver
+            _pool, _in_library, pool_for_row, held_back = pools
             _pipeline._emit(ctx, user.slug, "curating", {"candidates": len(pool_for_row)})
             try:
                 picks = ctx.curator.curate(row_profile, pool_for_row, k)
@@ -265,7 +361,7 @@ def _run_user(
                 logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
                 picks = NullCurator().curate(row_profile, pool_for_row, k)
             if len(picks) < k:
-                picks = _pad_picks(picks, pool_for_row + _media_filter(held_back, spec.media), k)
+                picks = _pad_picks(picks, pool_for_row + held_back, k)
         # Stamp each pick with the row it belongs to, so the user page can group picks per row.
         picks = [Pick(**{**pick.__dict__, "collection_slug": spec.slug}) for pick in picks]
         all_picks.extend(picks)
@@ -302,7 +398,7 @@ def _run_shared(
     ctx: EngineContext,
     spec: RowSpec,
     users: list[UserProfile],
-    seed_index: dict[MediaType, dict[int, int]],
+    seed_index: dict[int, int],
     library_index: dict[MediaType, dict[int, int]],
     stored_labels: dict[str, str],
     report,
@@ -333,7 +429,7 @@ def _shared_row(
     ctx: EngineContext,
     spec: RowSpec,
     users: list[UserProfile],
-    seed_index: dict[MediaType, dict[int, int]],
+    seed_index: dict[int, int],
     library_index: dict[MediaType, dict[int, int]],
     stored_labels: dict[str, str],
     user_report: UserRunReport,
@@ -388,23 +484,27 @@ def _shared_row(
 
     seeds = derive_seeds(agg_history, resolve, max_seeds=cfg.max_seeds)
     row_sources = spec.candidate_sources if spec.candidate_sources else None  # None -> global default
-    _pool, _in_library, ranked_all, _held_back = _candidate_pool(
+    # Same three narrowings a per-person row gets: its sources, its media, its libraries.
+    _pool, _in_library, ranked, held_back = _candidate_pool(
         ctx,
         seeds,
-        library_index,
+        row_library_index(ctx, spec, library_index),
         excluded_genres=set(),
         recent=ctx.recent_picks.get(slug, set()),
         profile=agg,
         sources=row_sources,
+        media=spec.media,
+        catalog=_row_catalog(ctx, spec),
     )
-    ranked = _media_filter(ranked_all, spec.media)
     k = spec.size
     try:
         picks = ctx.curator.curate(agg, ranked, k)
     except CuratorError:
         picks = NullCurator().curate(agg, ranked, k)
     if len(picks) < k:
-        picks = _pad_picks(picks, ranked, k)
+        # Backfill from held-back titles too — a shared row used to SHRINK on a thin pool while a
+        # per-person row backfilled.
+        picks = _pad_picks(picks, ranked + held_back, k)
     # Force aggregate framing regardless of curator: a shared row is nobody's "because you watched",
     # and the seed is dropped so a {top_seed} name template can never surface one person's title.
     picks = [
@@ -455,7 +555,7 @@ def _pad_picks(picks: list[Pick], ranked: list[Candidate], k: int) -> list[Pick]
     return out
 
 
-def _cold_start_picks(ctx: EngineContext, user: UserProfile, cfg: EngineConfig) -> list[Pick]:
+def _cold_start_picks(ctx: EngineContext, user: UserProfile, cfg: EngineConfig, k: int = 0) -> list[Pick]:
     """ "Popular on <server>" fallback for a user with thin history: top-rated titles.
 
     Every library gets a share, not just movies — a movies-only cold start would hand delivery a
@@ -465,7 +565,7 @@ def _cold_start_picks(ctx: EngineContext, user: UserProfile, cfg: EngineConfig) 
     sections = ctx.plex.sections_by_type()
     if not sections:
         return []
-    k = user.row_size or cfg.row_size
+    k = k if k else cfg.row_size
     share = max(1, k // len(sections))
 
     picks: list[Pick] = []

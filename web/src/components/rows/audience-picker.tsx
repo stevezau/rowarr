@@ -37,7 +37,16 @@ export function AudiencePicker({
       {audience === "subset" && (
         <div className="mt-2 space-y-1 rounded-lg border bg-elevated p-2">
           {users.length === 0 && (
-            <p className="p-2 text-sm text-muted-foreground">No users yet.</p>
+            <p className="p-2 text-sm text-muted-foreground">
+              No users yet — import your Plex users first, or this row will
+              reach nobody.
+            </p>
+          )}
+          {users.length > 0 && audienceUserIds.length === 0 && (
+            <p role="alert" className="p-2 text-sm text-warning">
+              Nobody is chosen, so this row won&rsquo;t reach anyone. Pick at
+              least one person.
+            </p>
           )}
           {users.map((user) => {
             const on = audienceUserIds.includes(user.id);

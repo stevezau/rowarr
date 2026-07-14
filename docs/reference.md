@@ -27,9 +27,9 @@
 | `row.size`                                            | `15`                               | 10/15/20 in the UI; budget across a user's rows                                     |
 | `schedule.cron`                                       | `30 3 * * *`                       | full cron, applied live                                                             |
 | `staleness_runs`                                      | `3`                                | prefer titles not picked in the last N runs                                         |
-| `candidates.sources`                                  | `["tmdb_similar","tmdb_discover"]` | sources to pool: `tmdb_similar`, `tmdb_discover`, `llm_library`, `trakt`, `llm_web` |
+| `candidates.sources`                                  | `["tmdb_similar","tmdb_discover"]` | sources to pool: `tmdb_similar`, `tmdb_discover`, `llm_library`, `trakt`, `llm_web`. Each enabled source gets a fair share of the candidates the AI sees — a wide source can't crowd out a narrow one |
 | `trakt.client_id`                                     | —                                  | Trakt API key; required for the `trakt` source; encrypted                           |
-| `plextv.throttle_s`                                   | `1.0`                              | plex.tv write spacing (rule: ≤1 write/s)                                            |
+| `plextv.throttle_s`                                   | `1.0`                              | plex.tv write spacing (rule: ≤1 write/s; values below 1.0 are refused)                                            |
 | `paused_all`                                          | `false`                            | Danger-Zone "stop all runs" switch; pauses without disabling anyone                 |
 | `requests.enabled`                                    | `false`                            | ask Radarr/Sonarr for picks the library lacks                                       |
 | `requests.radarr.url` / `.apikey`                     | —                                  | Radarr (movies); key stored Fernet-encrypted, redacted                              |
@@ -86,6 +86,17 @@ which is curated with the global one so it stays in sync with Settings (as its n
 The API normalizes `prompt` to `{}` for that slug on create and PATCH, so the stored state can never
 disagree with what a run will apply.
 
+**Blank means inherit, at every layer.** A row's recipe is the global one with the row's set fields
+laid over it; one person's row override is laid over that. `tone` used to default to `"balanced"` —
+indistinguishable from "unset" — so every custom row silently overrode Settings → Curation style with
+a bare balanced recipe, and setting only a tone for one person wiped that row's guidance and template.
+Guidance is additive (house note + the specific one); tone and template replace.
+
+**`PUT /api/settings` validates values, not just keys.** `plextv.throttle_s` below 1.0 is refused (it
+would remove the plex.tv write throttle), `row.size` must be 5–30, `paused_all` must be a real boolean
+(a non-empty string is truthy, so `"false"` used to pause every run), and `candidates.sources` /
+`curator.provider` / tones are checked against their known values.
+
 Candidate sources are set globally (`candidates.sources`) and can be overridden per row
 (`collections.candidate_sources`, `[]` = inherit the global set; valid values: `tmdb_similar`,
 `tmdb_discover`, `llm_library`, `trakt`, `llm_web`). `llm_web` uses the AI curator's live web
@@ -129,10 +140,15 @@ never half-applies.
 | **PROBE** | Creates a throwaway labeled collection, promotes it, confirms the canary can see it, excludes it, confirms it disappears — then restores filters byte-identically and deletes the probe (in `finally`) | ~90s, fully reversible |
 
 Each real run auto-runs PROBE (when a canary Home user exists, else T1/T2) before it writes. The
-weekly scheduled check runs T1 + T2. `shortlist verify --probe` runs PROBE from the CLI.
+`shortlist verify --probe` runs PROBE from the CLI.
+
+**Every check refreshes every tier.** The gate reads the latest result of EACH tier across all
+history, so a tier nothing re-runs would latch it: a T1 failure would outlive the remedy pass that
+fixed it, and a T1 that *passed* would simply age past 7 days and stop the server building rows. So
+a probe run records T1 and T2 alongside PROBE.
 
 ## Files under /config
 
-`rowarr.db` (SQLite) · `secret.key` (Fernet, 600) · `session.secret` · `logs/` ·
+`shortlist.db` (SQLite) · `secret.key` (Fernet, 600) · `session.secret` · `logs/` ·
 `privacy_check.json` (CLI gate record) · `snapshots/` (CLI mode) · `slugs.json` (CLI mode: the
 durable plex-account-id → slug map a row's label is built from — never reassigned).

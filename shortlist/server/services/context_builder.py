@@ -30,6 +30,7 @@ from shortlist.engine.models import (
     RowSpec,
     UserProfile,
     UserType,
+    overlay_prompt,
 )
 from shortlist.engine.pipeline import EngineContext
 from shortlist.server.db.adapters import DbCache, DbSnapshotStore
@@ -39,6 +40,7 @@ from shortlist.server.db.models import (
     CollectionAudience,
     CollectionUserOverride,
     PickRow,
+    RequestCandidate,
     User,
 )
 from shortlist.server.services.sse import EventBus
@@ -84,6 +86,12 @@ class ContextBuilder:
                 candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
                 dry_run=dry_run,
                 rows=self._build_rows(session, store),
+                # The server owns the row list: an empty one means every row is DISABLED, not
+                # 'unconfigured' — so nothing new is delivered, rather than the legacy default row
+                # being resurrected behind a Rows page that shows it switched off. (An already-built
+                # collection for a row later disabled is left on its owner's Home until removed —
+                # excludes still hide it from everyone else; a mute deletes it outright.)
+                rows_defined=True,
                 requests=self._build_requests(store),
             )
             recent = self._recent_picks(session, config)
@@ -108,8 +116,21 @@ class ContextBuilder:
             snapshots=DbSnapshotStore(self._sessions),
             recent_picks=recent,
             known_slugs=known_slugs,
+            handled_requests=self._handled_requests(session),
             progress=progress,
         )
+
+    @staticmethod
+    def _handled_requests(session: Session) -> set[tuple[int, str]]:
+        """Titles the owner already sent or rejected in the inbox — the engine must not re-request them.
+
+        Without this, a title still downloading was still "missing", so it out-ranked everything by
+        demand and re-consumed a `max_per_run` slot every single night — the queue starved on the
+        same five titles forever. And a rejected title could be auto-sent by a later run, so a "no"
+        wasn't a no.
+        """
+        rows = session.query(RequestCandidate).filter(RequestCandidate.status.in_(("sent", "rejected"))).all()
+        return {(row.tmdb_id, row.media_type) for row in rows}
 
     def build_requests_only(self) -> tuple[RequestConfig | None, TmdbClient]:
         """Just the pieces the approval inbox's manual send needs: the request config and a TMDB client.
@@ -213,8 +234,6 @@ class ContextBuilder:
                     user_type=UserType(user.user_type),
                     slug=user.slug,
                     excluded_genres=set(prefs.get("excluded_genres") or []),
-                    max_rating=prefs.get("max_rating"),
-                    row_size=prefs.get("row_size"),
                     row_name_template=prefs.get("row_name_tpl"),
                     prompt=self._resolve_prompt(store, prefs),
                     request_tag=(user.request_tag or "").strip(),
@@ -235,10 +254,13 @@ class ContextBuilder:
             recipe = row.prompt or {}
             prompt = None
             if recipe.get("tone") or recipe.get("guidance") or recipe.get("template"):
+                # Blank stays blank — the engine overlays this on the row's recipe field by field, so
+                # an empty field means "inherit". Defaulting tone to "balanced" here meant setting
+                # ONLY the tone for one person silently wiped that row's guidance and custom prompt.
                 prompt = PromptConfig(
-                    tone=recipe.get("tone", "balanced"),
-                    guidance=recipe.get("guidance", ""),
-                    template=recipe.get("template", ""),
+                    tone=(recipe.get("tone") or "").strip(),
+                    guidance=(recipe.get("guidance") or "").strip(),
+                    template=(recipe.get("template") or "").strip(),
                 )
             out.setdefault(row.user_id, {})[slug] = RowOverride(muted=row.muted, size=row.row_size, prompt=prompt)
         return out
@@ -272,13 +294,18 @@ class ContextBuilder:
             is_default = collection.slug == DEFAULT_SLUG
             prompt: PromptConfig | None = None
             if not is_default:
+                # A custom row's recipe is the GLOBAL one with this row's fields laid over it. Built
+                # unconditionally before, an empty row recipe produced a bare `balanced` PromptConfig
+                # that beat the global one downstream — so Settings -> Curation style applied to the
+                # default row and NOTHING else, while its own copy claimed it wrote "everyone's rows".
                 recipe = collection.prompt or {}
-                prompt = PromptConfig(
-                    tone=recipe.get("tone", "balanced"),
-                    guidance=recipe.get("guidance", ""),
-                    template=recipe.get("template", ""),
-                    shared=shared,
+                row_recipe = PromptConfig(
+                    tone=(recipe.get("tone") or "").strip(),
+                    guidance=(recipe.get("guidance") or "").strip(),
+                    template=(recipe.get("template") or "").strip(),
                 )
+                merged = overlay_prompt(self._resolve_prompt(store, {}), row_recipe)
+                prompt = replace(merged, shared=shared)
             elif shared:
                 # The default row's style comes from global Settings. A PER-PERSON one inherits that
                 # via the user's own resolved prompt (prompt=None lets it through — rows.py), but a

@@ -74,8 +74,11 @@ def _target_sections(sections: list, spec: RowSpec) -> list:
     allowed = _allowed_media(spec.media)
     candidates = [s for s in sections if _section_kind(s) in allowed]
     if spec.library_keys:
-        wanted = set(spec.library_keys)
-        return [s for s in candidates if s.key in wanted]
+        # str() on BOTH sides: the pool-narrowing half of this decision (rows.row_library_index)
+        # coerces, so if either side ever sees an int the two would silently disagree — the row would
+        # curate fine and land in no library at all.
+        wanted = {str(key) for key in spec.library_keys}
+        return [s for s in candidates if str(s.key) in wanted]
     return candidates
 
 

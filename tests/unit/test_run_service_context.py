@@ -226,22 +226,47 @@ class TestServerPrivacyGate:
         monkeypatch.setattr(service, "enabled_profiles", lambda session: [MagicMock(plex_account_id=100)])
         return ctx
 
-    def test_run_privacy_check_probe_with_canary_runs_the_probe(self, service, sessions, monkeypatch):
+    def test_run_privacy_check_probe_refreshes_every_tier(self, service, sessions, monkeypatch):
+        """A probe run records T1 and T2 as well as PROBE.
+
+        The gate reads the latest result of EACH tier across all history, so a tier nothing ever
+        re-runs latches it shut: a T1 failure would outlive the remedy pass that fixed it, and a
+        T1 that PASSED would simply age past the 7-day limit and stop the server building rows.
+        The read-only tiers are cheap, so the nightly automatic check refreshes all three.
+        """
         self._stub_check_ctx(service, monkeypatch, canary=True)
         probe = MagicMock(return_value=MagicMock(tier="PROBE", passed=True, detail={}))
         t1 = MagicMock(return_value=MagicMock(tier="T1", passed=True, detail={}))
+        t2 = MagicMock(return_value=MagicMock(tier="T2", passed=True, detail={}))
         monkeypatch.setattr("shortlist.engine.probe.run_privacy_probe", probe)
         monkeypatch.setattr("shortlist.engine.verify.check_t1", t1)
+        monkeypatch.setattr("shortlist.engine.verify.check_t2", t2)
 
         results = service.run_privacy_check(probe=True)
 
         probe.assert_called_once()
-        t1.assert_not_called()
-        assert [r.tier for r in results] == ["PROBE"]
+        t1.assert_called_once()
+        assert {r.tier for r in results} == {"PROBE", "T1", "T2"}
         with sessions() as session:
-            assert {c.tier for c in session.query(PrivacyCheck).all()} == {"PROBE"}
+            assert {c.tier for c in session.query(PrivacyCheck).all()} == {"PROBE", "T1", "T2"}
 
-    def test_run_privacy_check_probe_without_canary_records_a_failed_probe(self, service, sessions, monkeypatch):
+    def test_the_check_tells_the_verifier_which_rows_are_shared(self, service, sessions, monkeypatch):
+        """The writer skips the exclude for a public shared row, so the verifier must know not to
+        demand it — else a correctly-configured shared row fails T1 forever and shuts the gate."""
+        from shortlist.engine.models import EngineConfig, RowSpec
+
+        ctx = self._stub_check_ctx(service, monkeypatch, canary=False)
+        # A REAL config: shared_label_audiences reads config.shared_rows(), which a MagicMock would
+        # happily answer with a mock — and the assertion below would pass while proving nothing.
+        ctx.config = EngineConfig(rows=[RowSpec(slug="popular", name_template="Popular", size=5, shared=True)])
+        t1 = MagicMock(return_value=MagicMock(tier="T1", passed=True, detail={}))
+        monkeypatch.setattr("shortlist.engine.verify.check_t1", t1)
+
+        service.run_privacy_check(probe=True)
+
+        assert t1.call_args.kwargs["shared_labels"] == {"rowarr__shared_popular": None}
+
+    def test_run_privacy_check_without_a_canary_records_a_failed_probe(self, service, sessions, monkeypatch):
         self._stub_check_ctx(service, monkeypatch, canary=False)
         probe = MagicMock()
         t1 = MagicMock(return_value=MagicMock(tier="T1", passed=True, detail={}))
@@ -251,14 +276,13 @@ class TestServerPrivacyGate:
         results = service.run_privacy_check(probe=True)  # asked for a probe, but there's no canary
 
         probe.assert_not_called()  # can't run without a canary
-        # ...and crucially it does NOT fall back to a trivially-passing T1 that would open the gate:
-        # it records a FAILED PROBE so a canary-less server stays fail-closed (no raise either).
-        t1.assert_not_called()
-        assert len(results) == 1
-        assert results[0].tier == "PROBE" and results[0].passed is False
+        # A trivially-passing T1 must NOT be allowed to open the gate on its own: the FAILED PROBE
+        # is recorded alongside it, and the gate fails closed until a canary exists.
+        failed = [r for r in results if r.tier == "PROBE"]
+        assert failed and failed[0].passed is False
         with sessions() as session:
-            row = session.query(PrivacyCheck).one()
-            assert row.tier == "PROBE" and row.passed is False
+            row = session.query(PrivacyCheck).filter_by(tier="PROBE").one()
+            assert row.passed is False
 
     def test_run_privacy_check_non_probe_with_canary_runs_t1_and_t2(self, service, sessions, monkeypatch):
         self._stub_check_ctx(service, monkeypatch, canary=True)

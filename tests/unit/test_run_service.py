@@ -24,6 +24,7 @@ from shortlist.engine.models import (
 from shortlist.server.db.adapters import DbCache, DbSnapshotStore
 from shortlist.server.db.models import Event, PickRow, Run, RunUser, User
 from shortlist.server.db.session import make_engine, make_session_factory, run_migrations
+from shortlist.server.services.context_builder import ContextBuilder
 from shortlist.server.services.run_service import RunService
 from shortlist.server.services.secrets import SecretBox
 from shortlist.server.services.sse import EventBus
@@ -134,6 +135,168 @@ class TestRunExecution:
             assert len(events) == 2
             assert any(e.level == "error" for e in events)
 
+    def test_a_shared_rows_write_is_audited(self, sessions, tmp_path, monkeypatch):
+        """A shared row files its report under `shared_<slug>`, which is nobody's user slug — so
+        _persist_report's `if user is None: continue` dropped it whole. A real Plex collection was
+        created, labelled and promoted with NO audit event at all (plex-safety rule 10), and a failed
+        shared row produced an errored run with nothing to show for it."""
+        bus = EventBus()
+        service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
+        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
+        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+
+        shared = UserRunReport(
+            username="Popular on this server",
+            slug="shared_popular",
+            status="ok",
+            picks=[Pick(tmdb_id=7, rating_key=70, title="Dune", rank=1, reason="r", media_type=MediaType.MOVIE)],
+            counts=StageCounts(picks=1),
+            diff=CollectionDiff(added=["Dune"]),
+            duration_s=0.5,
+        )
+        report = RunReport(started_at=datetime.now(UTC), finished_at=datetime.now(UTC), users=[shared])
+        monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: report)
+
+        async def scenario():
+            run_id = await service.start_run(trigger="manual", dry_run=False)
+            return await _wait_for_run(sessions, run_id)
+
+        run = asyncio.run(scenario())
+
+        with sessions() as session:
+            events = session.query(Event).filter_by(scope="run.shared").all()
+            assert len(events) == 1, "a shared row's Plex write left no audit trail"
+            assert events[0].message["row"] == "shared_popular"
+            assert events[0].message["diff"]["added"] == ["Dune"]
+            assert events[0].message["picks"] == 1
+        assert run.status == "ok"
+
+    def test_a_failed_shared_row_makes_the_run_an_error(self, sessions, tmp_path, monkeypatch):
+        bus = EventBus()
+        service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
+        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
+        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+
+        shared = UserRunReport(
+            username="Popular",
+            slug="shared_popular",
+            status="error",
+            error="plex timed out",
+            counts=StageCounts(),
+            duration_s=0.1,
+        )
+        report = RunReport(started_at=datetime.now(UTC), finished_at=datetime.now(UTC), users=[shared])
+        monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: report)
+
+        async def scenario():
+            run_id = await service.start_run(trigger="manual", dry_run=False)
+            return await _wait_for_run(sessions, run_id)
+
+        run = asyncio.run(scenario())
+
+        assert run.stats["users_error"] == 1  # it used to be 0 — an errored run naming nobody
+        with sessions() as session:
+            event = session.query(Event).filter_by(scope="run.shared").one()
+            assert event.level == "error"
+            assert event.message["error"] == "plex timed out"
+
+    def test_hit_rate_marks_the_picks_a_person_actually_watched(self, sessions, tmp_path, monkeypatch):
+        """`picks.watched_at` was declared, migrated and READ by the hit-rate query — and written by
+        nothing. Every hit rate was structurally 0%, while the docs promised "expect 20-40%"."""
+        from datetime import timedelta
+
+        from shortlist.engine.models import UserProfile, UserType, WatchedItem
+        from shortlist.server.db.models import User
+
+        bus = EventBus()
+        service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
+        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
+        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+
+        # The `sessions` fixture already seeds sarah.
+        # We recommended tmdb 1 to sarah in this run; she then watched it. Title 2 she never watched,
+        # and title 3 she watched a YEAR later — too late to count as a hit.
+        now = datetime.now(UTC)
+        report = RunReport(
+            started_at=now,
+            finished_at=now,
+            users=[
+                UserRunReport(
+                    username="sarah",
+                    slug="sarah",
+                    status="ok",
+                    picks=[
+                        Pick(tmdb_id=1, rating_key=10, title="Watched", rank=1, reason="r", media_type=MediaType.MOVIE),
+                        Pick(tmdb_id=2, rating_key=20, title="Ignored", rank=2, reason="r", media_type=MediaType.MOVIE),
+                    ],
+                    counts=StageCounts(picks=2),
+                    duration_s=0.1,
+                )
+            ],
+        )
+        profile = UserProfile(
+            username="sarah",
+            plex_account_id=100,
+            user_type=UserType.SHARED,
+            slug="sarah",
+            history=[
+                WatchedItem(title="Watched", media_type=MediaType.MOVIE, watched_at=now + timedelta(days=2), tmdb_id=1),
+            ],
+        )
+        monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: report)
+        monkeypatch.setattr(service, "enabled_profiles", lambda session, user_ids=None: [profile])
+
+        async def scenario():
+            run_id = await service.start_run(trigger="manual", dry_run=False)
+            return await _wait_for_run(sessions, run_id)
+
+        asyncio.run(scenario())
+
+        with sessions() as session:
+            picks = {p.tmdb_id: p for p in session.query(PickRow).all()}
+            assert picks[1].watched_at is not None, "a watched pick was never credited to the hit rate"
+            assert picks[2].watched_at is None  # never watched
+            user = session.query(User).filter_by(slug="sarah").one()
+            assert user.prefs["history_depth"] == 1  # also written by nothing before
+
+    def test_an_auto_sent_title_is_filed_and_never_re_requested(self, sessions, tmp_path, monkeypatch):
+        """The starvation bug, end to end. An auto-sent title used to leave NO ledger row — only
+        titles the owner sent by hand did — so tomorrow it was 'missing' again, out-ranked everything
+        by demand, re-consumed one of max_per_run, and the queue starved on the same few titles."""
+        from shortlist.engine.models import MissingTitle, RequestOutcome, RequestReport
+        from shortlist.server.db.models import RequestCandidate
+
+        bus = EventBus()
+        service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
+        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
+        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+
+        sent = MissingTitle(42, "Dune", MediaType.MOVIE, 2021, rating=8.5, vote_count=900, demand=4)
+        report = RunReport(
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            users=[],
+            requests=RequestReport(
+                considered=1,
+                outcomes=[RequestOutcome(42, "Dune", MediaType.MOVIE, "requested")],
+                sent=[sent],
+            ),
+        )
+        monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: report)
+
+        async def scenario():
+            run_id = await service.start_run(trigger="manual", dry_run=False)
+            return await _wait_for_run(sessions, run_id)
+
+        asyncio.run(scenario())
+
+        with sessions() as session:
+            row = session.query(RequestCandidate).filter_by(tmdb_id=42).one()
+            assert row.status == "sent", "an auto-sent title left no ledger row, so it would be re-sent"
+            # ...and the next run's engine context therefore excludes it.
+            handled = ContextBuilder._handled_requests(session)
+            assert (42, "movie") in handled
+
     def test_dry_run_persists_no_picks(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
@@ -184,11 +347,10 @@ class TestRunExecution:
             mike = session.query(User).filter_by(slug="mike").one()
             mike.prefs = {"paused": True}
             sarah = session.query(User).filter_by(slug="sarah").one()
-            sarah.prefs = {"row_size": 10, "excluded_genres": ["Horror"]}
+            sarah.prefs = {"excluded_genres": ["Horror"]}
             session.commit()
             profiles = service.enabled_profiles(session)
         assert [p.slug for p in profiles] == ["sarah"]
-        assert profiles[0].row_size == 10
         assert profiles[0].excluded_genres == {"Horror"}
 
 

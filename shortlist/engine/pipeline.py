@@ -86,6 +86,9 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     sections = ctx.plex.sections()
     targets = ctx.plex.sections_by_type()
     seed_index, library_index = _build_indexes(ctx, users, sections, targets)
+    # What the delivery libraries now hold — so the server can drop inbox candidates that have since
+    # arrived on the server (grabbed elsewhere) instead of leaving them to linger forever.
+    report.library_present = {(tmdb_id, media_type) for media_type, idx in library_index.items() for tmdb_id in idx}
 
     # BEFORE ANY USER WORK: delete every row on the server that Plex cannot hide. Fail closed.
     if not _sweep_phase(ctx, report):

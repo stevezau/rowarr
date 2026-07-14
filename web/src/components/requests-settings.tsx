@@ -556,6 +556,17 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                       for your OK.
                     </p>
                   </div>
+                  {(form.autoMinDemand < form.minDemand ||
+                    form.autoMinRating < form.minRating) && (
+                    <p
+                      role="alert"
+                      className="text-sm text-warning sm:col-span-2"
+                    >
+                      The auto-send bar is below the minimums above, so
+                      effectively everything that qualifies auto-sends. Raise it
+                      above the Guardrails to keep a manual queue.
+                    </p>
+                  )}
                 </div>
               )}
             </fieldset>

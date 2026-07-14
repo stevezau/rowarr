@@ -401,6 +401,9 @@ class RunReport:
     # Sonarr/Radarr requests made (or, in dry-run, that would be made) for picks the library lacks.
     # None when the feature is off — distinct from an empty report (on, but nothing qualified).
     requests: RequestReport | None = None
+    # (tmdb_id, media_type) the delivery libraries now hold. Lets the server prune inbox candidates
+    # that have since arrived on the server (bought/grabbed elsewhere) so they stop lingering.
+    library_present: set[tuple[int, MediaType]] = field(default_factory=set)
     error: str | None = None  # a run-level failure (e.g. the sweep itself could not run)
 
     @property

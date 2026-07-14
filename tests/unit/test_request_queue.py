@@ -16,8 +16,8 @@ def _sessions(tmp_path: Path):
     return make_session_factory(make_engine(tmp_path))
 
 
-def _report(queued: list[MissingTitle], *, dry_run: bool = False):
-    return SimpleNamespace(dry_run=dry_run, requests=RequestReport(queued=queued))
+def _report(queued: list[MissingTitle], *, dry_run: bool = False, present: set | None = None):
+    return SimpleNamespace(dry_run=dry_run, requests=RequestReport(queued=queued), library_present=present or set())
 
 
 def _title(tmdb_id: int, **kw) -> MissingTitle:
@@ -57,6 +57,31 @@ class TestPersistRequestQueue:
             rows = s.query(RequestCandidate).all()
             assert len(rows) == 1  # the unique (tmdb_id, media_type) key prevents a duplicate
             assert rows[0].demand == 6 and rows[0].rating == 8.9  # latest run's facts win
+
+    def test_pending_titles_now_in_the_library_are_dropped(self, tmp_path: Path):
+        sessions = _sessions(tmp_path)
+        with sessions() as s:
+            RunService._persist_request_queue(s, 1, _report([_title(1), _title(2)]))
+            s.commit()
+        # Next run: title 1 has since arrived in the library, so it should leave the inbox; a run
+        # with nothing newly queued must still prune.
+        with sessions() as s:
+            RunService._persist_request_queue(s, 2, _report([], present={(1, MediaType.MOVIE)}))
+            s.commit()
+        with sessions() as s:
+            assert {r.tmdb_id for r in s.query(RequestCandidate).all()} == {2}
+
+    def test_present_does_not_drop_sent_or_rejected(self, tmp_path: Path):
+        sessions = _sessions(tmp_path)
+        with sessions() as s:
+            s.add(RequestCandidate(tmdb_id=1, media_type="movie", title="x", rating=1.0, vote_count=1, status="sent"))
+            s.commit()
+        with sessions() as s:
+            RunService._persist_request_queue(s, 2, _report([], present={(1, MediaType.MOVIE)}))
+            s.commit()
+        with sessions() as s:
+            # A sent title being in the library is expected — it must stay in "Already handled".
+            assert s.query(RequestCandidate).one().status == "sent"
 
     def test_sent_or_rejected_rows_are_left_untouched(self, tmp_path: Path):
         sessions = _sessions(tmp_path)

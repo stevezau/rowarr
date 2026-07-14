@@ -25,9 +25,13 @@ export interface CurationStyleValue {
 export function CurationStyleFields({
   value,
   onChange,
+  allowInherit = false,
 }: {
   value: CurationStyleValue;
   onChange: (next: CurationStyleValue) => void;
+  /** Show an "Inherit" tone chip (blank tone) — for per-person overrides that fall back to the
+   * row/global tone. Off for the global and row recipes, which define the tone rather than inherit it. */
+  allowInherit?: boolean;
 }) {
   const [showAdvanced, setShowAdvanced] = useState(Boolean(value.template));
   const guidanceId = useId();
@@ -42,6 +46,17 @@ export function CurationStyleFields({
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Tone</legend>
         <div className="flex flex-wrap gap-2">
+          {allowInherit && (
+            <Button
+              type="button"
+              size="sm"
+              variant={!value.tone ? "default" : "outline"}
+              aria-pressed={!value.tone}
+              onClick={() => onChange({ ...value, tone: "" })}
+            >
+              Inherit
+            </Button>
+          )}
           {PROMPT_TONES.map((tone) => (
             <Button
               key={tone}
@@ -55,6 +70,12 @@ export function CurationStyleFields({
             </Button>
           ))}
         </div>
+        {allowInherit && !value.tone && (
+          <p className="text-sm text-muted-foreground">
+            Using this row&rsquo;s tone. Pick one to override it just for this
+            person.
+          </p>
+        )}
       </fieldset>
 
       <div className="space-y-2">

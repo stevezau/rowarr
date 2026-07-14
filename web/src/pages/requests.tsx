@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "react-router-dom";
 
 import { apiErrorMessage } from "@/lib/api";
-import { settingBool } from "@/lib/format";
+import { settingBool, settingString } from "@/lib/format";
 import {
   useRejectRequests,
   useRequests,
@@ -42,7 +42,16 @@ function TypeBadge({
 }
 
 /** The facts that let the owner judge a title at a glance: type, rating, and how many people wanted it. */
-function TitleMeta({ item }: { item: RequestCandidate }) {
+function TitleMeta({
+  item,
+  globalTag,
+}: {
+  item: RequestCandidate;
+  globalTag: string;
+}) {
+  // The global tag is applied at send time and never stored on the candidate, so add it here to
+  // show the full set of tags this title will actually get (deduped against the per-user/row tags).
+  const tags = [...new Set([...(globalTag ? [globalTag] : []), ...item.tags])];
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
       <TypeBadge mediaType={item.media_type} />
@@ -57,7 +66,7 @@ function TitleMeta({ item }: { item: RequestCandidate }) {
       <span>
         wanted by {item.demand} {item.demand === 1 ? "person" : "people"}
       </span>
-      {item.tags.map((tag) => (
+      {tags.map((tag) => (
         <Badge key={tag} variant="secondary" className="font-normal">
           {tag}
         </Badge>
@@ -70,10 +79,12 @@ function PendingRow({
   item,
   checked,
   onToggle,
+  globalTag,
 }: {
   item: RequestCandidate;
   checked: boolean;
   onToggle: (id: number) => void;
+  globalTag: string;
 }) {
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50">
@@ -85,7 +96,7 @@ function PendingRow({
       />
       <div className="min-w-0 space-y-1">
         <p className="font-medium">{item.title}</p>
-        <TitleMeta item={item} />
+        <TitleMeta item={item} globalTag={globalTag} />
         {item.detail ? (
           <p className="text-xs text-muted-foreground">
             Last attempt: {item.detail}
@@ -119,6 +130,7 @@ export function RequestsPage() {
   const reject = useRejectRequests();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const requestsEnabled = settingBool(settings.data ?? {}, "requests.enabled");
+  const globalTag = settingString(settings.data ?? {}, "requests.tag");
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -246,6 +258,7 @@ export function RequestsPage() {
                       item={item}
                       checked={selected.has(item.id)}
                       onToggle={toggle}
+                      globalTag={globalTag}
                     />
                   ))}
                 </div>

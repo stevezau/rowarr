@@ -124,7 +124,11 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
                 <p className="text-sm text-muted-foreground">
                   Leave a field blank to use this row&rsquo;s own style.
                 </p>
-                <CurationStyleFields value={curation} onChange={setCuration} />
+                <CurationStyleFields
+                  value={curation}
+                  onChange={setCuration}
+                  allowInherit
+                />
               </div>
               <div className="flex items-center gap-3">
                 <Button

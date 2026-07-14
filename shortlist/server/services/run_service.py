@@ -418,10 +418,17 @@ class RunService:
         (tmdb_id, media_type): a re-surfaced title refreshes the live facts of a still-pending row;
         a title already sent or rejected is left alone, so a download-in-progress isn't re-queued and
         a dismissed suggestion can't reappear every night.
+
+        A pending title that has since ARRIVED in the library (grabbed elsewhere) is dropped, so the
+        inbox never lingers on titles the owner already has.
         """
-        if report.requests is None or report.dry_run or not report.requests.queued:
+        if report.requests is None or report.dry_run:
             return
         existing = {(r.tmdb_id, r.media_type): r for r in session.query(RequestCandidate).all()}
+        # Drop pending candidates the library now holds; leave sent/rejected alone (owner-actioned).
+        present = {(tid, mt.value) for tid, mt in report.library_present}
+        for key in [k for k, r in existing.items() if r.status == "pending" and k in present]:
+            session.delete(existing.pop(key))
         for m in report.requests.queued:
             row = existing.get((m.tmdb_id, m.media_type.value))
             if row is None:

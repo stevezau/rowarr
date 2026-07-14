@@ -207,11 +207,15 @@ def _run_user(
             first_seen: dict[tuple[int, MediaType], Candidate] = {}
             title_tags: dict[tuple[int, MediaType], set[str]] = {}
             for spec in specs:
-                spec_tags = user_tag | ({spec.request_tag} if spec.request_tag else set())
                 for c in requests_mod.collect_missing(pools_for(spec)[0], library_index):
                     key = (c.tmdb_id, c.media_type)
                     first_seen.setdefault(key, c)
-                    title_tags.setdefault(key, set()).update(spec_tags)
+                    tags = title_tags.setdefault(key, set())
+                    tags |= user_tag  # the user wanted it, whatever the row's media
+                    # ...but a row's tag only applies to titles that row could actually show, so a
+                    # shows-only row never tags a missing movie (its pool holds both until delivery).
+                    if spec.request_tag and spec.media in ("both", c.media_type.value):
+                        tags.add(spec.request_tag)
             for key, cand in first_seen.items():
                 requests_mod.accumulate(demand, [cand], tags=title_tags[key])
         user_report.status = "ok"

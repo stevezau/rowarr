@@ -19,8 +19,6 @@ const MAX_PER_RUN = [3, 5, 10];
 const REDACTED = "•••••";
 
 type ArrForm = {
-  url: string;
-  apikey: string;
   qualityProfileId: number;
   rootFolder: string;
 };
@@ -44,10 +42,9 @@ interface RequestsForm {
 }
 
 function readArr(settings: Settings, prefix: string): ArrForm {
+  // The connection (address + key) lives in Settings → Connections now; this form only owns the
+  // request-filing choices (quality profile + folder) for each app.
   return {
-    url: settingString(settings, `${prefix}.url`),
-    // A saved key comes back redacted; keep the placeholder so leaving it untouched means "no change".
-    apikey: settingString(settings, `${prefix}.apikey`),
     qualityProfileId: settingNumber(
       settings,
       `${prefix}.quality_profile_id`,
@@ -83,7 +80,9 @@ const selectClass =
   "h-9 w-full rounded-md border bg-elevated px-3 text-sm focus-visible:outline-none " +
   "focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
-/** One app's connection + where-to-file settings (Radarr for movies, Sonarr for shows). */
+/** One app's where-to-file choices for requests (Radarr for movies, Sonarr for shows). The
+ *  connection itself — address + API key — lives in Settings → Connections; this only picks the
+ *  quality profile and folder, and only once that app is connected. */
 function ArrCard({
   service,
   title,
@@ -91,19 +90,18 @@ function ArrCard({
   form,
   onChange,
   connected,
+  onGoToConnections,
 }: {
   service: "radarr" | "sonarr";
   title: string;
   icon: ReactNode;
   form: ArrForm;
   onChange: (next: ArrForm) => void;
-  /** True once this app's URL + key are SAVED, so its profiles/folders can be fetched. */
+  /** True once this app's URL + key are SAVED (in Connections), so its profiles/folders can load. */
   connected: boolean;
+  onGoToConnections: () => void;
 }) {
-  const test = useMutation({ mutationFn: () => api.testConnection(service) });
   const options = useArrOptions(service, connected);
-  const urlId = useId();
-  const keyId = useId();
   const profileId = useId();
   const folderId = useId();
 
@@ -124,52 +122,24 @@ function ArrCard({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={urlId}>Address</Label>
-            <Input
-              id={urlId}
-              placeholder="http://localhost:7878"
-              value={form.url}
-              onChange={(e) => onChange({ ...form, url: e.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={keyId}>API key</Label>
-            <Input
-              id={keyId}
-              type="password"
-              placeholder="From Settings → General in the app"
-              value={form.apikey}
-              onChange={(e) => onChange({ ...form, apikey: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => test.mutate()}
-            loading={test.isPending}
-          >
-            {!test.isPending && <PlugZap aria-hidden="true" />}
-            Test connection
-          </Button>
-          {test.isSuccess && <TestResult result={test.data} />}
-          {test.isError && <TestResult error={test.error} />}
-        </div>
-
         {/* Profiles and folders come from the app itself once it's connected — no hunting for ids. */}
         {!connected ? (
-          <p className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-            Save the address and API key below, then your quality profiles and
-            folders will appear here to choose from.
-          </p>
+          <div className="space-y-2 rounded-md border border-dashed bg-muted/30 p-3">
+            <p className="text-sm text-muted-foreground">
+              {title} isn&rsquo;t connected yet. Add its address and API key in{" "}
+              <strong className="font-medium text-foreground">
+                Connections
+              </strong>
+              , then pick its quality profile and folder here.
+            </p>
+            <Button variant="outline" size="sm" onClick={onGoToConnections}>
+              Go to Connections
+            </Button>
+          </div>
         ) : options.isError ? (
           <p className="text-sm text-destructive">
-            Couldn&rsquo;t load {title}&rsquo;s profiles and folders — check it
-            and test again.
+            Couldn&rsquo;t load {title}&rsquo;s profiles and folders — check its
+            connection in the Connections section and test it again.
           </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -256,17 +226,20 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
     Boolean(settingString(settings, "requests.sonarr.url")) &&
     settingString(settings, "requests.sonarr.apikey") === REDACTED;
 
+  const goToConnections = () =>
+    document
+      .getElementById("connections")
+      ?.scrollIntoView({ behavior: "smooth" });
+
   const save = () => {
     setSaved(false);
     saveSettings.mutate(
       {
         "requests.enabled": form.enabled,
-        "requests.radarr.url": form.radarr.url,
-        "requests.radarr.apikey": form.radarr.apikey,
+        // Address + API key are owned by Settings → Connections now; this form only saves the
+        // request-filing choices (quality profile + folder) and the policy below.
         "requests.radarr.quality_profile_id": form.radarr.qualityProfileId,
         "requests.radarr.root_folder": form.radarr.rootFolder,
-        "requests.sonarr.url": form.sonarr.url,
-        "requests.sonarr.apikey": form.sonarr.apikey,
         "requests.sonarr.quality_profile_id": form.sonarr.qualityProfileId,
         "requests.sonarr.root_folder": form.sonarr.rootFolder,
         "requests.rating_source": form.ratingSource,
@@ -308,6 +281,21 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
 
         {form.enabled && (
           <div className="space-y-5 border-t pt-5">
+            {!radarrConnected && !sonarrConnected && (
+              <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-4">
+                <p className="text-sm font-medium">
+                  Connect Radarr or Sonarr to start requesting
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Requests need at least one of them connected. Add its address
+                  and API key in the Connections section, then come back here to
+                  set the rules.
+                </p>
+                <Button variant="outline" size="sm" onClick={goToConnections}>
+                  Go to Connections
+                </Button>
+              </div>
+            )}
             <div className="grid gap-4 lg:grid-cols-2">
               <ArrCard
                 service="radarr"
@@ -316,6 +304,7 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                 form={form.radarr}
                 onChange={(radarr) => set({ radarr })}
                 connected={radarrConnected}
+                onGoToConnections={goToConnections}
               />
               <ArrCard
                 service="sonarr"
@@ -324,6 +313,7 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                 form={form.sonarr}
                 onChange={(sonarr) => set({ sonarr })}
                 connected={sonarrConnected}
+                onGoToConnections={goToConnections}
               />
             </div>
 

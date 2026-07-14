@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { Film, Sparkles, Tv } from "lucide-react";
 
 import {
   PlexGlyph,
@@ -19,7 +19,11 @@ const PROVIDER_OPTIONS = CURATOR_PROVIDERS.map((provider) => ({
 /** Connections: Plex, Tautulli, TMDB, and the AI curator — each editable and testable in place. */
 export function ConnectionsSection({ settings }: { settings: Settings }) {
   return (
-    <section aria-labelledby="connections-heading" className="space-y-3">
+    <section
+      id="connections"
+      aria-labelledby="connections-heading"
+      className="scroll-mt-6 space-y-3"
+    >
       <h2 id="connections-heading" className="text-lg font-semibold">
         Connections
       </h2>
@@ -108,6 +112,48 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
               kind: "text",
               placeholder: "http://localhost:11434",
               showIf: (v) => v["curator.provider"] === "ollama",
+            },
+          ]}
+        />
+        <ConnectionCard
+          service="radarr"
+          title="Radarr"
+          purpose="Optional. Lets Shortlist request missing movies so they get downloaded."
+          settings={settings}
+          summary={settingString(settings, "requests.radarr.url")}
+          glyph={<Film aria-hidden className="text-primary" />}
+          fields={[
+            {
+              key: "requests.radarr.url",
+              label: "Address",
+              kind: "text",
+              placeholder: "http://your-host:7878",
+            },
+            {
+              key: "requests.radarr.apikey",
+              label: "API key",
+              kind: "password",
+            },
+          ]}
+        />
+        <ConnectionCard
+          service="sonarr"
+          title="Sonarr"
+          purpose="Optional. Lets Shortlist request missing TV shows so they get downloaded."
+          settings={settings}
+          summary={settingString(settings, "requests.sonarr.url")}
+          glyph={<Tv aria-hidden className="text-primary" />}
+          fields={[
+            {
+              key: "requests.sonarr.url",
+              label: "Address",
+              kind: "text",
+              placeholder: "http://your-host:8989",
+            },
+            {
+              key: "requests.sonarr.apikey",
+              label: "API key",
+              kind: "password",
             },
           ]}
         />

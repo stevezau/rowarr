@@ -58,17 +58,19 @@ describe("RequestsSettings", () => {
     expect(screen.getByText(/Guardrails/i)).toBeTruthy();
   });
 
-  it("shows the connect-first hint before an app is saved", async () => {
+  it("points to Connections when neither app is connected", async () => {
     renderPanel();
     await userEvent.click(
       screen.getByLabelText(/Turn automatic requests on or off/i),
     );
-    // Neither app is connected in blank settings, so both show the save-first guidance
-    // instead of profile/folder dropdowns.
+    // The connection (address + key) lives in Connections now; blank settings show the prompt
+    // and a way to get there rather than profile/folder dropdowns.
     expect(
-      screen.getAllByText(/your quality profiles and folders will appear/i)
-        .length,
-    ).toBe(2);
+      screen.getByText(/Connect Radarr or Sonarr to start requesting/i),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: /Go to Connections/i }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("saves the enabled flag and thresholds", async () => {
@@ -89,5 +91,27 @@ describe("RequestsSettings", () => {
     expect(payload["requests.enabled"]).toBe(true);
     expect(payload["requests.min_rating"]).toBe(7);
     expect(payload["requests.max_per_run"]).toBe(5);
+    // The connection is owned by Connections now — saving Requests must NEVER emit the URL/key,
+    // or a stale/empty form value would silently wipe the API key saved there.
+    expect(payload).not.toHaveProperty("requests.radarr.apikey");
+    expect(payload).not.toHaveProperty("requests.radarr.url");
+    expect(payload).not.toHaveProperty("requests.sonarr.apikey");
+    expect(payload).not.toHaveProperty("requests.sonarr.url");
+  });
+
+  it("hides the connect prompt and shows the filing pickers once an app is connected", async () => {
+    renderPanel({
+      "requests.radarr.url": "http://radarr",
+      "requests.radarr.apikey": "•••••", // a saved key comes back redacted -> "connected"
+    });
+    await userEvent.click(
+      screen.getByLabelText(/Turn automatic requests on or off/i),
+    );
+    // Radarr is connected, so the top "connect first" callout is gone and its filing pickers render.
+    expect(
+      screen.queryByText(/Connect Radarr or Sonarr to start requesting/i),
+    ).toBeNull();
+    expect(await screen.findByText("Quality")).toBeTruthy();
+    expect(screen.getByText("Save to")).toBeTruthy();
   });
 });

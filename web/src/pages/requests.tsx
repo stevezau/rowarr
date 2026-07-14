@@ -49,6 +49,11 @@ function TitleMeta({ item }: { item: RequestCandidate }) {
       <span>
         wanted by {item.demand} {item.demand === 1 ? "person" : "people"}
       </span>
+      {item.tags.map((tag) => (
+        <Badge key={tag} variant="secondary" className="font-normal">
+          {tag}
+        </Badge>
+      ))}
     </div>
   );
 }

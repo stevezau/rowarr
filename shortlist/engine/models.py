@@ -149,6 +149,7 @@ class UserProfile:
     row_size: int | None = None  # None -> engine default
     row_name_template: str | None = None
     prompt: PromptConfig | None = None  # resolved effective recipe; None -> built-in defaults
+    request_tag: str = ""  # tag added to titles requested for this user (layered onto global + row tags)
     # Per-row overrides keyed by collection slug; a slug absent here uses the row's own settings.
     row_overrides: dict[str, RowOverride] = field(default_factory=dict)
 
@@ -190,6 +191,7 @@ class RowSpec:
     # Shared rows only: a title must have been watched by at least this many distinct people to
     # qualify, so no one person's solo viewing can reach a public row (aggregate-privacy floor).
     min_watchers: int = 2
+    request_tag: str = ""  # tag added to titles requested because they surfaced in this row
 
     @property
     def label(self) -> str | None:
@@ -250,6 +252,9 @@ class MissingTitle:
     rating: float  # rating on the chosen source: TMDB vote_average, or the IMDb rating when rating_source="imdb"
     vote_count: int  # vote count on that same source
     demand: int = 1  # distinct users whose candidate pool contained it (multi-person demand ranks higher)
+    # Per-user + per-row tags to apply on request, layered on top of the target's global tag. Unioned
+    # across every user who wanted the title and every row it surfaced in (deduplication merges them).
+    tags: set[str] = field(default_factory=set)
 
 
 @dataclass

@@ -15,6 +15,8 @@ export interface User {
   cold_start: boolean;
   history_depth: number;
   last_run_at: string | null;
+  /** Tag added in Sonarr/Radarr to titles requested for this user (layered onto the global + row tags). */
+  request_tag: string;
   /** 0..1 fraction of recommended items watched within 30 days, or null before first measurement. */
   hit_rate: number | null;
   /** A few of their most recent pick titles, for the dashboard card's preview strip. */
@@ -38,6 +40,8 @@ export interface Collection {
   name_template: string;
   source: string;
   min_watchers: number;
+  /** Tag added in Sonarr/Radarr to titles requested because they surfaced in this row. */
+  request_tag: string;
   prompt: { tone?: string; guidance?: string; template?: string };
 }
 
@@ -53,6 +57,7 @@ export interface CollectionInput {
   sort_order: number;
   name_template: string;
   min_watchers: number;
+  request_tag: string;
   prompt: { tone: string; guidance: string; template: string };
 }
 
@@ -94,6 +99,7 @@ export type PromptTone = (typeof PROMPT_TONES)[number];
 
 export interface UserPatch {
   enabled?: boolean;
+  request_tag?: string;
   prefs?: UserPrefs;
 }
 
@@ -393,6 +399,8 @@ export interface RequestCandidate {
   vote_count: number;
   /** Distinct people whose picks wanted it. */
   demand: number;
+  /** Per-user + per-row tags recorded when queued; applied in Sonarr/Radarr on send. */
+  tags: string[];
   status: "pending" | "sent" | "rejected";
   /** Send outcome, or why it's queued. */
   detail: string;

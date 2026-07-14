@@ -16,6 +16,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     cold_start: false,
     history_depth: 342,
     last_run_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+    request_tag: "",
     hit_rate: 0.4,
     ...overrides,
   };

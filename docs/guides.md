@@ -61,6 +61,19 @@ Set it up under **Settings → Requests**:
    Radarr/Sonarr — created there if it doesn't exist — so you can filter, find, or hang tag-based
    rules (quality/release/cleanup) on exactly what Shortlist added. Leave blank for no tag.
 
+Tags come in three layers, and a requested title carries the union of all that apply:
+
+- **Global** (above) — added to everything Shortlist requests.
+- **Per person** — on a user's detail page, a **Request tag** field tags titles requested because
+  that person wanted them (e.g. `sarah`), so you can route their picks to their own folder or rules.
+- **Per row** — in a per-person row's editor, a **Request tag** field tags titles requested for
+  anyone in that row's audience (e.g. `picked-for-family`). Shared "popular on this server" rows
+  don't request missing titles, so they have no request tag.
+
+A title three people want ends up with the global tag plus each of those people's tags and the tags
+of every per-person row they're in. Missing tags are created in Radarr/Sonarr on first use, exactly
+like the global one.
+
 ### The Requests inbox
 
 The **Requests** tab (in the sidebar) is your approval queue. Each run adds the wanted-but-missing

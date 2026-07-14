@@ -171,9 +171,13 @@ def _run_user(
         )
         user_report.counts.candidates = len(pool)
         # Record what this user wanted that the server doesn't have, for the run-wide request pass.
-        # Done here, off the FULL pool, before pool is narrowed per-row below.
+        # Done here, off the FULL pool, before pool is narrowed per-row below. The pool is shared
+        # across all this user's rows, so a missing title is tagged with the user's own request tag
+        # plus every in-audience row's tag — the honest union, since it could surface in any of them.
         if demand is not None:
-            requests_mod.accumulate(demand, requests_mod.collect_missing(pool, library_index))
+            row_tags = {spec.request_tag for spec in specs if spec.request_tag}
+            title_tags = ({user.request_tag} | row_tags) if user.request_tag else row_tags
+            requests_mod.accumulate(demand, requests_mod.collect_missing(pool, library_index), tags=title_tags)
         user_report.counts.in_library = len(in_library)
         user_report.counts.pre_ranked = len(ranked)
         user_report.status = "ok"

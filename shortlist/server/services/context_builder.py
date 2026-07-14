@@ -207,6 +207,7 @@ class ContextBuilder:
                     row_size=prefs.get("row_size"),
                     row_name_template=prefs.get("row_name_tpl"),
                     prompt=self._resolve_prompt(store, prefs),
+                    request_tag=(user.request_tag or "").strip(),
                     row_overrides=overrides.get(user.id, {}),
                 )
             )
@@ -281,6 +282,7 @@ class ContextBuilder:
                     audience=audience,
                     prompt=prompt,
                     min_watchers=collection.min_watchers,
+                    request_tag=(collection.request_tag or "").strip(),
                 )
             )
         return specs

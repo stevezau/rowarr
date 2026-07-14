@@ -42,6 +42,7 @@ class UserPrefs(BaseModel):
 
 class UserPatch(BaseModel):
     enabled: bool | None = None
+    request_tag: str | None = Field(default=None, max_length=64)  # tag added to titles requested for this user
     prefs: UserPrefs | None = None
 
 
@@ -61,6 +62,7 @@ def _serialize(
         "user_type": user.user_type,
         "enabled": user.enabled,
         "cold_start": user.cold_start,
+        "request_tag": user.request_tag or "",
         "prefs": user.prefs or {},
         "history_depth": history_depth,
         "last_run_at": iso_utc(last_run_at),
@@ -113,6 +115,8 @@ async def patch_user(user_id: int, patch: UserPatch, request: Request) -> dict:
             raise HTTPException(status_code=404, detail="user not found")
         if patch.enabled is not None:
             user.enabled = patch.enabled
+        if patch.request_tag is not None:
+            user.request_tag = patch.request_tag.strip()
         if patch.prefs is not None:
             prefs = dict(user.prefs or {})
             prefs.update({k: v for k, v in patch.prefs.model_dump().items() if v is not None})

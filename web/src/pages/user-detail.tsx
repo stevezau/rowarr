@@ -6,6 +6,7 @@ import { BackLink } from "@/components/back-link";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { RecentRuns } from "@/components/user-detail/recent-runs";
 import { UserDetailHeader } from "@/components/user-detail/user-detail-header";
+import { UserRequestTag } from "@/components/user-detail/user-request-tag";
 import { UserRowsSection } from "@/components/user-detail/user-row-card";
 import { WatchHistory } from "@/components/user-detail/watch-history";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,11 @@ function UserDetailBody({ user }: { user: User }) {
           was chosen. Customize any of them for this person only.
         </p>
         <UserRowsSection user={user} />
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading>Requests</SectionHeading>
+        <UserRequestTag user={user} />
       </section>
 
       <section className="space-y-3">

@@ -13,6 +13,7 @@ export function blankInput(): CollectionInput {
     sort_order: 0,
     name_template: "",
     min_watchers: 2,
+    request_tag: "",
     prompt: { tone: "balanced", guidance: "", template: "" },
   };
 }
@@ -30,6 +31,7 @@ export function toInput(collection: Collection): CollectionInput {
     sort_order: collection.sort_order,
     name_template: collection.name_template,
     min_watchers: collection.min_watchers,
+    request_tag: collection.request_tag,
     prompt: {
       tone: collection.prompt.tone ?? "balanced",
       guidance: collection.prompt.guidance ?? "",

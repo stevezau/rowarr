@@ -37,6 +37,7 @@ function candidate(
     rating: 8.3,
     vote_count: 5000,
     demand: 4,
+    tags: [],
     status: "pending",
     detail: "",
     ...overrides,

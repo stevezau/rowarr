@@ -100,6 +100,69 @@ class TestRadarrAddMovie:
         assert json.loads(post.calls.last.request.content)["tags"] == [3]
 
     @respx.mock
+    def test_extra_tags_merge_with_the_global_tag_reusing_and_creating(self):
+        # Global tag "shortlist" already exists; the per-user "sarah" tag doesn't. The add applies
+        # BOTH: the existing id is reused, the new one is created — and the tag list is fetched once.
+        tagged = ArrTarget(
+            url="http://radarr.test", api_key="rk", quality_profile_id=4, root_folder="/movies", tag="shortlist"
+        )
+        respx.get("http://radarr.test/api/v3/movie/lookup/tmdb").mock(
+            return_value=httpx.Response(200, json=MOVIE_LOOKUP)
+        )
+        tag_get = respx.get("http://radarr.test/api/v3/tag").mock(
+            return_value=httpx.Response(200, json=[{"id": 3, "label": "shortlist"}])
+        )
+        respx.post("http://radarr.test/api/v3/tag").mock(
+            return_value=httpx.Response(201, json={"id": 9, "label": "sarah"})
+        )
+        post = respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201, json={"id": 5}))
+
+        RadarrClient(tagged).add_movie(273481, dry_run=False, extra_tags={"sarah"})
+
+        assert json.loads(post.calls.last.request.content)["tags"] == [3, 9]  # global + per-user, sorted
+        assert tag_get.call_count == 1  # the existing-tag list is fetched once, not per label
+
+    @respx.mock
+    def test_global_and_extra_tag_dedupe_case_insensitively(self):
+        # Global "shortlist" and an extra "Shortlist" are the same tag — one id, no duplicate create.
+        tagged = ArrTarget(
+            url="http://radarr.test", api_key="rk", quality_profile_id=4, root_folder="/movies", tag="shortlist"
+        )
+        respx.get("http://radarr.test/api/v3/movie/lookup/tmdb").mock(
+            return_value=httpx.Response(200, json=MOVIE_LOOKUP)
+        )
+        respx.get("http://radarr.test/api/v3/tag").mock(
+            return_value=httpx.Response(200, json=[{"id": 3, "label": "Shortlist"}])
+        )
+        create = respx.post("http://radarr.test/api/v3/tag").mock(return_value=httpx.Response(201))
+        post = respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201, json={"id": 5}))
+
+        RadarrClient(tagged).add_movie(273481, dry_run=False, extra_tags={"Shortlist"})
+
+        assert json.loads(post.calls.last.request.content)["tags"] == [3]  # one id, not two
+        assert not create.called  # the case-variant duplicate is never created
+
+    @respx.mock
+    def test_tag_list_is_fetched_once_across_multiple_adds(self):
+        # The docstring promise: N titles on one client never re-query the tag list.
+        tagged = ArrTarget(
+            url="http://radarr.test", api_key="rk", quality_profile_id=4, root_folder="/movies", tag="shortlist"
+        )
+        respx.get("http://radarr.test/api/v3/movie/lookup/tmdb").mock(
+            return_value=httpx.Response(200, json=MOVIE_LOOKUP)
+        )
+        tag_get = respx.get("http://radarr.test/api/v3/tag").mock(
+            return_value=httpx.Response(200, json=[{"id": 3, "label": "shortlist"}])
+        )
+        respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201, json={"id": 5}))
+
+        client = RadarrClient(tagged)
+        client.add_movie(273481, dry_run=False)
+        client.add_movie(273481, dry_run=False)
+
+        assert tag_get.call_count == 1  # cached on the client, not re-fetched per add
+
+    @respx.mock
     def test_dry_run_with_a_tag_configured_creates_no_tag(self):
         # Creating a tag is a write; plex-safety rule 8 says a dry-run must make none.
         tagged = ArrTarget(

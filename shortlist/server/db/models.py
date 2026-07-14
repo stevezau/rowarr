@@ -63,6 +63,7 @@ class User(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     cold_start: Mapped[bool] = mapped_column(Boolean, default=False)
     label: Mapped[str] = mapped_column(String(255), default="")  # as stored by Plex (title-cased)
+    request_tag: Mapped[str] = mapped_column(String(64), default="")  # tag added to titles requested for them
     prefs: Mapped[dict] = mapped_column(JSON, default=dict)
 
     run_users: Mapped[list[RunUser]] = relationship(back_populates="user")
@@ -89,6 +90,7 @@ class Collection(Base):
     name_template: Mapped[str] = mapped_column(String(255), default="")  # per_person display name
     source: Mapped[str] = mapped_column(String(16), default="all_users")  # shared: all_users | opted_in
     min_watchers: Mapped[int] = mapped_column(Integer, default=2)  # shared: aggregate-privacy threshold
+    request_tag: Mapped[str] = mapped_column(String(64), default="")  # tag added to titles requested via this row
     prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig recipe
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -232,6 +234,7 @@ class RequestCandidate(Base):
     rating: Mapped[float] = mapped_column(Float, default=0.0)  # on the chosen source (TMDB, or IMDb)
     vote_count: Mapped[int] = mapped_column(Integer, default=0)  # vote count on that same source
     demand: Mapped[int] = mapped_column(Integer, default=1)  # distinct users whose picks wanted it
+    tags: Mapped[list] = mapped_column(JSON, default=list)  # per-user/per-row tags to apply when sent
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | sent | rejected
     detail: Mapped[str] = mapped_column(String(512), default="")  # send outcome, or why it's queued
     first_seen_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # which run first surfaced it

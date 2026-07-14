@@ -32,6 +32,7 @@ class RequestCandidateOut(BaseModel):
     rating: float
     vote_count: int
     demand: int
+    tags: list[str]
     status: str
     detail: str
 
@@ -57,6 +58,7 @@ def list_requests(request: Request) -> list[RequestCandidateOut]:
             rating=r.rating,
             vote_count=r.vote_count,
             demand=r.demand,
+            tags=list(r.tags or []),
             status=r.status,
             detail=r.detail,
         )
@@ -106,6 +108,7 @@ async def send_requests(body: RequestAction, request: Request) -> dict:
                     rating=row.rating,
                     vote_count=row.vote_count,
                     demand=row.demand,
+                    tags=set(row.tags or []),
                 )
                 for row in rows
             ]

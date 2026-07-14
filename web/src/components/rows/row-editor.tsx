@@ -169,6 +169,25 @@ export function RowEditor({
               }
             />
           </div>
+
+          {input.build !== "shared" && (
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="row-request-tag">Request tag (optional)</Label>
+              <Input
+                id="row-request-tag"
+                value={input.request_tag}
+                onChange={(event) => set({ request_tag: event.target.value })}
+                placeholder="e.g. picked-for-family"
+                maxLength={64}
+                className="max-w-xs"
+              />
+              <p className="text-sm text-muted-foreground">
+                When Requests are on, titles asked for anyone in this row’s
+                audience get this tag in Sonarr/Radarr — on top of your global
+                tag and each person’s own tag. Leave blank for none.
+              </p>
+            </div>
+          )}
         </div>
 
         {save.isError && (

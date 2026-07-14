@@ -36,16 +36,19 @@ class FakeArr:
     def __init__(self, *, raise_on: int | None = None):
         self.movie_calls: list[tuple[int, bool]] = []
         self.series_calls: list[tuple[int, bool]] = []
+        self.tag_calls: list[set[str]] = []  # extra_tags passed on each add, in call order
         self.raise_on = raise_on
 
-    def add_movie(self, tmdb_id: int, *, dry_run: bool) -> tuple[str, str]:
+    def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         self.movie_calls.append((tmdb_id, dry_run))
+        self.tag_calls.append(set(extra_tags or set()))
         if self.raise_on == tmdb_id:
             raise ArrError("boom")
         return ("would_request" if dry_run else "requested", "ok")
 
-    def add_series(self, tvdb_id: int, *, dry_run: bool) -> tuple[str, str]:
+    def add_series(self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         self.series_calls.append((tvdb_id, dry_run))
+        self.tag_calls.append(set(extra_tags or set()))
         return ("would_request" if dry_run else "requested", "ok")
 
 
@@ -112,6 +115,16 @@ class TestAccumulate:
         requests_mod.accumulate(demand, [_cand(3, MediaType.SHOW)])
         assert demand[(2, MediaType.MOVIE)].demand == 2
         assert demand[(3, MediaType.SHOW)].demand == 1
+
+    def test_tags_union_across_users_and_dedupe_blanks(self):
+        demand: requests_mod.DemandMap = {}
+        # Sarah wants it (her tag + a row tag); Mike wants the same title (his tag). The title ends
+        # up carrying every contributing tag, and empty strings are dropped, not stored.
+        requests_mod.accumulate(demand, [_cand(2, MediaType.MOVIE)], tags={"sarah", "kids", ""})
+        requests_mod.accumulate(demand, [_cand(2, MediaType.MOVIE)], tags={"mike"})
+        requests_mod.accumulate(demand, [_cand(3, MediaType.SHOW)], tags=set())
+        assert demand[(2, MediaType.MOVIE)].tags == {"sarah", "kids", "mike"}
+        assert demand[(3, MediaType.SHOW)].tags == set()  # no tags configured -> stays empty
 
 
 class TestRequestMissing:
@@ -183,6 +196,19 @@ class TestRequestMissing:
         report = requests_mod.request_missing(cfg, FakeTmdb(), demand, dry_run=True)
         assert fake.movie_calls == [(10, True)]
         assert report.outcomes[0].status == "would_request"
+
+    def test_each_titles_tags_reach_the_client(self, monkeypatch):
+        radarr, sonarr = FakeArr(), FakeArr()
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: radarr)
+        monkeypatch.setattr(requests_mod, "SonarrClient", lambda *a, **k: sonarr)
+        demand = self._demand(
+            MissingTitle(10, "film", MediaType.MOVIE, 2020, rating=8.0, vote_count=500, tags={"sarah", "kids"}),
+            MissingTitle(20, "show", MediaType.SHOW, 2020, rating=8.0, vote_count=500, tags={"mike"}),
+        )
+        cfg = _cfg(radarr=RADARR, sonarr=SONARR)
+        requests_mod.request_missing(cfg, FakeTmdb({20: 55555}), demand, dry_run=False)
+        assert radarr.tag_calls == [{"sarah", "kids"}]  # the movie's per-user/per-row tags
+        assert sonarr.tag_calls == [{"mike"}]
 
     def test_min_demand_excludes_titles_too_few_people_want(self, monkeypatch):
         fake = FakeArr()

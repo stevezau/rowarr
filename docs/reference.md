@@ -43,7 +43,7 @@
 | `requests.auto_send`                                  | `true`                             | `false` = fully manual; every qualifying title is queued                 |
 | `requests.auto_min_demand`                            | `3`                                | auto-send only titles wanted by ≥ N distinct people                      |
 | `requests.auto_min_rating`                            | `8.0`                              | ...and rated ≥ this on the chosen source; rest are queued                |
-| `requests.tag`                                        | `shortlist`                        | tag added to every requested title (created in the app; `""` = no tag)   |
+| `requests.tag`                                        | `shortlist`                        | global tag on every requested title (created in the app; `""` = no tag)  |
 
 ## CLI config file (`<config-dir>/config.yml`)
 
@@ -57,10 +57,10 @@ Interactive docs at `/api/docs` (OpenAPI at `/api/openapi.json`). Highlights:
 ```
 POST /api/auth/pin · GET /api/auth/pin/{id} · GET /api/auth/session · POST /api/auth/logout
 POST /api/setup/probe · POST /api/setup/link · GET/PUT /api/setup/state
-GET  /api/users · PATCH /api/users/{id} · POST /api/users/sync
+GET  /api/users · PATCH /api/users/{id} {enabled?, request_tag?, prefs?} · POST /api/users/sync
 GET  /api/users/{id}/rows · PUT /api/users/{id}/rows/{collection_id} {muted?, row_size?, prompt_*?}
 GET  /api/users/{id}/runs · GET /api/users/{id}/history
-GET/POST /api/collections · PATCH/DELETE /api/collections/{id}
+GET/POST /api/collections · PATCH/DELETE /api/collections/{id} (incl. `request_tag`)
 GET  /api/runs · GET /api/runs/{id} · POST /api/runs {user_ids?, dry_run?}
 GET  /api/requests · POST /api/requests/send {ids, dry_run?} · POST /api/requests/reject {ids}
 GET  /api/events (SSE) · GET /api/events/log (audit feed)
@@ -76,6 +76,12 @@ The curation prompt is tunable: a `tone` preset + free-text `guidance` + an opti
 global recipe via the `curator.prompt_*` settings; override any field per user via
 `PATCH /api/users/{id}` prefs (`prompt_tone` / `prompt_guidance` / `prompt_template`, empty =
 inherit). `prompt-preview` assembles the prompt against sample data so the UI can show the effect.
+
+Request tags are three-layered: the global `requests.tag` setting, a per-user `request_tag`
+(`PATCH /api/users/{id}`), and a per-row `request_tag` (`collections`, per-person rows only —
+shared rows never request). A requested title is tagged with the union of the global tag, every
+wanting user's tag, and the tag of every per-person row that user is in the audience of; the queued
+tags round-trip through `GET /api/requests` (`tags[]`) and are applied on `send`.
 
 All endpoints except `/api/system/health` require the owner session; mutations require the
 `x-rowarr-csrf: 1` header.

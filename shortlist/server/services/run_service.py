@@ -427,17 +427,19 @@ class RunService:
                         rating=m.rating,
                         vote_count=m.vote_count,
                         demand=m.demand,
+                        tags=sorted(m.tags),
                         status="pending",
                         first_seen_run_id=run_id,
                     )
                 )
             elif row.status == "pending":
-                row.title, row.year, row.rating, row.vote_count, row.demand = (
+                row.title, row.year, row.rating, row.vote_count, row.demand, row.tags = (
                     m.title,
                     m.year,
                     m.rating,
                     m.vote_count,
                     m.demand,
+                    sorted(m.tags),
                 )
 
     @staticmethod

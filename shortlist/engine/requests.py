@@ -43,8 +43,14 @@ def collect_missing(pool: list[Candidate], library_index: dict[MediaType, dict[i
     return [c for c in pool if library_index.get(c.media_type, {}).get(c.tmdb_id) is None]
 
 
-def accumulate(demand: DemandMap, missing: list[Candidate]) -> None:
-    """Fold one user's missing candidates into the run-wide demand map, counting distinct wanters."""
+def accumulate(demand: DemandMap, missing: list[Candidate], tags: set[str] | None = None) -> None:
+    """Fold one user's missing candidates into the run-wide demand map, counting distinct wanters.
+
+    ``tags`` are the request tags to attach to every title in this batch — the wanting user's own tag
+    plus each row they're in the audience of. They accumulate across users, so a title three people
+    want carries the union of all three users' (and their rows') tags when it's finally requested.
+    """
+    tags = {t for t in (tags or set()) if t}
     for c in missing:
         key = (c.tmdb_id, c.media_type)
         existing = demand.get(key)
@@ -57,9 +63,11 @@ def accumulate(demand: DemandMap, missing: list[Candidate]) -> None:
                 rating=c.rating,
                 vote_count=c.vote_count,
                 demand=1,
+                tags=set(tags),
             )
         else:
             existing.demand += 1
+            existing.tags |= tags
 
 
 def request_missing(
@@ -212,7 +220,7 @@ def _request_one(
         if title.media_type is MediaType.MOVIE:
             if radarr is None:
                 return outcome("skipped_no_target", "Radarr isn't configured")
-            status, detail = radarr.add_movie(title.tmdb_id, dry_run=dry_run)
+            status, detail = radarr.add_movie(title.tmdb_id, dry_run=dry_run, extra_tags=title.tags)
             return outcome(status, detail)
         # Shows: Sonarr keys on TVDB, so cross the namespace first. The TVDB lookup is a TMDB call,
         # not an Arr one, so it raises RuntimeError/httpx errors rather than ArrError — catch it here
@@ -227,7 +235,7 @@ def _request_one(
             return outcome("error", "could not resolve this show's TheTVDB id")
         if tvdb_id is None:
             return outcome("skipped_no_tvdb", "no TheTVDB id for this show")
-        status, detail = sonarr.add_series(tvdb_id, dry_run=dry_run)
+        status, detail = sonarr.add_series(tvdb_id, dry_run=dry_run, extra_tags=title.tags)
         return outcome(status, detail)
     except ArrError as e:
         # A request failing is a footnote, never a run failure — Sonarr/Radarr are optional plumbing.

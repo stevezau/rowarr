@@ -38,7 +38,8 @@ class _ArrClient:
         self._timeout = timeout
         self._min_write_interval = min_write_interval
         self._last_write = 0.0
-        self._tag_ids_cache: list[int] | None = None
+        self._existing_tags: dict[str, int] | None = None  # lowercased label -> id, fetched once per run
+        self._resolved: dict[str, int] = {}  # lowercased label -> id, memoised across titles
 
     def _headers(self) -> dict[str, str]:
         return {"X-Api-Key": self._target.api_key}
@@ -93,35 +94,46 @@ class _ArrClient:
         data = self._get("/api/v3/rootfolder")
         return [{"id": f["id"], "path": f["path"]} for f in data] if isinstance(data, list) else []
 
-    def _tag_ids(self) -> list[int]:
-        """Resolve the target's tag label to Sonarr/Radarr tag id(s), creating the tag if it doesn't
-        exist yet. Cached per client (once per run). Empty tag → no tags. Only ever called on a real
-        add, so a dry-run never creates a tag; tags are referenced by id in the add body, not by name.
+    def _tag_ids(self, extra: set[str] | None = None) -> list[int]:
+        """Resolve the labels to apply for one add: the target's global tag unioned with ``extra``
+        (per-user + per-row tags carried on the title). Each distinct label is created in the app if
+        it doesn't exist, then referenced by id. Only ever called on a real add, so a dry-run never
+        creates a tag. Label lookups and creations are memoised, so N titles never re-query the tag list.
         """
-        if self._tag_ids_cache is not None:
-            return self._tag_ids_cache
-        label = (self._target.tag or "").strip()
-        if not label:
-            self._tag_ids_cache = []
-            return self._tag_ids_cache
-        existing = self._get("/api/v3/tag")
-        if isinstance(existing, list):
-            for tag in existing:
-                if isinstance(tag, dict) and str(tag.get("label", "")).lower() == label.lower():
-                    self._tag_ids_cache = [int(tag["id"])]
-                    return self._tag_ids_cache
+        labels = {label for label in ({self._target.tag} | (extra or set())) if (label or "").strip()}
+        ids = {self._resolve_tag(label.strip()) for label in labels}
+        return sorted(i for i in ids if i is not None)
+
+    def _resolve_tag(self, label: str) -> int | None:
+        """One label → its Sonarr/Radarr tag id (created if new). Memoised by lowercased label."""
+        key = label.lower()
+        if key in self._resolved:
+            return self._resolved[key]
+        if self._existing_tags is None:
+            existing = self._get("/api/v3/tag")
+            self._existing_tags = {
+                str(t["label"]).lower(): int(t["id"])
+                for t in (existing if isinstance(existing, list) else [])
+                if isinstance(t, dict) and t.get("id") is not None and t.get("label")
+            }
+        if key in self._existing_tags:
+            self._resolved[key] = self._existing_tags[key]
+            return self._resolved[key]
         created = self._post("/api/v3/tag", {"label": label})
-        has_id = isinstance(created, dict) and created.get("id") is not None
-        self._tag_ids_cache = [int(created["id"])] if has_id else []
-        return self._tag_ids_cache
+        tag_id = int(created["id"]) if isinstance(created, dict) and created.get("id") is not None else None
+        if tag_id is not None:
+            self._resolved[key] = tag_id
+            self._existing_tags[key] = tag_id
+        return tag_id
 
 
 class RadarrClient(_ArrClient):
     app_name = "Radarr"
 
-    def add_movie(self, tmdb_id: int, *, dry_run: bool) -> tuple[str, str]:
+    def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         """Request one movie by TMDB id. Returns (status, detail); never raises for a normal skip.
 
+        ``extra_tags`` are per-user/per-row labels layered onto the target's global tag.
         status is one of: would_request (dry-run), requested, skipped_present, error.
         """
         resource = self._get(f"/api/v3/movie/lookup/tmdb?tmdbId={tmdb_id}")
@@ -137,7 +149,7 @@ class RadarrClient(_ArrClient):
             "rootFolderPath": self._target.root_folder,
             "monitored": True,
             "minimumAvailability": "released",
-            "tags": self._tag_ids(),
+            "tags": self._tag_ids(extra_tags),
             "addOptions": {"searchForMovie": True},
         }
         self._post("/api/v3/movie", body)
@@ -147,9 +159,10 @@ class RadarrClient(_ArrClient):
 class SonarrClient(_ArrClient):
     app_name = "Sonarr"
 
-    def add_series(self, tvdb_id: int, *, dry_run: bool) -> tuple[str, str]:
+    def add_series(self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         """Request one series by TVDB id. Returns (status, detail); never raises for a normal skip.
 
+        ``extra_tags`` are per-user/per-row labels layered onto the target's global tag.
         status is one of: would_request (dry-run), requested, skipped_present, error.
         """
         results = self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}")
@@ -166,7 +179,7 @@ class SonarrClient(_ArrClient):
             "rootFolderPath": self._target.root_folder,
             "monitored": True,
             "seasonFolder": True,
-            "tags": self._tag_ids(),
+            "tags": self._tag_ids(extra_tags),
             "addOptions": {"searchForMissingEpisodes": True, "monitor": "all"},
         }
         self._post("/api/v3/series", body)

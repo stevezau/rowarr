@@ -39,6 +39,7 @@ class CollectionIn(BaseModel):
     name_template: str = ""
     source: str = "all_users"
     min_watchers: int = Field(default=2, ge=2)  # a public row must never be shaped by one person
+    request_tag: str = Field(default="", max_length=64)  # tag added to titles requested via this row
     prompt: PromptIn = Field(default_factory=PromptIn)
 
 
@@ -69,6 +70,7 @@ def _serialize(session, collection: Collection) -> dict:
         "name_template": collection.name_template,
         "source": collection.source,
         "min_watchers": collection.min_watchers,
+        "request_tag": collection.request_tag or "",
         "prompt": collection.prompt or {},
     }
 
@@ -122,6 +124,7 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
             name_template=body.name_template,
             source=body.source,
             min_watchers=body.min_watchers,
+            request_tag=body.request_tag.strip(),
             prompt=body.prompt.model_dump(),
         )
         session.add(collection)
@@ -143,6 +146,7 @@ _PATCHABLE_COLUMNS = (
     "name_template",
     "source",
     "min_watchers",
+    "request_tag",
 )
 
 

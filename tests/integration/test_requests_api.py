@@ -45,6 +45,7 @@ def client(tmp_path: Path):
                     rating=8.4,
                     vote_count=1000,
                     demand=2,
+                    tags=["kids", "sarah"],  # per-user + per-row tags recorded when it was queued
                 )
             )
             session.add(
@@ -74,9 +75,11 @@ def client(tmp_path: Path):
 class FakeArr:
     def __init__(self):
         self.movie_calls: list[tuple[int, bool]] = []
+        self.tag_calls: list[set[str]] = []
 
-    def add_movie(self, tmdb_id: int, *, dry_run: bool) -> tuple[str, str]:
+    def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         self.movie_calls.append((tmdb_id, dry_run))
+        self.tag_calls.append(set(extra_tags or set()))
         return ("would_request" if dry_run else "requested", "queued in Radarr")
 
 
@@ -116,13 +119,19 @@ class TestRequestsApi:
         monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(None))
         assert client.post("/api/requests/send", json={"ids": [10]}).status_code == 409
 
-    def test_send_marks_the_title_sent(self, client: TestClient, monkeypatch):
+    def test_list_surfaces_stored_tags(self, client: TestClient):
+        rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
+        assert rows[10]["tags"] == ["kids", "sarah"]  # what the run recorded, round-tripped to the UI
+        assert rows[20]["tags"] == []  # a title queued with no tags carries none
+
+    def test_send_marks_the_title_sent_and_applies_stored_tags(self, client: TestClient, monkeypatch):
         fake = FakeArr()
         monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
         cfg = RequestConfig(enabled=True, radarr=_RADARR)
         monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(cfg))
         body = client.post("/api/requests/send", json={"ids": [1]}).json()
         assert body["sent"] == 1 and fake.movie_calls == [(10, False)]
+        assert fake.tag_calls == [{"kids", "sarah"}]  # the queued tags are applied on send
         rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
         assert rows[10]["status"] == "sent" and rows[10]["detail"] == "queued in Radarr"
 

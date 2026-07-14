@@ -25,6 +25,12 @@ def iso_utc(value: datetime | None) -> str | None:
     return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat()
 
 
+# The seeded "Picked for You" row (migration 0003). It is the one row whose name, size and curation
+# style come from the global Settings rather than its own columns, so that the wizard and Settings
+# stay the single place to change them. Every module that special-cases it uses this constant.
+DEFAULT_SLUG = "picked"
+
+
 class Base(DeclarativeBase):
     type_annotation_map: ClassVar = {dict: JSON, list: JSON}
 

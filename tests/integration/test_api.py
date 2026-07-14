@@ -298,6 +298,36 @@ class TestCollectionsSeed:
         assert picked.size == 10  # follows the setting, not the collection's seeded 15
         assert picked.name_template == ""  # falls through to the global row name
 
+    def test_default_row_prompt_by_build(self, client: TestClient):
+        """The default row's style comes from global Settings — but HOW it gets there differs by
+        build, and the shared cell used to fall through to a bare default (ignoring Settings).
+
+        per_person: spec.prompt stays None so each user's own resolved prompt (global + their
+        overrides) wins. shared: there is no user profile to inherit from, so the global recipe
+        must be passed explicitly.
+        """
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
+
+        client.put("/api/settings", json={"values": {"curator.prompt_tone": "cinephile"}})
+        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
+
+        def picked_spec():
+            with client.app.state.sessions() as session:
+                specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
+            return next(spec for spec in specs if spec.slug == "picked")
+
+        assert picked_spec().prompt is None  # per_person: the per-user prompt wins downstream
+
+        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
+        client.patch(f"/api/collections/{picked['id']}", json={"name": picked["name"], "build": "shared"})
+
+        prompt = picked_spec().prompt
+        assert prompt is not None, "a shared default row must carry the global recipe, not a bare default"
+        assert prompt.tone == "cinephile"
+        assert prompt.shared is True
+
 
 class TestCollectionsApi:
     def test_list_starts_with_the_seeded_default(self, client: TestClient):
@@ -376,6 +406,28 @@ class TestCollectionsApi:
         patched = client.patch(f"/api/collections/{cid}", json={"name": "4K Only", "library_keys": ["3", "5"]})
         assert patched.status_code == 200
         assert patched.json()["library_keys"] == ["3", "5"]
+
+    def test_default_row_never_stores_a_prompt_the_engine_would_ignore(self, client: TestClient):
+        # The default row is curated with the GLOBAL recipe (ContextBuilder passes prompt=None for
+        # it), so a per-row prompt here would save cleanly and then do nothing. The API blanks it.
+        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
+        patched = client.patch(
+            f"/api/collections/{picked['id']}",
+            json={"name": picked["name"], "prompt": {"tone": "cinephile", "guidance": "x", "template": "y"}},
+        )
+        assert patched.status_code == 200
+        assert patched.json()["prompt"] == {}
+        assert client.get("/api/collections").json()[0]["prompt"] == {}
+
+    def test_other_rows_keep_their_own_prompt(self, client: TestClient):
+        # The other cell of the same branch: every non-default row's recipe IS honoured, so it must
+        # persist exactly as sent.
+        created = client.post("/api/collections", json={"name": "Hidden Gems"})
+        cid = created.json()["id"]
+        recipe = {"tone": "cinephile", "guidance": "deep cuts", "template": ""}
+        patched = client.patch(f"/api/collections/{cid}", json={"name": "Hidden Gems", "prompt": recipe})
+        assert patched.status_code == 200
+        assert patched.json()["prompt"] == recipe
 
     def test_slug_collision_gets_suffixed(self, client: TestClient):
         # Different names (duplicates are rejected) that slugify to the same base collide on slug.

@@ -10,13 +10,14 @@ from sqlalchemy import func
 from shortlist.engine.candidates import KNOWN_SOURCES
 from shortlist.engine.models import dedupe_slug, slugify
 from shortlist.server.auth import require_owner
-from shortlist.server.db.models import Collection, CollectionAudience
+from shortlist.server.db.models import DEFAULT_SLUG, Collection, CollectionAudience
 
 router = APIRouter(prefix="/collections", tags=["collections"], dependencies=[Depends(require_owner)])
 
 # Slugs reserved by the engine: `probe` is the throwaway Privacy Check row; `shared` prefixes every
 # shared collection's label. A user-defined collection may not claim either.
 RESERVED_SLUGS = {"probe", "shared"}
+
 BUILDS = {"per_person", "shared"}
 AUDIENCES = {"everyone", "subset"}
 MEDIA = {"movie", "show", "both"}
@@ -81,6 +82,12 @@ def _serialize(session, collection: Collection) -> dict:
     }
 
 
+def _prompt_for(slug: str, body: CollectionIn) -> dict:
+    """The recipe to persist for ``slug`` — always empty on the default row, which the engine
+    curates with the global recipe. Keeps DB state from disagreeing with what a run will do."""
+    return {} if slug == DEFAULT_SLUG else body.prompt.model_dump()
+
+
 def _reject_duplicate_name(session, name: str, *, exclude_id: int | None = None) -> None:
     """Two rows with the same name render to the same Plex collection title and would collide into
     one (silent data loss). Names must be distinct (case-insensitively)."""
@@ -118,8 +125,9 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
     _validate(body)
     with request.app.state.sessions() as session:
         _reject_duplicate_name(session, body.name)
+        slug = _unique_slug(session, slugify(body.name))
         collection = Collection(
-            slug=_unique_slug(session, slugify(body.name)),
+            slug=slug,
             name=body.name,
             build=body.build,
             audience=body.audience,
@@ -132,7 +140,7 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
             request_tag=body.request_tag.strip(),
             candidate_sources=body.candidate_sources,
             library_keys=body.library_keys,
-            prompt=body.prompt.model_dump(),
+            prompt=_prompt_for(slug, body),
         )
         session.add(collection)
         session.flush()
@@ -175,7 +183,7 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
             if column in sent:
                 setattr(collection, column, getattr(body, column))
         if "prompt" in sent:
-            collection.prompt = body.prompt.model_dump()
+            collection.prompt = _prompt_for(collection.slug, body)
         if sent & {"audience", "audience_user_ids"}:
             _set_audience(session, collection, body)
         session.commit()
@@ -188,7 +196,7 @@ async def delete_collection(collection_id: int, request: Request) -> None:
         collection = session.get(Collection, collection_id)
         if collection is None:
             raise HTTPException(404, "collection not found")
-        if collection.slug == "picked":
+        if collection.slug == DEFAULT_SLUG:
             # The default per-person row is what makes an upgrade behaviour-neutral; disable it
             # instead of deleting so there's always a home for users with no other row.
             raise HTTPException(422, "the default 'picked' row can't be deleted — disable it instead")

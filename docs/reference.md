@@ -81,6 +81,11 @@ global recipe via the `curator.prompt_*` settings; override any field per user v
 `PATCH /api/users/{id}` prefs (`prompt_tone` / `prompt_guidance` / `prompt_template`, empty =
 inherit). `prompt-preview` assembles the prompt against sample data so the UI can show the effect.
 
+Every row can carry its own recipe (`collections.prompt`) — **except the seeded `picked` row**,
+which is curated with the global one so it stays in sync with Settings (as its name and size do).
+The API normalizes `prompt` to `{}` for that slug on create and PATCH, so the stored state can never
+disagree with what a run will apply.
+
 Candidate sources are set globally (`candidates.sources`) and can be overridden per row
 (`collections.candidate_sources`, `[]` = inherit the global set; valid values: `tmdb_similar`,
 `tmdb_discover`, `llm_library`, `trakt`, `llm_web`). `llm_web` uses the AI curator's live web

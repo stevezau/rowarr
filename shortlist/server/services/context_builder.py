@@ -8,6 +8,7 @@ separate so the run service is only about orchestration (gate, execute, persist)
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,7 +33,14 @@ from shortlist.engine.models import (
 )
 from shortlist.engine.pipeline import EngineContext
 from shortlist.server.db.adapters import DbCache, DbSnapshotStore
-from shortlist.server.db.models import Collection, CollectionAudience, CollectionUserOverride, PickRow, User
+from shortlist.server.db.models import (
+    DEFAULT_SLUG,
+    Collection,
+    CollectionAudience,
+    CollectionUserOverride,
+    PickRow,
+    User,
+)
 from shortlist.server.services.sse import EventBus
 from shortlist.server.settings_store import SettingsStore
 
@@ -261,8 +269,9 @@ class ContextBuilder:
                     for uid in audience_by_collection.get(collection.id, set())
                     if uid in account_by_user
                 }
+            is_default = collection.slug == DEFAULT_SLUG
             prompt: PromptConfig | None = None
-            if collection.slug != "picked":
+            if not is_default:
                 recipe = collection.prompt or {}
                 prompt = PromptConfig(
                     tone=recipe.get("tone", "balanced"),
@@ -270,7 +279,13 @@ class ContextBuilder:
                     template=recipe.get("template", ""),
                     shared=shared,
                 )
-            is_default = collection.slug == "picked"
+            elif shared:
+                # The default row's style comes from global Settings. A PER-PERSON one inherits that
+                # via the user's own resolved prompt (prompt=None lets it through — rows.py), but a
+                # SHARED row has no user profile to inherit from: leaving it None would curate it
+                # with a bare default and silently ignore Settings -> Curation style. So pass the
+                # global recipe explicitly.
+                prompt = replace(self._resolve_prompt(store, {}), shared=True)
             specs.append(
                 RowSpec(
                     slug=collection.slug,

@@ -11,7 +11,7 @@ from sqlalchemy import func
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.server.auth import require_owner
 from shortlist.server.db.adapters import unique_slug
-from shortlist.server.db.models import PickRow, Run, RunUser, Server, User, iso_utc
+from shortlist.server.db.models import DEFAULT_SLUG, PickRow, Run, RunUser, Server, User, iso_utc
 from shortlist.server.settings_store import SettingsStore
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_owner)])
@@ -23,7 +23,7 @@ def _pick_dict(pick: PickRow) -> dict:
         "title": pick.title,
         "reason": pick.reason,
         "media_type": pick.media_type,
-        "collection_slug": pick.collection_slug or "picked",  # legacy blank rows are the default row
+        "collection_slug": pick.collection_slug or DEFAULT_SLUG,  # legacy blank rows are the default row
         "seed_title": pick.seed_title,
     }
 

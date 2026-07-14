@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { TestResult } from "@/components/test-result";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, apiErrorMessage } from "@/lib/api";
+import { settingString } from "@/lib/format";
+import { useSettings } from "@/lib/queries";
 
 import type { StepProps } from "./step-props";
 
@@ -22,6 +24,22 @@ export function StepHistory({ data, update, next }: StepProps) {
   const tmdbId = useId();
   const urlId = useId();
   const keyId = useId();
+
+  // Re-entering this step (Back/Next) remounts it, so seed the fields from what's already saved,
+  // once, when settings arrive. Keys come back redacted as "•••••" — that's what shows, and the
+  // backend treats a re-sent "•••••" as "no change", so nothing gets clobbered on save.
+  const settings = useSettings();
+  const seeded = useRef(false);
+  useEffect(() => {
+    const saved = settings.data;
+    if (seeded.current || !saved) return;
+    seeded.current = true;
+    // Functional updaters: if the fetch was slow and the owner already typed something, their input
+    // wins; an empty saved value never overwrites what they entered.
+    setTmdbKey((cur) => cur || settingString(saved, "tmdb.apikey"));
+    setUrl((cur) => cur || settingString(saved, "tautulli.url"));
+    setApiKey((cur) => cur || settingString(saved, "tautulli.apikey"));
+  }, [settings.data]);
 
   // TMDB is not optional: it is how Shortlist finds titles similar to what someone watched, which
   // it then narrows down to what you actually own. Without it every run fails at the first user.

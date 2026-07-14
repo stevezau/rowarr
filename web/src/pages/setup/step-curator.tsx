@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { TestResult } from "@/components/test-result";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { settingString } from "@/lib/format";
 import { CURATOR_PROVIDERS, type CuratorProviderInfo } from "@/lib/providers";
+import { useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import type { StepProps } from "./step-props";
@@ -35,6 +37,23 @@ export function StepCurator({ data, update }: StepProps) {
   const modelId = useId();
   const ollamaId = useId();
 
+  // Coming back to this step (Back/Next) remounts it — seed the fields from what's already saved so
+  // the key (redacted "•••••"), model, and Ollama URL survive the round trip. Only overrides the
+  // defaults above when a value is actually on file; a re-sent "•••••" is a no-op on the backend.
+  const settings = useSettings();
+  const seeded = useRef(false);
+  useEffect(() => {
+    const saved = settings.data;
+    if (seeded.current || !saved) return;
+    seeded.current = true;
+    const savedKey = settingString(saved, "curator.api_key");
+    if (savedKey) setApiKey(savedKey);
+    const savedUrl = settingString(saved, "curator.ollama_url");
+    if (savedUrl) setOllamaUrl(savedUrl);
+    const savedModel = settingString(saved, "curator.model");
+    if (savedModel) setModel(savedModel);
+  }, [settings.data]);
+
   const saveAndTest = useMutation({
     mutationFn: async (provider: CuratorProviderInfo) => {
       await api.putSettings({
@@ -54,6 +73,10 @@ export function StepCurator({ data, update }: StepProps) {
   });
 
   const choose = (provider: CuratorProviderInfo) => {
+    // Switching to a different provider must drop any seeded "•••••": that mask belongs to the
+    // previously-saved provider's key, and leaving it would imply this provider already has one
+    // (and re-save it against the wrong key).
+    if (provider.id !== data.curator_provider) setApiKey("");
     update({ curator_provider: provider.id });
     setModel(provider.defaultModel);
     saveAndTest.reset();

@@ -137,6 +137,12 @@ export function StepCustomize({ update, next }: StepProps) {
           posters={Math.min(rowSize, 8)}
           highlight
         />
+        <p className="mt-3 text-xs text-muted-foreground">
+          This previews the row&rsquo;s <em>title</em> as it&rsquo;ll appear on
+          Plex — the &ldquo;Because you watched&hellip;&rdquo; option even fills
+          in a real example. The tiles are placeholders: the actual posters come
+          from each person&rsquo;s own library after the first run.
+        </p>
       </div>
 
       <Segmented
@@ -164,12 +170,23 @@ export function StepCustomize({ update, next }: StepProps) {
         </p>
       </div>
 
-      <Button onClick={() => save.mutate()} disabled={save.isPending}>
-        {save.isPending && (
-          <Loader2 className="animate-spin" aria-hidden="true" />
-        )}
-        Save & continue
-      </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={() => save.mutate()} disabled={save.isPending}>
+          {save.isPending && (
+            <Loader2 className="animate-spin" aria-hidden="true" />
+          )}
+          Save & continue
+        </Button>
+        {/* Everything here has a sensible default already saved, so skipping is safe — the row name,
+            size, and schedule can all be changed later in Settings. */}
+        <Button
+          variant="ghost"
+          onClick={() => next()}
+          disabled={save.isPending}
+        >
+          Skip for now — you can change this later
+        </Button>
+      </div>
       {save.isError && (
         <p role="alert" className="text-sm text-destructive">
           {apiErrorMessage(save.error, "Saving failed. Try again.")}

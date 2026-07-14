@@ -71,7 +71,9 @@ class ContextBuilder:
                 row_size=int(store.get("row.size")),
                 row_name_template=store.get("row.name_template"),
                 staleness_runs=int(store.get("staleness_runs")),
-                candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar"]),
+                # Fallback matches the seeded default and the UI's, so a never-saved setting behaves
+                # the same everywhere (gather_candidates still floors an explicit [] at tmdb_similar).
+                candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
                 dry_run=dry_run,
                 rows=self._build_rows(session, store),
                 requests=self._build_requests(store),

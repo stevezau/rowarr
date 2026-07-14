@@ -165,7 +165,10 @@ def _run_user(
     recent: set[tuple[int, MediaType]] = set()
 
     def effective_sources(spec: RowSpec) -> tuple[str, ...]:
-        return tuple(spec.candidate_sources) if spec.candidate_sources else tuple(cfg.candidate_sources)
+        # Sorted so two rows with the same sources in a different order share ONE pool (gather is
+        # set-based) — otherwise they'd each rebuild it, re-hitting rate-limited/LLM sources and, for
+        # the non-deterministic llm_* sources, possibly diverging despite identical configuration.
+        return tuple(sorted(spec.candidate_sources or cfg.candidate_sources))
 
     def pools_for(spec: RowSpec) -> Pool:
         key = effective_sources(spec)

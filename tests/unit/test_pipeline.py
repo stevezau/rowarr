@@ -320,6 +320,24 @@ class TestPerRowOverrides:
         assert ctx.tmdb.discover.called  # the row's own source ran
         assert not ctx.tmdb.suggestions.called  # tmdb_similar was NOT in this row's sources
 
+    def test_same_sources_in_different_order_share_one_pool(self, ctx: EngineContext, mock_plextv):
+        # Two rows list the same sources in a different order. gather is set-based, so they must
+        # reuse ONE pool (keyed on the sorted set) — not rebuild it, re-hitting the source APIs.
+        ctx.config.rows = [
+            RowSpec(slug="picked", name_template="", size=5, candidate_sources=["tmdb_similar", "tmdb_discover"]),
+            RowSpec(slug="gems", name_template="Gems", size=5, candidate_sources=["tmdb_discover", "tmdb_similar"]),
+        ]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+        ctx.tmdb.genre_ids_for.side_effect = lambda tid, mt: [18]
+        ctx.tmdb.discover.side_effect = lambda mt, gids, **kw: []
+
+        pipeline_mod.run(ctx, [sarah])
+
+        # One seed, one shared pool -> tmdb_similar queried once, not once per row.
+        assert ctx.tmdb.suggestions.call_count == 1
+
     def test_muting_removes_an_already_delivered_row(self, ctx: EngineContext, mock_plextv):
         from shortlist.engine.delivery import row_marker
 
@@ -390,3 +408,48 @@ class TestRequestsWiring:
         assert (10, MT.MOVIE) not in captured["demand"]
         assert captured["demand"][(30, MT.MOVIE)].demand == 1
         assert report.requests is sentinel
+
+    def test_per_row_pool_attributes_tags_to_the_row_that_surfaced_the_title(
+        self, ctx: EngineContext, mock_plextv, monkeypatch
+    ):
+        from shortlist.engine.models import ArrTarget, RequestConfig, RequestReport, RowSpec
+        from shortlist.engine.models import MediaType as MT
+
+        # Two rows for one user: a default one on tmdb_similar (all in-library, nothing missing) and
+        # a "Hidden Gems" row on tmdb_discover that surfaces a MISSING title (id 30). The missing
+        # title must carry only the discover row's tag (plus the user's), not the default row's.
+        ctx.config.rows = [
+            RowSpec(slug="picked", name_template="", size=5),  # inherits global -> tmdb_similar
+            RowSpec(
+                slug="gems",
+                name_template="Hidden Gems",
+                size=5,
+                candidate_sources=["tmdb_discover"],
+                request_tag="gems",
+            ),
+        ]
+        sarah = make_profile("sarah", account_id=100, request_tag="sarah")
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+        ctx.tmdb.genre_ids_for.side_effect = lambda tid, mt: [18]
+        ctx.tmdb.discover.side_effect = lambda mt, gids, **kw: [
+            {"id": 30, "title": "Missing Gem", "genre_ids": [], "vote_average": 8.4}
+        ]
+        ctx.config.requests = RequestConfig(
+            enabled=True,
+            radarr=ArrTarget(url="http://radarr.test", api_key="k", quality_profile_id=1, root_folder="/m"),
+        )
+        captured = {}
+        monkeypatch.setattr(
+            pipeline_mod.requests_mod,
+            "request_missing",
+            lambda cfg, tmdb, demand, *, dry_run: captured.setdefault("demand", demand) or RequestReport(),
+        )
+
+        report = pipeline_mod.run(ctx, [sarah])
+
+        missing = captured["demand"][(30, MT.MOVIE)]
+        assert missing.tags == {"sarah", "gems"}  # user tag + the row whose pool surfaced it, not "picked"
+        assert missing.demand == 1  # counted once for this user despite multiple rows/pools
+        # Distinct-union candidate count spans both pools: {10,20} (similar) and {30} (discover).
+        assert report.users[0].counts.candidates == 3

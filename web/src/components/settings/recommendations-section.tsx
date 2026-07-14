@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { SavedIndicator } from "@/components/saved-indicator";
 import { Card, CardContent } from "@/components/ui/card";
@@ -64,6 +65,14 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
             you enable, keeps only what&rsquo;s already in your library, then
             re-ranks (your AI curator does this when one&rsquo;s connected).
             More sources means wider reach.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            This is the <strong>default every row inherits</strong>. Any row can
+            use its own sources and its own AI style instead —{" "}
+            <Link to="/rows" className="font-medium underline">
+              Rows
+            </Link>{" "}
+            → Edit → Recommendation sources.
           </p>
           {SOURCES.map((source) => {
             const blockedReason = sourceBlockedReason(source, settings);

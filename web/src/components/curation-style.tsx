@@ -6,15 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { TONE_LABELS } from "@/lib/constants";
 import { PROMPT_TONES } from "@/lib/types";
-
-const TONE_LABELS: Record<string, string> = {
-  balanced: "Balanced",
-  warm: "Warm",
-  concise: "Concise",
-  cinephile: "Cinephile",
-  playful: "Playful",
-};
 
 export interface CurationStyleValue {
   tone: string;

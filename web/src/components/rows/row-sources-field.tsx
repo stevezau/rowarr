@@ -39,7 +39,12 @@ export function RowSourcesField({
 
   return (
     <div className="space-y-3 border-t pt-4">
-      <Label>Where this row looks</Label>
+      <Label>Recommendation sources</Label>
+      <p className="text-sm text-muted-foreground">
+        Which discovery engines this row pools titles from. Pick different ones
+        per row to give each a distinct character — a Trakt-only “What to watch
+        next”, or an AI-from-library “Hidden gems”.
+      </p>
       <Segmented
         value={custom ? "custom" : "global"}
         onChange={setMode}

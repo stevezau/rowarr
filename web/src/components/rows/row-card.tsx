@@ -14,10 +14,12 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { apiErrorMessage } from "@/lib/api";
-import { audienceSummary, toInput } from "@/lib/collections";
+import { audienceSummary, rowOverrides, toInput } from "@/lib/collections";
+import { DEFAULT_ROW_SLUG } from "@/lib/constants";
 import { settingString } from "@/lib/format";
 import {
   useDeleteCollection,
+  useLibraries,
   useSaveCollection,
   useSettings,
 } from "@/lib/queries";
@@ -37,8 +39,15 @@ export function RowCard({
   const save = useSaveCollection();
   const remove = useDeleteCollection();
   const settings = useSettings();
-  const isDefault = collection.slug === "picked";
+  const libraries = useLibraries();
+  const isDefault = collection.slug === DEFAULT_ROW_SLUG;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // null until the library list actually arrives — a half-loaded card must not label a row's
+  // libraries with raw Plex section keys, which mean nothing to the owner.
+  const overrides = rowOverrides(
+    collection,
+    libraries.isSuccess ? libraries.data : null,
+  );
 
   // The default row's size is delivered from Settings → Defaults, not its own column (which the
   // backend ignores). Show the effective value so the card can't advertise a size no user gets.
@@ -72,6 +81,15 @@ export function RowCard({
               ? "movies & shows"
               : `${collection.media}s`}
           </p>
+          {overrides.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {overrides.map((part) => (
+                <Badge key={part} variant="outline" className="font-normal">
+                  {part}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Switch

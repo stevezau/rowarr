@@ -1,4 +1,11 @@
-import type { Collection, CollectionInput, User } from "@/lib/types";
+import { DEFAULT_ROW_SLUG, TONE_LABELS } from "@/lib/constants";
+import { sourceShortLabel } from "@/lib/sources";
+import type {
+  Collection,
+  CollectionInput,
+  PlexLibrary,
+  User,
+} from "@/lib/types";
 
 /** A fresh row definition with sensible defaults, for the "Add a row" editor. */
 export function blankInput(): CollectionInput {
@@ -54,4 +61,46 @@ export function audienceSummary(collection: Collection, users: User[]): string {
   return names.length <= 2
     ? names.join(" & ")
     : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+}
+
+/**
+ * The ways this row departs from the global defaults, in plain English.
+ *
+ * Every one of these is editable per row, but a row card that only showed "everyone · 15 titles"
+ * made the overrides invisible — an owner couldn't tell a Trakt-only, cinephile-toned row from a
+ * stock one without opening the editor. Empty array = this row is entirely on the defaults.
+ *
+ * `libraries` is null while the library list is still loading or unavailable: a raw section key is
+ * not a name an owner recognises, so the libraries part is withheld rather than guessed at.
+ */
+export function rowOverrides(
+  collection: Collection,
+  libraries: PlexLibrary[] | null,
+): string[] {
+  const parts: string[] = [];
+
+  if (collection.candidate_sources.length > 0) {
+    parts.push(
+      `Sources: ${collection.candidate_sources.map(sourceShortLabel).join(", ")}`,
+    );
+  }
+
+  if (collection.library_keys.length > 0 && libraries !== null) {
+    const titles = collection.library_keys.map(
+      (key) => libraries.find((l) => l.key === key)?.title ?? `Library ${key}`,
+    );
+    parts.push(`Libraries: ${titles.join(", ")}`);
+  }
+
+  // The default row's style is the GLOBAL recipe — the server discards its stored prompt — so
+  // badging one here would advertise a setting no run will ever apply.
+  if (collection.slug !== DEFAULT_ROW_SLUG) {
+    const { tone, guidance, template } = collection.prompt ?? {};
+    const toneLabel = TONE_LABELS[tone ?? "balanced"] ?? tone;
+    if (template) parts.push("Style: custom prompt");
+    else if (guidance) parts.push(`Style: ${toneLabel} + notes`);
+    else if (tone && tone !== "balanced") parts.push(`Style: ${toneLabel}`);
+  }
+
+  return parts;
 }

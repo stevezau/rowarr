@@ -159,31 +159,43 @@ export function RowEditor({
             </div>
           )}
 
-          <div className="space-y-2 border-t pt-4">
-            <Label>Curation style</Label>
-            <p className="text-sm text-muted-foreground">
-              How the AI writes this row.{" "}
-              {isDefault &&
-                "The default row also uses the global setting under Settings."}
-            </p>
-            <CurationStyleFields
-              value={curation}
-              onChange={(next) =>
-                set({
-                  prompt: {
-                    tone: next.tone,
-                    guidance: next.guidance,
-                    template: next.template,
-                  },
-                })
-              }
-            />
-          </div>
-
           <RowSourcesField
             value={input.candidate_sources}
             onChange={(candidate_sources) => set({ candidate_sources })}
           />
+
+          <div className="space-y-2 border-t pt-4">
+            <Label>Curation style</Label>
+            {isDefault ? (
+              // The server discards this row's stored recipe and curates it with the global one
+              // (ContextBuilder._build_rows), so offering the fields here would save a dead setting.
+              <p className="text-sm text-muted-foreground">
+                The default row&rsquo;s style always comes from Settings →
+                Curation style, so it stays in sync everywhere. Change it there.
+                Every other row can have its own.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  How the AI picks and writes up this row — its own tone,
+                  guidance, and (if you want) a full custom prompt, just for
+                  this row.
+                </p>
+                <CurationStyleFields
+                  value={curation}
+                  onChange={(next) =>
+                    set({
+                      prompt: {
+                        tone: next.tone,
+                        guidance: next.guidance,
+                        template: next.template,
+                      },
+                    })
+                  }
+                />
+              </>
+            )}
+          </div>
 
           {input.build !== "shared" && (
             <div className="space-y-2 border-t pt-4">

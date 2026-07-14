@@ -48,10 +48,30 @@ ticked (the default) to cover every library, or point a row at just one (e.g. "4
 server with several libraries of a type. What the row recommends (movies, shows, or both) follows the
 libraries you pick.
 
-These are the server-wide default. Any individual row can override them: open the row's editor,
-switch **Where this row looks** to "Choose for this row," and pick its own sources (e.g. a
-Trakt-only "What to watch next" row, or an AI-from-library "Hidden gems" row). Leaving a row on
-"Use global default" keeps it in sync with the setting above.
+### Everything above is only the _default_ — rows override it
+
+Settings → Recommendations sets what a row uses **unless the row says otherwise**. Open any row
+(Rows → Edit) and it defines its own recipe:
+
+| In the row editor          | What it overrides                                                      |
+| -------------------------- | ---------------------------------------------------------------------- |
+| **Recommendation sources** | Switch to "Choose for this row" and tick its own sources               |
+| **Curation style**         | Its own tone, guidance, and (optionally) a full custom AI prompt       |
+| **Libraries**              | Which Plex libraries it builds in — which also sets what it recommends |
+| **Row size**, **Audience** | How many titles, and who gets it                                       |
+| **Request tag**            | The Sonarr/Radarr tag on titles requested for this row's audience      |
+
+So a "What to watch next" row can be Trakt-only with a concise tone, a "Hidden gems" row can be
+AI-from-library with a cinephile prompt pointed at just your 4K library, and your default
+"Picked for You" can stay on the global settings — all on the same server, all at once. The Rows
+list shows each row's overrides on its card, so you can see at a glance which rows differ.
+
+A row left on "Use global default" stays in sync with Settings → Recommendations.
+
+**The one exception is the seeded "Picked for You" row**: its **name**, **size** and **curation
+style** always follow the global Settings (Defaults and Curation style) so they stay in sync
+everywhere — the row editor points you there instead of offering its own. Its sources, libraries and
+audience are its own, exactly like any other row.
 
 ## Requests (Radarr / Sonarr)
 

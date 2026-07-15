@@ -28,6 +28,8 @@ export function blankInput(): CollectionInput {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    placement: "both",
+    pin_top: false,
     prompt: { tone: "", guidance: "", template: "" },
   };
 }
@@ -49,6 +51,8 @@ export function toInput(collection: Collection): CollectionInput {
     candidate_sources: collection.candidate_sources,
     library_keys: collection.library_keys,
     watched_pct: collection.watched_pct ?? null,
+    placement: collection.placement ?? "both",
+    pin_top: collection.pin_top ?? false,
     prompt: {
       tone: collection.prompt.tone ?? "",
       guidance: collection.prompt.guidance ?? "",
@@ -103,6 +107,11 @@ export function rowOverrides(
   if (collection.watched_pct !== null && collection.watched_pct !== undefined) {
     parts.push(watchedBadgeLabel(collection.watched_pct));
   }
+
+  // "both" is the default placement (Home + Library), so only badge a narrowed one.
+  if (collection.placement === "home") parts.push("Shows on: Home");
+  else if (collection.placement === "library") parts.push("Shows on: Library");
+  if (collection.pin_top) parts.push("Pinned to top");
 
   // The default row's style is the GLOBAL recipe — the server discards its stored prompt — so
   // badging one here would advertise a setting no run will ever apply.

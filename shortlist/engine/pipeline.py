@@ -425,13 +425,20 @@ def _promote_phase(
         if not filters_ok:
             logger.warning("{}: promotion skipped — a privacy sync failed this run", user.username)
             continue
+        # Which row produced each of this user's collections, so promotion honours that row's
+        # placement (Home / Library) and pin-to-top. Keyed by the exact title delivery wrote and
+        # recorded per library during this user's run (a {top_seed} title differs per library).
+        spec_by_slug = {spec.slug: spec for spec in ctx.config.rows}
+        placements = {
+            title: spec_by_slug[slug] for title, slug in user_report.placement_titles.items() if slug in spec_by_slug
+        }
         try:
             # Every row the user has, in every library — they can have several rows (all sharing
             # their label), and promoting only one would leave the others invisible to the one
             # person meant to see them.
             for section in ctx.delivery_sections:
                 for collection in ctx.plex.find_owned_collections(section, user.label):
-                    ctx.plex.promote(collection, shared=True)
+                    _promote_one(ctx, collection, placements.get(collection.title))
         except Exception as e:
             user_report.status = "error"
             user_report.error = (user_report.error or "") + f" | promote: {type(e).__name__}: {e}"
@@ -443,12 +450,29 @@ def _promote_phase(
         try:
             for section in ctx.delivery_sections:
                 for collection in ctx.plex.find_owned_collections(section, spec.label):
-                    ctx.plex.promote(collection, shared=True)
+                    _promote_one(ctx, collection, spec)
         except Exception as e:
             if shared_report is not None:
                 shared_report.status = "error"
                 shared_report.error = (shared_report.error or "") + f" | promote: {type(e).__name__}: {e}"
             logger.exception("shared row '{}': promote failed", spec.slug)
+
+
+def _promote_one(ctx: EngineContext, collection, spec: RowSpec | None) -> None:
+    """Promote one collection with its row's placement. Unmatched (spec is None) falls back to the
+    legacy everywhere-visible behaviour, so a title we couldn't map is never left browse-visible."""
+    if spec is None:
+        ctx.plex.promote(collection, shared=True)
+        return
+    # A per-person row lands on its owner's Home via `home` and on a shared user's Home via `shared`;
+    # setting both from one flag covers owner and friend without the caller knowing which this is.
+    ctx.plex.promote(
+        collection,
+        shared=spec.show_home,
+        home=spec.show_home,
+        recommended=spec.show_library,
+        pin_top=spec.pin_top,
+    )
 
 
 def _request_phase(ctx: EngineContext, requests_on: bool, demand: requests_mod.DemandMap, report: RunReport) -> None:

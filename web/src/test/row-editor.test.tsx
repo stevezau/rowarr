@@ -44,6 +44,8 @@ function row(patch: Partial<Collection> = {}): Collection {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    placement: "both",
+    pin_top: false,
     prompt: { tone: "", guidance: "", template: "" },
     ...patch,
   };
@@ -102,5 +104,35 @@ describe("RowEditor — already-watched titles", () => {
     const call = updateCollection.mock.calls.at(0);
     expect(call?.[0]).toBe(1);
     expect((call?.[1] as Collection).watched_pct).toBe(0);
+  });
+});
+
+describe("RowEditor — placement", () => {
+  beforeEach(() => {
+    updateCollection.mockClear();
+  });
+
+  it("reflects the saved placement as the pressed chip", () => {
+    renderEditor(row({ placement: "library" }));
+    expect(
+      screen.getByRole("button", { name: "Library only" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("round-trips a changed placement and pin into the PATCH body", async () => {
+    renderEditor(row({ placement: "both", pin_top: false }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Home only" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: /pin to top of the library/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Save changes/i }),
+    );
+
+    await waitFor(() => expect(updateCollection).toHaveBeenCalled());
+    const body = updateCollection.mock.calls.at(0)?.[1] as Collection;
+    expect(body.placement).toBe("home");
+    expect(body.pin_top).toBe(true);
   });
 });

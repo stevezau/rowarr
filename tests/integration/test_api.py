@@ -362,6 +362,24 @@ class TestCollectionsSeed:
             specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
         assert next(s for s in specs if s.slug == "rewatch_row").watched_pct == 0.5
 
+    def test_per_row_placement_round_trips_and_reaches_the_spec(self, client: TestClient):
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
+
+        created = client.post("/api/collections", json={"name": "Top Row", "placement": "library", "pin_top": True})
+        assert created.status_code == 201
+        assert created.json()["placement"] == "library" and created.json()["pin_top"] is True
+        # An unknown placement is rejected.
+        assert client.post("/api/collections", json={"name": "X", "placement": "bogus"}).status_code == 422
+
+        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
+        with client.app.state.sessions() as session:
+            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
+        spec = next(s for s in specs if s.slug == "top_row")
+        assert spec.placement == "library" and spec.pin_top is True
+        assert spec.show_library and not spec.show_home  # library-only
+
     def test_a_disabled_row_becomes_a_retired_row_for_cleanup(self, client: TestClient):
         """A row switched off is not delivered (dropped from _build_rows) AND handed to the engine as
         a retired row, so its lingering collection is removed from its owner's Home on the next run."""

@@ -202,10 +202,28 @@ class PlexClient:
             logger.debug("Plex stored label {!r} as {!r}", label, stored)
         return stored
 
-    def promote(self, collection: Collection, *, shared: bool = True) -> None:
-        """Hide from library browsing but promote onto Home (owner + shared users)."""
+    def promote(
+        self,
+        collection: Collection,
+        *,
+        shared: bool = True,
+        home: bool = True,
+        recommended: bool = True,
+        pin_top: bool = False,
+    ) -> None:
+        """Hide from library browsing but promote onto the chosen surfaces (Home / Library Recommended).
+
+        ``modeUpdate(hide)`` is unconditional — it hides the collection from normal library BROWSE and
+        is the leak-safe half of promotion, independent of where the row is shown. ``home``/``shared``/
+        ``recommended`` pick the surfaces (a per-row placement). ``pin_top`` moves the managed hub to
+        the top of the library's Recommended shelf (server-wide order, not per viewing-user).
+        """
         collection.modeUpdate(mode="hide")
-        collection.visibility().updateVisibility(recommended=True, home=True, shared=shared)
+        hub = collection.visibility()
+        hub.updateVisibility(recommended=recommended, home=home, shared=shared)
+        if pin_top:
+            # after=None -> first position in this library's Managed Recommendations.
+            hub.reload().move(after=None)
 
     def set_items(self, collection: Collection, items: list) -> None:
         """Replace collection items, preserving the given order via custom sort."""

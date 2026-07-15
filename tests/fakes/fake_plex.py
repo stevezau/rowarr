@@ -90,6 +90,7 @@ class FakeCollection:
     promoted_recommended: bool = False
     promoted_own_home: bool = False
     promoted_shared_home: bool = False
+    pinned_top: bool = False  # moved to the front of this library's Managed Recommendations
 
 
 @dataclass
@@ -617,6 +618,13 @@ def make_fake_plex(state: FakePlexState) -> FastAPI:
     def promote_hub(section_id: int, request: Request) -> Response:
         collection = _collection(int(request.query_params["metadataItemId"]))
         _apply_hub_flags(collection, request.query_params)
+        return Response(status_code=200)
+
+    @app.put("/hubs/sections/{section_id}/manage/{identifier}/move")
+    def move_hub(section_id: int, identifier: str, request: Request) -> Response:
+        # after=None (no query) -> pinned to the top of the Managed Recommendations shelf.
+        collection = _collection(int(identifier.rsplit(".", 1)[-1]))
+        collection.pinned_top = request.query_params.get("after") is None
         return Response(status_code=200)
 
     @app.put("/hubs/sections/{section_id}/manage/{identifier}")

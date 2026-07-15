@@ -188,6 +188,42 @@ export function RowEditor({
             )}
           </div>
 
+          <div className="space-y-3 border-t pt-4">
+            <Label>Where it shows</Label>
+            <p className="text-sm text-muted-foreground">
+              Which Plex screens this row appears on once it&rsquo;s built.
+            </p>
+            <Segmented
+              value={input.placement}
+              onChange={(placement) =>
+                set({ placement: placement as CollectionInput["placement"] })
+              }
+              ariaLabel="Where the row shows"
+              options={[
+                { value: "both", label: "Home & Library" },
+                { value: "home", label: "Home only" },
+                { value: "library", label: "Library only" },
+              ]}
+            />
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium">
+                  Pin to top of the library
+                </span>
+                <p className="text-sm text-muted-foreground">
+                  Moves this row to the top of the library&rsquo;s Recommended
+                  shelf. This order is the same for everyone — Plex can&rsquo;t
+                  set a different home order per person.
+                </p>
+              </div>
+              <Switch
+                checked={input.pin_top}
+                onCheckedChange={(pin_top) => set({ pin_top })}
+                aria-label="Pin to top of the library shelf"
+              />
+            </div>
+          </div>
+
           <div className="space-y-2 border-t pt-4">
             <Label>Curation style</Label>
             {isDefault ? (

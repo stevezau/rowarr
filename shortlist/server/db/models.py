@@ -103,6 +103,10 @@ class Collection(Base):
     library_keys: Mapped[list] = mapped_column(JSON, default=list)
     min_watchers: Mapped[int] = mapped_column(Integer, default=2)  # shared: aggregate-privacy threshold
     request_tag: Mapped[str] = mapped_column(String(64), default="")  # tag added to titles requested via this row
+    # Where the row shows once promoted: "both" (Home + Library Recommended), "home", or "library".
+    placement: Mapped[str] = mapped_column(String(16), default="both")
+    # Pin the row to the TOP of its library's Recommended shelf (server-wide order, not per-user).
+    pin_top: Mapped[bool] = mapped_column(Boolean, default=False)
     prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig recipe
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

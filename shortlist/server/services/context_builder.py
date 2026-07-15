@@ -332,6 +332,8 @@ class ContextBuilder:
                     request_tag=(collection.request_tag or "").strip(),
                     candidate_sources=list(collection.candidate_sources or []),
                     watched_pct=collection.watched_pct,  # None -> inherit the global watched cap
+                    placement=collection.placement or "both",
+                    pin_top=bool(collection.pin_top),
                     library_keys=[str(k) for k in (collection.library_keys or [])],
                 )
             )

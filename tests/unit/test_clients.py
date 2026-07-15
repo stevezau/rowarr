@@ -340,6 +340,22 @@ class TestPlexClient:
         collection.modeUpdate.assert_called_once_with(mode="hide")
         vis = collection.visibility.return_value
         assert vis.updateVisibility.call_args.kwargs == {"recommended": True, "home": True, "shared": True}
+        vis.reload.return_value.move.assert_not_called()  # not pinned by default
+
+    def test_promote_passes_placement_flags_through(self, mock_plex: PlexClient):
+        """A library-only row must be hidden from Home and friends' Home — recommended only."""
+        collection = MagicMock()
+        mock_plex.promote(collection, recommended=True, home=False, shared=False)
+        vis = collection.visibility.return_value
+        assert vis.updateVisibility.call_args.kwargs == {"recommended": True, "home": False, "shared": False}
+
+    def test_promote_pins_to_top_when_requested(self, mock_plex: PlexClient):
+        collection = MagicMock()
+        vis = collection.visibility.return_value
+        vis.reload.return_value = vis
+        mock_plex.promote(collection, pin_top=True)
+        # modeUpdate + visibility happen first, THEN the move to the top (after=None).
+        vis.move.assert_called_once_with(after=None)
 
     def test_owned_collections_maps_slug_to_stored_label_and_id(self, mock_plex: PlexClient):
         ours = MagicMock(ratingKey=571285)

@@ -19,7 +19,14 @@ from shortlist.engine import candidates as candidates_mod
 from shortlist.engine import ranking
 from shortlist.engine import requests as requests_mod
 from shortlist.engine.curator import CuratorError, NullCurator
-from shortlist.engine.delivery import _section_kind, _target_sections, deliver_rows, remove_row
+from shortlist.engine.delivery import (
+    _section_kind,
+    _target_sections,
+    deliver_rows,
+    remove_row,
+    render_row_name,
+    row_marker,
+)
 from shortlist.engine.history import derive_seeds
 from shortlist.engine.models import (
     SHARED_SLUG_PREFIX,
@@ -496,6 +503,14 @@ def _run_user(
             section_picks[section.key] = sec_picks
         # Stamp each pick with the row it belongs to, so the user page can group picks per row.
         section_picks = {key: [replace(p, collection_slug=spec.slug) for p in sp] for key, sp in section_picks.items()}
+        # Record the exact title delivery will write for EACH library, so the promote phase can apply
+        # this row's placement/pin. Per library, because a {top_seed} title differs library to library
+        # (each was curated from its own contents). Matches delivery's `render_row_name(...) + marker`.
+        title_template = spec.name_template or (user.row_name_template or cfg.row_name_template)
+        marker = row_marker(user.plex_account_id)
+        for sp in section_picks.values():
+            if sp:
+                user_report.placement_titles[render_row_name(title_template, user, sp) + marker] = spec.slug
         picks = [pick for sp in section_picks.values() for pick in sp]
         all_picks.extend(picks)
         _pipeline._emit(ctx, user.slug, "delivering", {"picks": len(picks)})

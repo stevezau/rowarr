@@ -62,16 +62,23 @@ export function PlexPinButton({
       </Button>
 
       {waiting && !pin.popupBlocked && (
-        <p className="text-center text-sm text-muted-foreground">
-          Approve the login in the Plex window.{" "}
-          <button
+        <div className="space-y-2 text-center">
+          <p className="text-sm text-muted-foreground">
+            A Plex window opened — approve the login there and this continues on
+            its own. No need to wait on this screen; it updates the moment Plex
+            confirms.
+          </p>
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={pin.start}
-            className="rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="gap-2"
           >
-            Didn't see it?
-          </button>
-        </p>
+            <PlexMark className="h-3.5 w-3.5" />
+            Reopen the Plex window
+          </Button>
+        </div>
       )}
 
       {waiting && pin.popupBlocked && pin.code && (

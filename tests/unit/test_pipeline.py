@@ -842,3 +842,94 @@ class TestRequestsWiring:
         assert missing.demand == 1  # counted once for this user despite multiple rows/pools
         # Distinct-union candidate count spans both pools: {10,20} (similar) and {30} (discover).
         assert report.users[0].counts.candidates == 3
+
+
+class TestPlacement:
+    """Per-row placement (Home / Library / Both) and pin-to-top reach promote() with the right flags."""
+
+    def _pick(self, slug: str):
+        from shortlist.engine.models import MediaType, Pick
+
+        return Pick(
+            tmdb_id=1, rating_key=10, title="t1", rank=1, reason="", media_type=MediaType.MOVIE, collection_slug=slug
+        )
+
+    def test_library_placement_promotes_recommended_only(self, ctx: EngineContext):
+        from shortlist.engine.models import RowSpec
+        from shortlist.engine.pipeline import _promote_one
+
+        _promote_one(ctx, MagicMock(), RowSpec(slug="x", name_template="", size=10, placement="library"))
+        assert ctx.plex.promote.call_args.kwargs == {
+            "shared": False,
+            "home": False,
+            "recommended": True,
+            "pin_top": False,
+        }
+
+    def test_home_placement_with_pin_shows_on_home_and_pins(self, ctx: EngineContext):
+        from shortlist.engine.models import RowSpec
+        from shortlist.engine.pipeline import _promote_one
+
+        _promote_one(ctx, MagicMock(), RowSpec(slug="x", name_template="", size=10, placement="home", pin_top=True))
+        assert ctx.plex.promote.call_args.kwargs == {
+            "shared": True,
+            "home": True,
+            "recommended": False,
+            "pin_top": True,
+        }
+
+    def test_unmatched_collection_falls_back_to_everywhere(self, ctx: EngineContext):
+        """A collection whose title we can't map to a row must still be hidden from browse and shown —
+        never left half-promoted (browse-visible). The legacy everywhere-visible call is the safe default."""
+        from shortlist.engine.pipeline import _promote_one
+
+        collection = MagicMock()
+        _promote_one(ctx, collection, None)
+        ctx.plex.promote.assert_called_once_with(collection, shared=True)
+
+    def test_a_top_seed_row_records_a_placement_title_per_library(self, ctx: EngineContext, mock_plextv):
+        """A {top_seed} row spanning two libraries writes a DIFFERENT title in each (each curated from
+        its own contents), so promotion must know both — not just the first. The recorded titles must
+        match what the collections are actually delivered as, or every library but the first would fall
+        back to the legacy everywhere-visible placement."""
+        movies = MagicMock(type="movie", key="1")
+        movies_4k = MagicMock(type="movie", key="2")
+        ctx.plex.sections.return_value = [movies, movies_4k]
+        ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
+        # Two seeds; each library holds candidates from a DIFFERENT seed, so its {top_seed} differs:
+        # Movies is fed by Fargo (ids 10-15), 4K by Heat (ids 50-55).
+        idx_std = {900: 999, 800: 888, **{i: 1000 + i for i in range(10, 16)}}
+        idx_4k = {900: 999, 800: 888, **{i: 2000 + i for i in range(50, 56)}}
+        ctx.plex.build_library_index.side_effect = lambda sec, ep=None: idx_std if sec is movies else idx_4k
+
+        def suggestions(tid, mt):
+            base = 10 if tid == 900 else 50  # Fargo -> Movies ids, Heat -> 4K ids
+            return [{"id": base + i, "title": f"T{base + i}", "genre_ids": [], "vote_average": 8.0} for i in range(6)]
+
+        ctx.tmdb.suggestions.side_effect = suggestions
+        ctx.history_source.fetch.return_value = [
+            make_watched("Fargo", days_ago=1, rating_key=999),  # tmdb 900
+            make_watched("Heat", days_ago=2, rating_key=888),  # tmdb 800
+        ]
+        ctx.config.rows = [
+            RowSpec(slug="picked", name_template="Because you watched {top_seed}", size=5, media="movie")
+        ]
+        ctx.config.min_history = 1
+        ctx.config.candidates_pre_rank = 50
+        # Capture the titles delivery actually writes so we can compare to what was recorded.
+        delivered_titles: list[str] = []
+        ctx.plex.create_collection.side_effect = lambda section, title, items: (
+            delivered_titles.append(title) or MagicMock()
+        )
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
+
+        report = pipeline_mod.run(ctx, [sarah])
+
+        recorded = set(report.users[0].placement_titles)
+        # Two libraries with different top seeds -> two distinct titles; the pre-fix code recorded ONE
+        # (union) and left the 4K collection unmatched. Every delivered title must be recorded.
+        assert len(recorded) == 2, f"expected a distinct title per library, got {recorded}"
+        assert set(delivered_titles) == recorded, "recorded titles must match what delivery wrote"
+        assert all(slug == "picked" for slug in report.users[0].placement_titles.values())

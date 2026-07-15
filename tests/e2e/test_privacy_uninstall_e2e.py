@@ -145,7 +145,9 @@ class TestPrivacyBadge:
         assert result["tiers"]["T1"] is False, "T1 must catch a share filter that lost its excludes"
         assert result["tiers"]["T2"] is True, "the canary's own hubs are still clean — only T1 should fail"
 
-        expect(page.get_by_text("Check failed")).to_be_visible(timeout=SLOW)
+        # exact=True: the global activity pill can also show a "privacy check failed" link, and a
+        # substring match would resolve to both it and this badge (Playwright strict-mode violation).
+        expect(page.get_by_text("Check failed", exact=True)).to_be_visible(timeout=SLOW)
 
         # Fail closed: no more real writes until the owner fixes it.
         created = app.api("POST", "/api/runs", json={"dry_run": False}).json()

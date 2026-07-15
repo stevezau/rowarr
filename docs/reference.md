@@ -106,7 +106,15 @@ search (Anthropic/OpenAI) to propose titles, each resolved via TMDB search then 
 A row builds a Plex collection in each library it targets (`collections.library_keys`, a list of
 Plex section keys; `[]` = every library of the row's media type — the default). A row's `media` is
 derived from the types of its selected libraries. This lets an owner point a row at a specific
-library (e.g. only "4K Movies") on a server with several libraries of one type.
+library (e.g. only "4K Movies") on a server with several libraries of one type. Curation runs **per
+library**: each targeted library seeds from its own watched history and fills to `row.size` on its
+own, so a movies-and-TV watcher gets a full movie row AND a full TV row.
+
+Placement is per row (`collections.placement`: `both` \| `home` \| `library`, default `both`) plus
+`collections.pin_top` (default `false`). `placement` sets which Plex surfaces the row appears on
+once promoted (Home, the library's Recommended tab, or both); `pin_top` moves it to the top of that
+library's Recommended shelf. Pinning uses Plex's Managed Recommendations, which are **server-wide**
+— Plex exposes no per-viewing-user hub order, so a pinned row sits in the same slot for everyone.
 
 Request tags are three-layered: the global `requests.tag` setting, a per-user `request_tag`
 (`PATCH /api/users/{id}`), and a per-row `request_tag` (`collections`, per-person rows only —

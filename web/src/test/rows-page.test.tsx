@@ -43,6 +43,8 @@ const SUBSET_ROW: Collection = {
   candidate_sources: [],
   library_keys: [],
   watched_pct: null,
+  placement: "both",
+  pin_top: false,
   prompt: { tone: "balanced", guidance: "", template: "" },
 };
 

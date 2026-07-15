@@ -27,6 +27,8 @@ function collection(patch: Partial<Collection> = {}): Collection {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    placement: "both",
+    pin_top: false,
     prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style
     ...patch,
   } as Collection;
@@ -116,6 +118,25 @@ describe("rowOverrides", () => {
     expect(rowOverrides(collection({ watched_pct: null }), LIBRARIES)).toEqual(
       [],
     );
+  });
+
+  it("badges a narrowed placement and a pinned row, but not the default both/unpinned", () => {
+    expect(
+      rowOverrides(collection({ placement: "home" }), LIBRARIES),
+    ).toContain("Shows on: Home");
+    expect(
+      rowOverrides(collection({ placement: "library" }), LIBRARIES),
+    ).toContain("Shows on: Library");
+    expect(rowOverrides(collection({ pin_top: true }), LIBRARIES)).toContain(
+      "Pinned to top",
+    );
+    // Defaults (both / not pinned) add nothing.
+    expect(
+      rowOverrides(
+        collection({ placement: "both", pin_top: false }),
+        LIBRARIES,
+      ),
+    ).toEqual([]);
   });
 
   it("badges the watched override even on the default row — the engine honours it there", () => {

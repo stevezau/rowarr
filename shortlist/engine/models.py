@@ -224,6 +224,20 @@ class RowSpec:
     # Per-row cap on already-watched titles, as a fraction of the row (0.0 = all fresh, 1.0 = no
     # filtering). None -> inherit EngineConfig.watched_pct.
     watched_pct: float | None = None
+    # Where the row's collection appears once promoted: "both" (Home + Library Recommended, the
+    # default and legacy behaviour), "home" (Home only), or "library" (Library Recommended only).
+    placement: str = "both"
+    # Pin the row to the TOP of its library's Recommended shelf (ManagedHub.move). This is a
+    # server-wide managed-recommendations order, NOT per-viewing-user — Plex exposes no per-user order.
+    pin_top: bool = False
+
+    @property
+    def show_home(self) -> bool:
+        return self.placement in ("both", "home")
+
+    @property
+    def show_library(self) -> bool:
+        return self.placement in ("both", "library")
 
     @property
     def label(self) -> str | None:
@@ -425,6 +439,10 @@ class UserRunReport:
     picks: list[Pick] = field(default_factory=list)
     counts: StageCounts = field(default_factory=StageCounts)
     diff: CollectionDiff | None = None
+    # Each delivered collection TITLE mapped to the slug of the row that produced it, so the promote
+    # phase applies the right row's placement/pin. Recorded per library because a {top_seed} title
+    # differs library to library. Transient (not persisted); populated during delivery.
+    placement_titles: dict[str, str] = field(default_factory=dict)
     privacy_synced: bool = False
     error: str | None = None
     duration_s: float = 0.0

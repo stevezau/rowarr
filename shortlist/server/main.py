@@ -16,7 +16,7 @@ from loguru import logger
 from starlette.responses import FileResponse
 
 import shortlist
-from shortlist.logging_config import configure_logging
+from shortlist.logging_config import configure_logging, normalize_level
 from shortlist.server import auth
 from shortlist.server.api import collections, events, privacy, requests, runs, setup, system, user_rows, users
 from shortlist.server.api import settings as settings_api
@@ -110,6 +110,12 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
             # leaves a full on-disk trail to diagnose a run after the fact.
             (config_dir / "logs").mkdir(parents=True, exist_ok=True)
             configure_logging(store.get("log.level"), log_file=str(config_dir / "logs" / "shortlist.log"))
+            # State the console level plainly at boot, so `docker logs` answers "is DEBUG on?" at a
+            # glance (the file at /config/logs is always DEBUG regardless).
+            logger.info(
+                "logging ready — console at {} (docker logs), file always DEBUG at /config/logs/shortlist.log",
+                normalize_level(store.get("log.level")),
+            )
             stale = session.query(Run).filter(Run.status.in_(("queued", "running"))).all()
             for run in stale:
                 run.status = "aborted"

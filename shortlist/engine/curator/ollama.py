@@ -9,6 +9,7 @@ import httpx
 
 from shortlist.engine.curator.base import (
     CuratorError,
+    ThreadLocalTokens,
     build_prompts,
     log_curate_request,
     log_curate_response,
@@ -22,12 +23,12 @@ DEFAULT_MODEL = "llama3.1"
 
 class OllamaCurator:
     name = "ollama"
+    last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, base_url: str = "http://localhost:11434", model: str = DEFAULT_MODEL, timeout: float = 300.0):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
-        self.last_tokens = 0
 
     def ping(self) -> str:
         r = httpx.get(f"{self._base_url}/api/tags", timeout=10)

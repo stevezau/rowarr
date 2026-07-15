@@ -113,6 +113,7 @@ class ContextBuilder:
                 requests=self._build_requests(store),
             )
             recent = self._recent_picks(session, config)
+            concurrency = int(store.get("run.concurrency") or 1)
             # Every user Shortlist knows, enabled or not: the engine answers "whose row is this?"
             # by account id, because a name can change and two names can slugify alike.
             known_slugs = {u.plex_account_id: u.slug for u in session.query(User).all()}
@@ -136,6 +137,7 @@ class ContextBuilder:
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),
             index_cache=DbCache(self._sessions, kind="library_index"),
+            concurrency=concurrency,
             recent_picks=recent,
             known_slugs=known_slugs,
             handled_requests=self._handled_requests(session),

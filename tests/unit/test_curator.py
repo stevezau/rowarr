@@ -403,3 +403,37 @@ class TestOllamaCurator:
         )
         with pytest.raises(CuratorError, match="unparseable"):
             OllamaCurator(base_url="http://ollama.test").curate(make_profile(history=[]), candidates(), k=1)
+
+
+class TestThreadLocalTokens:
+    def test_token_counts_do_not_race_across_threads(self):
+        # The whole point of the descriptor: when users are curated on parallel threads, each
+        # thread's token write must be visible only to itself — a plain attribute would let the
+        # last writer clobber the value every other thread then reads.
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        from shortlist.engine.curator.base import ThreadLocalTokens
+
+        class Holder:
+            last_tokens = ThreadLocalTokens()
+
+        holder = Holder()
+        barrier = threading.Barrier(4)
+
+        def work(n: int) -> int:
+            holder.last_tokens = n
+            barrier.wait()  # every thread has written before any thread reads
+            return holder.last_tokens
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = sorted(pool.map(work, [10, 20, 30, 40]))
+        assert results == [10, 20, 30, 40]  # each thread read back its own write
+
+    def test_defaults_to_zero_before_any_write(self):
+        from shortlist.engine.curator.base import ThreadLocalTokens
+
+        class Holder:
+            last_tokens = ThreadLocalTokens()
+
+        assert Holder().last_tokens == 0

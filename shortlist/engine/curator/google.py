@@ -7,6 +7,7 @@ import time
 
 from shortlist.engine.curator.base import (
     CuratorError,
+    ThreadLocalTokens,
     build_prompts,
     log_curate_request,
     log_curate_response,
@@ -20,6 +21,7 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 
 class GoogleCurator:
     name = "google"
+    last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
         try:
@@ -30,7 +32,6 @@ class GoogleCurator:
         # timeout was silently dropped, so a stalled Gemini call was bounded only by the SDK default.
         self._client = genai.Client(api_key=api_key, http_options={"timeout": int(timeout * 1000)})
         self._model = model
-        self.last_tokens = 0
 
     def ping(self) -> str:
         r = self._client.models.generate_content(model=self._model, contents="Reply with the single word: ready")

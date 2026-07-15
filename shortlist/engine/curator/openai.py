@@ -9,6 +9,7 @@ from loguru import logger
 
 from shortlist.engine.curator.base import (
     CuratorError,
+    ThreadLocalTokens,
     build_prompts,
     build_web_prompt,
     log_curate_request,
@@ -24,6 +25,7 @@ DEFAULT_MODEL = "gpt-4o-mini"
 
 class OpenAICurator:
     name = "openai"
+    last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
         try:
@@ -32,7 +34,6 @@ class OpenAICurator:
             raise ImportError("OpenAI provider needs `pip install shortlist[openai]`") from e
         self._client = openai.OpenAI(api_key=api_key, timeout=timeout, max_retries=2)
         self._model = model
-        self.last_tokens = 0
 
     def ping(self) -> str:
         r = self._client.chat.completions.create(

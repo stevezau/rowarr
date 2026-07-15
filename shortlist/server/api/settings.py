@@ -71,6 +71,7 @@ VALIDATORS = {
     "row.size": _bounded_int(5, 30),
     "staleness_runs": _bounded_int(0, 50),
     "plextv.throttle_s": _bounded_float(1.0, 60.0),  # never below the 1 write/s rule
+    "run.concurrency": _bounded_int(1, 16),  # 1 = sequential; writes stay serial regardless
     "paused_all": _is_bool,
     "requests.enabled": _is_bool,
     "requests.auto_send": _is_bool,

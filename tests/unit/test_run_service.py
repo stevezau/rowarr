@@ -52,6 +52,25 @@ class TestDbCache:
         cache.set("k", json.dumps({"a": 2}), ttl_s=-1)  # already expired
         assert cache.get("k") is None
 
+    def test_concurrent_set_of_the_same_key_does_not_raise(self, sessions):
+        # Parallel runs (Stage 3) fetch candidates for two users who share a seed at once — both
+        # cold-miss and write the same (kind, key). The atomic upsert must let the second writer win
+        # instead of raising IntegrityError (which would fail that user's pool).
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        cache = DbCache(sessions)
+        barrier = threading.Barrier(6)
+
+        def write(i: int) -> None:
+            barrier.wait()  # maximize the collision window
+            cache.set("shared-seed", json.dumps({"n": i}), ttl_s=60)
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(write, range(6)))  # raises here if any thread hit IntegrityError
+
+        assert cache.get("shared-seed") is not None  # one writer won, value is present
+
 
 class TestDbSnapshotStore:
     def test_save_then_get_initial_snapshot(self, sessions):

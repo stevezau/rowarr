@@ -7,6 +7,7 @@ the library. Any tmdb_id it returns that wasn't in its input is dropped and logg
 from __future__ import annotations
 
 import json
+import threading
 from string import Template
 from typing import Protocol
 
@@ -15,6 +16,27 @@ from loguru import logger
 from shortlist.engine.models import Candidate, Pick, PromptConfig, UserProfile
 
 MAX_REASON_LEN = 90
+
+
+class ThreadLocalTokens:
+    """A per-thread token counter, used as a class attribute on each provider curator.
+
+    A curator is one shared instance per run, but its `last_tokens` is written inside `curate` and
+    read immediately after at the call site. When users are curated on parallel threads, a plain
+    instance attribute would let one thread's `curate` clobber another's count between its write and
+    read. Storing per-thread makes each thread see the value its own last `curate` set — no lock, no
+    change at the read sites (which still just read `curator.last_tokens`)."""
+
+    def __init__(self):
+        self._local = threading.local()
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return getattr(self._local, "value", 0)
+
+    def __set__(self, obj, value):
+        self._local.value = value
 
 # Tone presets steer the *wording* of the reasons. Each is a clause appended after the reason
 # instruction (leading space included). "balanced" adds nothing — it's the default house voice.

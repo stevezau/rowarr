@@ -232,6 +232,11 @@ class TestSettingsValidation:
         assert client.put("/api/settings", json={"values": {"log.level": "DEBUG"}}).status_code == 200
         assert client.get("/api/settings").json()["log.level"] == "DEBUG"
 
+    def test_run_concurrency_is_bounded(self, client: TestClient):
+        assert client.put("/api/settings", json={"values": {"run.concurrency": 0}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"run.concurrency": 99}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"run.concurrency": 4}}).status_code == 200
+
     def test_a_valid_settings_payload_still_saves(self, client: TestClient):
         r = client.put(
             "/api/settings",

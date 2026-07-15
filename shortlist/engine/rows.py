@@ -285,15 +285,18 @@ def _run_user(
     user_report.diff = CollectionDiff()
     for spec in cfg.per_person_rows():
         if in_audience(spec) and is_muted(spec):
-            remove_row(
-                ctx.plex,
-                user,
-                cfg,
-                spec,
-                dry_run=cfg.dry_run,
-                diff=user_report.diff,
-                sections=ctx.delivery_sections,
-            )
+            # write_lock: a Plex mutation (and the collections-cache read/invalidate inside it) must
+            # be serialized when users run concurrently — only reads + LLM overlap (Stage 3).
+            with ctx.write_lock:
+                remove_row(
+                    ctx.plex,
+                    user,
+                    cfg,
+                    spec,
+                    dry_run=cfg.dry_run,
+                    diff=user_report.diff,
+                    sections=ctx.delivery_sections,
+                )
 
     # A row DISABLED in the UI is gone from cfg.rows, but its collection still sits on this person's
     # Home (excluded from everyone else, so private — just not gone). Remove it, same as a mute. This
@@ -301,15 +304,16 @@ def _run_user(
     # still gets cleaned up rather than keeping a stale row forever.
     for spec in cfg.retired_rows:
         if not spec.shared and in_audience(spec):
-            remove_row(
-                ctx.plex,
-                user,
-                cfg,
-                spec,
-                dry_run=cfg.dry_run,
-                diff=user_report.diff,
-                sections=ctx.delivery_sections,
-            )
+            with ctx.write_lock:  # serialized against other users' writes (Stage 3 parallel runs)
+                remove_row(
+                    ctx.plex,
+                    user,
+                    cfg,
+                    spec,
+                    dry_run=cfg.dry_run,
+                    diff=user_report.diff,
+                    sections=ctx.delivery_sections,
+                )
 
     specs = [spec for spec in cfg.per_person_rows() if in_audience(spec) and not is_muted(spec)]
     if not specs:
@@ -452,8 +456,11 @@ def _run_user(
                     # shows-only row never tags a missing movie (its pool holds both until delivery).
                     if spec.request_tag and spec.media in ("both", c.media_type.value):
                         tags.add(spec.request_tag)
-            for key, cand in first_seen.items():
-                requests_mod.accumulate(demand, [cand], tags=title_tags[key])
+            # `demand` is the run-wide shared map; the per-user tally above is local, so only this
+            # merge needs the lock (Stage 3 parallel runs).
+            with ctx.write_lock:
+                for key, cand in first_seen.items():
+                    requests_mod.accumulate(demand, [cand], tags=title_tags[key])
         user_report.status = "ok"
 
     if not ctx.plex.sections_by_type():
@@ -542,21 +549,24 @@ def _run_user(
         picks = [pick for sp in section_picks.values() for pick in sp]
         all_picks.extend(picks)
         _pipeline._emit(ctx, user.slug, "delivering", {"picks": len(picks)})
-        deliver_rows(
-            ctx.plex,
-            user,
-            picks,
-            cfg,
-            spec,
-            sole_row=len(specs) == 1,
-            dry_run=cfg.dry_run,
-            stored_labels=stored_labels,
-            diff=user_report.diff,
-            sections=ctx.delivery_sections,
-            section_index=ctx.section_index,
-            section_picks=section_picks,
-            breakdown=user_report.breakdown,
-        )
+        # write_lock: the Plex collection writes AND the shared stored_labels mutation inside
+        # deliver_rows must be serial across users — the leak-safe half of Stage 3 parallelism.
+        with ctx.write_lock:
+            deliver_rows(
+                ctx.plex,
+                user,
+                picks,
+                cfg,
+                spec,
+                sole_row=len(specs) == 1,
+                dry_run=cfg.dry_run,
+                stored_labels=stored_labels,
+                diff=user_report.diff,
+                sections=ctx.delivery_sections,
+                section_index=ctx.section_index,
+                section_picks=section_picks,
+                breakdown=user_report.breakdown,
+            )
         delivered_any = delivered_any or bool(picks)
 
     user_report.picks = all_picks

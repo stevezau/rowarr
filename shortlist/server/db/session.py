@@ -25,6 +25,10 @@ def make_engine(config_dir: Path):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
+        # A run's parallel candidate fetches write cache rows concurrently; WAL allows one writer at
+        # a time, so without a busy timeout a second writer would fail with "database is locked".
+        # 5s lets it wait out the brief write lock instead.
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
     return engine

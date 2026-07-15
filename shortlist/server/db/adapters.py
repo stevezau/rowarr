@@ -11,6 +11,7 @@ import json
 import time
 
 from loguru import logger
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from shortlist.engine.models import FilterSnapshot, UserType, dedupe_slug, slugify
@@ -99,12 +100,16 @@ class DbCache:
             return None
 
     def set(self, key: str, value: str, ttl_s: int) -> None:
+        # Atomic upsert, not check-then-insert: parallel candidate fetches for two users who share a
+        # seed both cold-miss and write the same (kind, key) at once — a plain add()+commit() would
+        # raise IntegrityError on the second and fail that user's pool. ON CONFLICT DO UPDATE lets the
+        # later writer win harmlessly (the value is identical anyway).
+        payload = json.loads(value)
+        expires = time.time() + ttl_s
+        stmt = sqlite_insert(CacheRow).values(kind=self._kind, key=key, value=payload, expires_at=expires)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["kind", "key"], set_={"value": payload, "expires_at": expires}
+        )
         with self._sessions() as session:
-            row = session.get(CacheRow, (self._kind, key))
-            payload = json.loads(value)
-            if row is None:
-                session.add(CacheRow(kind=self._kind, key=key, value=payload, expires_at=time.time() + ttl_s))
-            else:
-                row.value = payload
-                row.expires_at = time.time() + ttl_s
+            session.execute(stmt)
             session.commit()

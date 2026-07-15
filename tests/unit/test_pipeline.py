@@ -1085,3 +1085,76 @@ class TestLibraryIndexCache:
         pipeline_mod._library_index(ctx, section)
         pipeline_mod._library_index(ctx, section)
         assert ctx.plex.build_library_index.call_count == 2
+
+
+class TestParallelRuns:
+    """Stage 3: users processed concurrently, but every Plex write serialized by ctx.write_lock."""
+
+    def _users(self, mock_plextv, names=("sarah", "mike", "canary")):
+        users = [make_profile(n, account_id=(i + 1) * 100) for i, n in enumerate(names)]
+        mock_plextv.users = [plextv_user((i + 1) * 100, n) for i, n in enumerate(names)]
+        return users
+
+    def test_writes_never_run_concurrently_under_the_lock(self, ctx: EngineContext, mock_plextv):
+        import threading
+        import time
+
+        users = self._users(mock_plextv)
+        ctx.concurrency = 3
+        ctx.curator.curate.side_effect = curated_picks
+
+        created: dict[str, object] = {}
+
+        def stored_label(collection, label):
+            created[label.lower()] = collection
+            return label.replace("shortlist", "Shortlist", 1)
+
+        ctx.plex.stored_label.side_effect = stored_label
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: (
+            [created[label.lower()]] if label.lower() in created else []
+        )
+
+        counter = {"now": 0, "max": 0}
+        guard = threading.Lock()
+
+        def guarded_create(section, title, items):
+            with guard:
+                counter["now"] += 1
+                counter["max"] = max(counter["max"], counter["now"])
+            time.sleep(0.02)  # widen the window a race would slip through
+            with guard:
+                counter["now"] -= 1
+            return MagicMock()
+
+        ctx.plex.create_collection.side_effect = guarded_create
+
+        report = pipeline_mod.run(ctx, users)
+
+        assert all(u.status == "ok" for u in report.users)
+        assert ctx.plex.create_collection.call_count == 3  # every user delivered
+        assert counter["max"] == 1, "deliver writes ran concurrently — the write_lock is not holding"
+
+    def test_concurrency_preserves_user_order_and_excludes(self, ctx: EngineContext, mock_plextv):
+        users = self._users(mock_plextv)
+        ctx.concurrency = 3
+        ctx.curator.curate.side_effect = curated_picks
+        created: dict[str, object] = {}
+
+        def stored_label(collection, label):
+            created[label.lower()] = collection
+            return label.replace("shortlist", "Shortlist", 1)
+
+        ctx.plex.stored_label.side_effect = stored_label
+        ctx.plex.create_collection.side_effect = lambda section, title, items: MagicMock()
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: (
+            [created[label.lower()]] if label.lower() in created else []
+        )
+
+        report = pipeline_mod.run(ctx, users)
+
+        assert [u.slug for u in report.users] == ["sarah", "mike", "canary"]  # input order preserved
+        # Each user's share filter excludes the OTHER two users' rows — same privacy result as serial.
+        sarah_filters = next(u for u in mock_plextv.users if u.id == 100).filters
+        assert "Shortlist_mike" in sarah_filters["filterMovies"]
+        assert "Shortlist_canary" in sarah_filters["filterMovies"]
+        assert "Shortlist_sarah" not in sarah_filters["filterMovies"]

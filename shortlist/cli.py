@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -79,21 +80,28 @@ class FileSnapshotStore:
 
 
 class FileCache:
-    """Naive JSON TTL cache for TMDB responses; good enough for a nightly CLI run."""
+    """Naive JSON TTL cache for TMDB/Trakt/index responses; good enough for a nightly CLI run.
+
+    Lock-guarded so parallel candidate fetches (which write cache entries concurrently) can't
+    interleave a read-modify-write of the backing dict or corrupt the JSON file.
+    """
 
     def __init__(self, path: Path):
         self._path = path
         self._data = json.loads(path.read_text()) if path.exists() else {}
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> str | None:
-        entry = self._data.get(key)
-        if entry and entry["expires_at"] > time.time():
-            return entry["value"]
-        return None
+        with self._lock:
+            entry = self._data.get(key)
+            if entry and entry["expires_at"] > time.time():
+                return entry["value"]
+            return None
 
     def set(self, key: str, value: str, ttl_s: int) -> None:
-        self._data[key] = {"value": value, "expires_at": time.time() + ttl_s}
-        self._path.write_text(json.dumps(self._data))
+        with self._lock:
+            self._data[key] = {"value": value, "expires_at": time.time() + ttl_s}
+            self._path.write_text(json.dumps(self._data))
 
 
 def _load_recent_picks(path: Path) -> dict[str, set[tuple[int, MediaType]]]:

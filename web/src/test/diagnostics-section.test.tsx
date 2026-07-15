@@ -51,4 +51,15 @@ describe("DiagnosticsSection", () => {
       expect(putSettings).toHaveBeenCalledWith({ "log.level": "TRACE" }),
     );
   });
+
+  it("auto-saves run concurrency as a number and defaults to 4", async () => {
+    renderSection({});
+    expect(
+      screen.getByRole("button", { name: "4" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    await userEvent.click(screen.getByRole("button", { name: "8" }));
+    await waitFor(() =>
+      expect(putSettings).toHaveBeenCalledWith({ "run.concurrency": 8 }),
+    );
+  });
 });

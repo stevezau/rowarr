@@ -9,6 +9,7 @@ from loguru import logger
 
 from shortlist.engine.curator.base import (
     CuratorError,
+    ThreadLocalTokens,
     build_prompts,
     build_web_prompt,
     log_curate_request,
@@ -25,6 +26,7 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 class AnthropicCurator:
     name = "anthropic"
+    last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
         try:
@@ -33,7 +35,6 @@ class AnthropicCurator:
             raise ImportError("Anthropic provider needs `pip install shortlist[anthropic]`") from e
         self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=2)
         self._model = model
-        self.last_tokens = 0
 
     def ping(self) -> str:
         response = self._client.messages.create(

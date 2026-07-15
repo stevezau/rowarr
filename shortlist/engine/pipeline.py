@@ -9,8 +9,10 @@ guarantees that depend on it.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -87,6 +89,11 @@ class EngineContext:
     # Day number of this run (date.toordinal()), the phase for freshness rotation so a row shifts
     # day to day but is reproducible within a day. Set at the start of run(); 0 disables rotation.
     run_day: int = 0
+    # How many users to process concurrently. 1 = fully sequential (the safe engine/CLI/test default).
+    # The server sets this from `run.concurrency`. Only the READ + LLM work overlaps; every Plex and
+    # plex.tv write is serialized by ``write_lock``, so the leak-safe ordering is preserved exactly.
+    concurrency: int = 1
+    write_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 def _emit(ctx: EngineContext, slug: str, stage: str, counts: dict) -> None:
@@ -313,18 +320,17 @@ def _deliver_phase(
 ) -> tuple[list[UserProfile], list[tuple[RowSpec, UserProfile]]]:
     """Deliver every per-person and shared row, all UNPROMOTED. Returns the promotion candidates."""
     to_promote: list[UserProfile] = []
-    for user in users:
+
+    def process(user: UserProfile) -> tuple[UserProfile, UserRunReport, bool]:
         user_report = UserRunReport(username=user.username, slug=user.slug)
         # A row swept for this user is part of their story this run — but the swept dict is the
         # run-level record, so a paused user's deletion is never lost just because they have no
         # UserRunReport.
         swept_titles = report.swept_rows.get(user.slug, [])
-        report.users.append(user_report)
         started = time.monotonic()
+        delivered = False
         try:
             delivered = rows._run_user(ctx, user, seed_index, library_index, stored_labels, user_report, demand)
-            if delivered:
-                to_promote.append(user)
         except Exception as e:
             user_report.status = "error"
             user_report.error = f"{type(e).__name__}: {e}"
@@ -349,6 +355,21 @@ def _deliver_phase(
                     "done",
                     {"picks": len(user_report.picks or []), "seconds": int(user_report.duration_s)},
                 )
+        return user, user_report, delivered
+
+    # Users are independent, so their READ + LLM work overlaps across a bounded pool while every Plex
+    # and plex.tv WRITE is serialized inside _run_user by ctx.write_lock — the leak-safe ordering is
+    # untouched. `pool.map` preserves order, so report.users and to_promote read exactly as they would
+    # sequentially; concurrency=1 (the default) skips the pool entirely and stays fully sequential.
+    if ctx.concurrency > 1 and len(users) > 1:
+        with ThreadPoolExecutor(max_workers=ctx.concurrency) as pool:
+            results = list(pool.map(process, users))
+    else:
+        results = [process(user) for user in users]
+    for user, user_report, delivered in results:
+        report.users.append(user_report)
+        if delivered:
+            to_promote.append(user)
 
     # Shared "popular on this server" rows: built once from aggregate history, delivered UNPROMOTED
     # like the per-person rows so promotion still happens only after the filters are merged.

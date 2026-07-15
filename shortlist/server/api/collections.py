@@ -207,10 +207,24 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
     # Only touch fields the request actually sent, so a partial PATCH (e.g. an enable toggle) never
     # resets the columns it omitted back to CollectionIn's defaults.
     sent = body.model_fields_set
-    with request.app.state.sessions() as session:
+    state = request.app.state
+    dropped_user_ids: set[int] = set()
+    slug = build = None
+    with state.sessions() as session:
         collection = session.get(Collection, collection_id)
         if collection is None:
             raise HTTPException(404, "collection not found")
+        slug, build = collection.slug, collection.build
+        # Capture the audience BEFORE the patch so we can tell WHO was dropped (their row is now stale
+        # on Plex and must be removed). "everyone" resolves to the full user set.
+        touching_audience = build == "per_person" and bool(sent & {"audience", "audience_user_ids"})
+        if touching_audience:
+            all_ids = {u.id for u in session.query(User).all()}
+            old_users = (
+                all_ids
+                if collection.audience == "everyone"
+                else {a.user_id for a in session.query(CollectionAudience).filter_by(collection_id=collection.id)}
+            )
         if "name" in sent:
             _reject_duplicate_name(session, body.name, exclude_id=collection_id)
             collection.name = body.name
@@ -222,7 +236,21 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
         if sent & {"audience", "audience_user_ids"}:
             _set_audience(session, collection, body)
         session.commit()
-        return _serialize(session, collection)
+        if touching_audience:
+            new_users = (
+                all_ids
+                if collection.audience == "everyone"
+                else {a.user_id for a in session.query(CollectionAudience).filter_by(collection_id=collection.id)}
+            )
+            dropped_user_ids = old_users - new_users  # users no longer in the audience → clean them up
+        result = _serialize(session, collection)
+    # Removing a dropped user's row is a removal (gate-exempt); a newly-ADDED user's row is a create,
+    # so it's left for the next run's gated delivery. Best-effort + audited.
+    if dropped_user_ids:
+        await _run_reconcile(
+            state, slug=slug, build=build, dry_run=False, scope="collection.audience", only_user_ids=dropped_user_ids
+        )
+    return result
 
 
 @router.delete("/{collection_id}", status_code=204)
@@ -278,25 +306,35 @@ async def cleanup_collection(collection_id: int, body: CleanupRequest, request: 
     return {"removed": removed, "dry_run": body.dry_run, "message": f"{verb} {len(removed)} collection(s) for “{name}”."}
 
 
-def _reconcile_row_removal(state, *, slug: str, build: str, dry_run: bool, removed: list[str]) -> None:
-    """Remove a row's collections from Plex for everyone. Accumulates the display titles into the
-    ``removed`` out-param (so a mid-loop PMS failure still leaves the partial list for the audit).
+def _reconcile_row_removal(
+    state, *, slug: str, build: str, dry_run: bool, removed: list[str], only_user_ids: set[int] | None = None
+) -> None:
+    """Remove a row's collections from Plex. Accumulates the display titles into the ``removed``
+    out-param (so a mid-loop PMS failure still leaves the partial list for the audit).
 
     Shared rows go by their own label (one membership); per-person rows are pinned per user by the
     exact title the last run delivered for THIS row (its persisted breakdown), scoped to that user's
-    own label — so it can never reach another user's row or a foreign (Kometa) collection. Removal
-    only, so gate-exempt. Runs in an executor thread (Plex I/O)."""
+    own label — so it can never reach another user's row or a foreign (Kometa) collection.
+    ``only_user_ids`` limits the per-person sweep to specific users (audience-shrink cleanup); ``None``
+    means everyone (delete-row / manual cleanup). Removal only, so gate-exempt. Runs in an executor."""
     ctx = state.run_service.build_context(dry_run=dry_run)
     if build == "shared":
-        removed.extend(
-            remove_row_collections(ctx.plex, ctx.config, label=f"{SHARED_LABEL_PREFIX}{slug}", displays=None, dry_run=dry_run)
-        )
+        # A shared row is one collection for everyone; who SEES it is a share-filter concern handled
+        # by the next run's privacy sync, not a per-user collection to remove here.
+        if only_user_ids is None:
+            removed.extend(
+                remove_row_collections(
+                    ctx.plex, ctx.config, label=f"{SHARED_LABEL_PREFIX}{slug}", displays=None, dry_run=dry_run
+                )
+            )
         return
     with state.sessions() as session:
         latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
         breakdown_by_user = {ru.user_id: (ru.breakdown or []) for ru in latest.users} if latest else {}
         users = session.query(User).all()
     for user in users:
+        if only_user_ids is not None and user.id not in only_user_ids:
+            continue
         displays = {
             entry["row_title"]
             for entry in breakdown_by_user.get(user.id, [])
@@ -311,14 +349,19 @@ def _reconcile_row_removal(state, *, slug: str, build: str, dry_run: bool, remov
         )
 
 
-async def _run_reconcile(state, *, slug: str, build: str, dry_run: bool, scope: str) -> tuple[list[str], str | None]:
+async def _run_reconcile(
+    state, *, slug: str, build: str, dry_run: bool, scope: str, only_user_ids: set[int] | None = None
+) -> tuple[list[str], str | None]:
     """Run ``_reconcile_row_removal`` in an executor and audit it (rule 10) — even a mid-loop failure
     records what was already removed. Returns ``(removed, error)``."""
     removed: list[str] = []
     error: str | None = None
     try:
         await asyncio.get_running_loop().run_in_executor(
-            None, lambda: _reconcile_row_removal(state, slug=slug, build=build, dry_run=dry_run, removed=removed)
+            None,
+            lambda: _reconcile_row_removal(
+                state, slug=slug, build=build, dry_run=dry_run, removed=removed, only_user_ids=only_user_ids
+            ),
         )
     except Exception as e:  # a destructive write is never silent: audit the partial removal, then surface it
         error = redact(f"{type(e).__name__}: {e}")  # a PMS error can carry a tokened URL (rule 9)

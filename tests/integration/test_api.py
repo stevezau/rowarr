@@ -680,6 +680,135 @@ class TestCollectionsApi:
         assert len(deleted) == 1  # its Plex collection was removed
         assert slug not in {c["slug"] for c in client.get("/api/collections").json()}  # and the DB row is gone
 
+    def test_shrinking_a_rows_audience_removes_only_the_dropped_users_collection(
+        self, client: TestClient, monkeypatch
+    ):
+        """Dropping a user from a subset audience removes THAT user's collection; the kept user's is
+        left untouched (only_user_ids scopes the sweep). Adding a user is a create → left for a run."""
+        from shortlist.engine.delivery import row_marker
+        from shortlist.server.db.models import Run, RunUser, User
+
+        u_ids = [u["id"] for u in client.get("/api/users").json()]
+        created = client.post(
+            "/api/collections", json={"name": "Gems", "audience": "subset", "audience_user_ids": u_ids}
+        )
+        cid, slug = created.json()["id"], created.json()["slug"]
+        with client.app.state.sessions() as session:
+            by_id = {u.id: u for u in session.query(User).all()}
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            for uid in u_ids:
+                session.add(
+                    RunUser(run_id=run.id, user_id=uid, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}])
+                )
+            session.commit()
+            slugs = {uid: by_id[uid].slug for uid in u_ids}
+            accts = {uid: by_id[uid].plex_account_id for uid in u_ids}
+
+        keep, drop = u_ids[0], u_ids[1]
+        deleted = self._fake_plex_ctx(
+            monkeypatch,
+            client,
+            collections=[
+                ("Gems" + row_marker(accts[keep]), f"shortlist_{slugs[keep]}"),
+                ("Gems" + row_marker(accts[drop]), f"shortlist_{slugs[drop]}"),
+            ],
+        )
+
+        r = client.patch(
+            f"/api/collections/{cid}", json={"name": "Gems", "audience": "subset", "audience_user_ids": [keep]}
+        )
+        assert r.status_code == 200
+        # Exactly the DROPPED user's collection (its account marker), never the kept user's.
+        assert deleted == ["Gems" + row_marker(accts[drop])]
+
+    def test_widening_from_everyone_to_a_subset_removes_the_complement(self, client: TestClient, monkeypatch):
+        """everyone → subset: the audience state flips from the 'everyone' branch (old = all ids) to a
+        subset, so every user NOT in the new subset is dropped and their row removed — the largest
+        removal in the matrix, and the one where old_users resolves via 'everyone', not CollectionAudience."""
+        from shortlist.engine.delivery import row_marker
+        from shortlist.server.db.models import Run, RunUser, User
+
+        u_ids = [u["id"] for u in client.get("/api/users").json()]
+        assert len(u_ids) >= 2, "fixture must seed at least two users"
+        created = client.post("/api/collections", json={"name": "Gems", "audience": "everyone"})
+        cid, slug = created.json()["id"], created.json()["slug"]
+        with client.app.state.sessions() as session:
+            by_id = {u.id: u for u in session.query(User).all()}
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            for uid in u_ids:
+                session.add(
+                    RunUser(run_id=run.id, user_id=uid, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}])
+                )
+            session.commit()
+            slugs = {uid: by_id[uid].slug for uid in u_ids}
+            accts = {uid: by_id[uid].plex_account_id for uid in u_ids}
+
+        keep, dropped = u_ids[0], u_ids[1:]
+        deleted = self._fake_plex_ctx(
+            monkeypatch,
+            client,
+            collections=[("Gems" + row_marker(accts[uid]), f"shortlist_{slugs[uid]}") for uid in u_ids],
+        )
+
+        r = client.patch(
+            f"/api/collections/{cid}", json={"name": "Gems", "audience": "subset", "audience_user_ids": [keep]}
+        )
+        assert r.status_code == 200
+        assert set(deleted) == {"Gems" + row_marker(accts[uid]) for uid in dropped}
+        assert "Gems" + row_marker(accts[keep]) not in deleted  # the kept user's row is untouched
+
+    def test_widening_a_subset_to_everyone_removes_nothing(self, client: TestClient, monkeypatch):
+        """subset → everyone: the audience only grew (old ⊆ new), so dropped = ∅ and nothing is removed.
+        A newly included user's row is a create, left for the next gated run — never removed here."""
+        from shortlist.engine.delivery import row_marker
+        from shortlist.server.db.models import Run, RunUser, User
+
+        u_ids = [u["id"] for u in client.get("/api/users").json()]
+        keep = u_ids[0]
+        created = client.post(
+            "/api/collections", json={"name": "Gems", "audience": "subset", "audience_user_ids": [keep]}
+        )
+        cid, slug = created.json()["id"], created.json()["slug"]
+        with client.app.state.sessions() as session:
+            by_id = {u.id: u for u in session.query(User).all()}
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            session.add(
+                RunUser(run_id=run.id, user_id=keep, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}])
+            )
+            session.commit()
+            slugs = {uid: by_id[uid].slug for uid in u_ids}
+            accts = {uid: by_id[uid].plex_account_id for uid in u_ids}
+
+        deleted = self._fake_plex_ctx(
+            monkeypatch, client, collections=[("Gems" + row_marker(accts[keep]), f"shortlist_{slugs[keep]}")]
+        )
+
+        r = client.patch(f"/api/collections/{cid}", json={"name": "Gems", "audience": "everyone"})
+        assert r.status_code == 200
+        assert deleted == []  # audience only widened → no reconcile removal
+
+    def test_patching_a_non_audience_field_never_touches_plex(self, client: TestClient, monkeypatch):
+        """A size-only PATCH on a per-person row must NOT enter the audience reconcile at all — no Plex
+        round-trip. build_context is the sole entry to Plex here, so a spy that must-not-be-called guards
+        the touching_audience gate directly (asserting deleted==[] alone couldn't tell a skip from a
+        run-that-found-nothing)."""
+        from unittest.mock import MagicMock
+
+        created = client.post("/api/collections", json={"name": "Gems", "audience": "everyone"})
+        cid = created.json()["id"]
+        spy = MagicMock()
+        monkeypatch.setattr(client.app.state.run_service, "build_context", spy)
+
+        r = client.patch(f"/api/collections/{cid}", json={"name": "Gems", "size": 15})
+        assert r.status_code == 200 and r.json()["size"] == 15
+        spy.assert_not_called()
+
     def test_shared_collection_with_subset_audience(self, client: TestClient):
         users = client.get("/api/users").json()
         ids = [u["id"] for u in users]

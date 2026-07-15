@@ -12,7 +12,7 @@ import re
 import pytest
 from playwright.sync_api import Page, expect
 
-from tests.e2e.conftest import RowarrApp, build_real_rows
+from tests.e2e.conftest import ShortlistApp, build_real_rows
 
 pytestmark = pytest.mark.e2e
 
@@ -26,7 +26,7 @@ def _open_settings(page: Page) -> None:
 
 
 class TestConnectionCards:
-    def test_every_test_button_reports_the_real_state_of_its_connection(self, page: Page, app: RowarrApp):
+    def test_every_test_button_reports_the_real_state_of_its_connection(self, page: Page, app: ShortlistApp):
         """All four services, each hitting its real client — not one happy-path card.
 
         Tautulli is deliberately unconfigured here, which is the state a fresh install is in:
@@ -56,7 +56,7 @@ class TestConnectionCards:
 
 
 class TestDefaults:
-    def test_row_name_and_size_survive_a_reload(self, page: Page, app: RowarrApp):
+    def test_row_name_and_size_survive_a_reload(self, page: Page, app: ShortlistApp):
         _open_settings(page)
 
         row_name = page.get_by_label("Row name template")
@@ -80,7 +80,7 @@ class TestDefaults:
         expect(page.get_by_label("Row name template")).to_have_value("🍿 Tonight's picks for {top_seed}", timeout=LOAD)
         expect(page.get_by_role("button", name="20", exact=True)).to_have_attribute("aria-pressed", "true")
 
-    def test_pause_all_stops_runs_without_disabling_anyone(self, page: Page, app: RowarrApp):
+    def test_pause_all_stops_runs_without_disabling_anyone(self, page: Page, app: ShortlistApp):
         """The Danger Zone switch must actually pause runs — it used to 422 as an unknown key."""
         _open_settings(page)
         page.get_by_role("button", name="Pause all").click()
@@ -102,7 +102,7 @@ class TestDefaults:
 
 
 class TestSchedule:
-    def test_saving_the_schedule_persists_a_valid_cron(self, page: Page, app: RowarrApp):
+    def test_saving_the_schedule_persists_a_valid_cron(self, page: Page, app: ShortlistApp):
         _open_settings(page)
 
         page.get_by_label("Run at").fill("04:45")
@@ -119,7 +119,7 @@ class TestSchedule:
         page.reload()
         expect(page.get_by_label("Run at")).to_have_value("04:45", timeout=LOAD)
 
-    def test_an_invalid_cron_is_rejected_with_a_readable_message(self, page: Page, app: RowarrApp):
+    def test_an_invalid_cron_is_rejected_with_a_readable_message(self, page: Page, app: ShortlistApp):
         """The backend must never accept a cron that would silently kill the nightly run.
 
         Issued through the SPA's own fetch (session cookie + CSRF header, same as any mutation)
@@ -132,7 +132,7 @@ class TestSchedule:
             """async () => {
                 const response = await fetch('/api/settings', {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'x-rowarr-csrf': '1' },
+                    headers: { 'Content-Type': 'application/json', 'x-shortlist-csrf': '1' },
                     body: JSON.stringify({ values: { 'schedule.cron': 'not a cron' } }),
                 });
                 return { status: response.status, body: await response.json() };
@@ -146,7 +146,9 @@ class TestSchedule:
 
 
 class TestDangerZone:
-    def test_uninstall_dry_run_previews_the_damage_without_doing_any(self, page: Page, app: RowarrApp, reset_fake_plex):
+    def test_uninstall_dry_run_previews_the_damage_without_doing_any(
+        self, page: Page, app: ShortlistApp, reset_fake_plex
+    ):
         """The preview must be honest about what would go, and must not touch Plex.
 
         This is the trust feature: an owner who cannot see what uninstall would do will never

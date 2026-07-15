@@ -11,7 +11,7 @@ from tests.conftest import fake_media_item, make_profile, plextv_user
 PROBE_ID = 777001
 # The label PREFIX delete_owned_collection is given — its guard against deleting a collection that
 # is not Shortlist's (Kometa coexistence). NOT the probe's own full label.
-OWNED_PREFIX = "rowarr"
+OWNED_PREFIX = "shortlist"
 
 
 def assert_deleted_only_its_own_probe(plex: MagicMock) -> None:
@@ -52,7 +52,7 @@ def make_plex(hub_sequences: list[list[dict]]) -> MagicMock:
     collection = MagicMock()
     collection.ratingKey = PROBE_ID
     plex.create_collection.return_value = collection
-    plex.stored_label.return_value = "Rowarr_probe"
+    plex.stored_label.return_value = "Shortlist_probe"
     calls = {"n": 0}
 
     def hubs(token):
@@ -105,8 +105,8 @@ class TestPrivacyProbe:
         # requested casing would prove nothing, since it is not what is on the collection.
         wrote = plextv.update_user_filters.call_args_list[0]
         assert wrote.args[0] == 555000100
-        assert wrote.args[1]["filterMovies"] == "label!=Rowarr_probe"
-        assert wrote.args[1]["filterTelevision"] == "label!=Rowarr_probe"
+        assert wrote.args[1]["filterMovies"] == "label!=Shortlist_probe"
+        assert wrote.args[1]["filterTelevision"] == "label!=Shortlist_probe"
 
         # Cleanup: filters restored byte-identical, and only the probe's own collection deleted.
         assert plextv.users[0].filters["filterMovies"] == ""
@@ -133,7 +133,7 @@ class TestPrivacyProbe:
         assert saved.filters["filterMovies"] == "contentRating!=R"  # true pre-probe state
 
     def test_existing_snapshot_is_never_overwritten(self, mock_plextv, snapshot_store):
-        """A probe run after Rowarr is live must not clobber the real pre-Rowarr snapshot."""
+        """A probe run after Shortlist is live must not clobber the real pre-Shortlist snapshot."""
         from datetime import UTC, datetime
 
         from shortlist.engine.models import FilterSnapshot

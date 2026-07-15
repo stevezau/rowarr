@@ -26,7 +26,7 @@ def ctx(engine_config: EngineConfig, mock_plextv, mock_tmdb, mock_curator) -> En
     plex.build_library_index.return_value = {900: 999, 10: 1010, 20: 1020}
     plex.owned_collections.return_value = {}
     plex.find_owned_collections.return_value = []  # delivery finds by title; promotion enumerates rows
-    plex.stored_label.side_effect = lambda collection, label: label.replace("rowarr", "Rowarr", 1)
+    plex.stored_label.side_effect = lambda collection, label: label.replace("shortlist", "Shortlist", 1)
     plex.fetch_items.side_effect = lambda keys: [fake_media_item(k, f"item{k}") for k in keys]
 
     history = MagicMock()
@@ -75,7 +75,7 @@ class TestRun:
 
         def stored_label(collection, label):
             created_by_label[label.lower()] = collection
-            return label.replace("rowarr", "Rowarr", 1)
+            return label.replace("shortlist", "Shortlist", 1)
 
         ctx.plex.stored_label.side_effect = stored_label
         ctx.plex.create_collection.side_effect = lambda section, title, items: MagicMock()
@@ -92,9 +92,9 @@ class TestRun:
         assert ctx.plex.create_collection.call_count == 2
         # Each user's filter excludes exactly the OTHER user's stored (title-cased) label.
         sarah_filters = next(u for u in mock_plextv.users if u.id == 100).filters
-        assert sarah_filters["filterMovies"] == "label!=Rowarr_mike"
+        assert sarah_filters["filterMovies"] == "label!=Shortlist_mike"
         mike_filters = next(u for u in mock_plextv.users if u.id == 200).filters
-        assert mike_filters["filterMovies"] == "label!=Rowarr_sarah"
+        assert mike_filters["filterMovies"] == "label!=Shortlist_sarah"
         # Promotion happened last, for both users' collections.
         assert ctx.plex.promote.call_count == 2
 
@@ -215,15 +215,19 @@ class TestRun:
         ctx.config.dry_run = True
         sarah, mike = make_profile("sarah", account_id=100), make_profile("mike", account_id=200)
         ctx.plex.owned_collections.return_value = {
-            "sarah": OwnedRow("Rowarr_sarah", [1]),
-            "mike": OwnedRow("Rowarr_mike", [2]),
+            "sarah": OwnedRow("Shortlist_sarah", [1]),
+            "mike": OwnedRow("Shortlist_mike", [2]),
         }
         mock_plextv.users = [
             plextv_user(
-                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+                100,
+                "sarah",
+                filters={"filterMovies": "label!=Shortlist_mike", "filterTelevision": "label!=Shortlist_mike"},
             ),
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             ),
         ]
         ctx.curator.curate.side_effect = curated_picks

@@ -58,7 +58,7 @@ def fake_context(monkeypatch, client: TestClient) -> tuple[MagicMock, MagicMock]
     """
     live_filters = {
         "filterAll": "",
-        "filterMovies": "contentRating!=R|label!=Rowarr_mike",
+        "filterMovies": "contentRating!=R|label!=Shortlist_mike",
         "filterTelevision": "",
         "filterMusic": "",
         "filterPhotos": "",
@@ -69,7 +69,7 @@ def fake_context(monkeypatch, client: TestClient) -> tuple[MagicMock, MagicMock]
     plex = MagicMock()
     ours = MagicMock(ratingKey=1)
     ours.title = "✨ Picked for You"
-    ours.labels = [SimpleNamespace(tag="Rowarr_sarah")]
+    ours.labels = [SimpleNamespace(tag="Shortlist_sarah")]
     kometa = MagicMock(ratingKey=2)
     kometa.title = "Kometa Trending"
     kometa.labels = [SimpleNamespace(tag="Overlay")]
@@ -116,7 +116,7 @@ class TestUninstall:
         # Filters restored to the snapshot values, byte-for-byte.
         call = plextv.update_user_filters.call_args
         assert call.args[1] == {"filterMovies": "contentRating!=R"}
-        # Only the rowarr-labeled collection was deleted; the label gate is re-checked inside.
+        # Only the shortlist-labeled collection was deleted; the label gate is re-checked inside.
         assert plex.delete_owned_collection.call_count == 1
         deleted = plex.delete_owned_collection.call_args.args[0]
         assert deleted.title == "✨ Picked for You"

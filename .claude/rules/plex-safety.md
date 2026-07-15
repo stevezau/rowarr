@@ -1,5 +1,5 @@
 ---
-globs: "rowarr/engine/{privacy,delivery,verify}*.py,rowarr/engine/clients/plex*.py"
+globs: "shortlist/engine/{privacy,delivery,verify}*.py,shortlist/engine/clients/plex*.py"
 ---
 
 # Plex Safety Rules (non-negotiable)
@@ -19,9 +19,9 @@ violate them.
 2. **Snapshot first.** Before the first restriction mutation for a user, persist a
    `restriction_snapshots` row with their current filters. Uninstall restores from these.
 3. **Merge, never rebuild.** Share-filter writes are read-modify-write: parse the user's current
-   `filterMovies`/`filterTelevision`, union our `rowarr_*` excludes into the existing `label!=`
+   `filterMovies`/`filterTelevision`, union our `shortlist_*` excludes into the existing `label!=`
    values, leave every other condition byte-identical. Never construct a filter string from scratch.
-4. **Touch only what we own.** Only collections titled/labeled by Shortlist (`rowarr_*` label) may be
+4. **Touch only what we own.** Only collections titled/labeled by Shortlist (`shortlist_*` label) may be
    modified or deleted. Detect and skip anything else — Kometa and other tools manage collections
    on the same servers; coexistence is mandatory.
 5. **Owner + managed users.** The server owner is never restricted (Plex limitation — skip, don't

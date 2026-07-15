@@ -15,12 +15,12 @@ from tests.conftest import make_profile, plextv_user
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 HUBS = json.loads((FIXTURES / "pms_hubs_home.json").read_text())["MediaContainer"]["Hub"]
 
-STORED = {"sarah": "Rowarr_sarah", "mike": "Rowarr_mike"}
-KNOWN = {100: "sarah", 200: "mike"}  # plex account id -> the slug Rowarr gave it
+STORED = {"sarah": "Shortlist_sarah", "mike": "Shortlist_mike"}
+KNOWN = {100: "sarah", 200: "mike"}  # plex account id -> the slug Shortlist gave it
 # Matches the fixture: sarah's collection is 571285, mike's is 571299.
 COLLECTIONS = {
-    "sarah": OwnedRow("Rowarr_sarah", [571285]),
-    "mike": OwnedRow("Rowarr_mike", [571299]),
+    "sarah": OwnedRow("Shortlist_sarah", [571285]),
+    "mike": OwnedRow("Shortlist_mike", [571299]),
 }
 
 
@@ -34,10 +34,14 @@ class TestCheckT1:
     def test_pass_when_all_excludes_present(self, mock_plextv):
         mock_plextv.users = [
             plextv_user(
-                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+                100,
+                "sarah",
+                filters={"filterMovies": "label!=Shortlist_mike", "filterTelevision": "label!=Shortlist_mike"},
             ),
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             ),
         ]
         result = check_t1(mock_plextv, KNOWN, STORED)
@@ -48,36 +52,44 @@ class TestCheckT1:
         mock_plextv.users = [
             plextv_user(100, "sarah"),  # drifted: no excludes at all
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             ),
         ]
         result = check_t1(mock_plextv, KNOWN, STORED)
         assert not result.passed
-        assert "Rowarr_mike" in result.detail["sarah"]
+        assert "Shortlist_mike" in result.detail["sarah"]
 
     def test_a_user_who_no_longer_shares_the_server_is_not_a_privacy_failure(self, mock_plextv):
         """Someone whose share was revoked cannot see anything, so there is nothing to check for
         them — but their row still exists, and everyone who CAN see the server must still exclude
-        it. T1 asks plex.tv who the audience is rather than trusting Rowarr's own user list."""
+        it. T1 asks plex.tv who the audience is rather than trusting Shortlist's own user list."""
         mock_plextv.users = [
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             )
         ]
         result = check_t1(mock_plextv, KNOWN, STORED)
         assert result.passed
 
-    def test_an_account_rowarr_does_not_manage_must_still_exclude_every_row(self, mock_plextv):
+    def test_an_account_shortlist_does_not_manage_must_still_exclude_every_row(self, mock_plextv):
         """The check that would have caught the live leak: 45 of 48 accounts on a real server had
-        no excludes at all, because only the three users Rowarr managed were ever looked at."""
+        no excludes at all, because only the three users Shortlist managed were ever looked at."""
         mock_plextv.users = [
             plextv_user(
-                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+                100,
+                "sarah",
+                filters={"filterMovies": "label!=Shortlist_mike", "filterTelevision": "label!=Shortlist_mike"},
             ),
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             ),
-            plextv_user(300, "stranger"),  # shares the server; Rowarr has never heard of them
+            plextv_user(300, "stranger"),  # shares the server; Shortlist has never heard of them
         ]
 
         result = check_t1(mock_plextv, KNOWN, STORED)
@@ -88,7 +100,7 @@ class TestCheckT1:
     def test_users_without_collections_expect_no_excludes(self, mock_plextv):
         mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(300, "newbie")]
         # Only sarah has a collection; nobody needs excludes for newbie, and newbie needs sarah's.
-        result = check_t1(mock_plextv, {100: "sarah", 300: "newbie"}, {"sarah": "Rowarr_sarah"})
+        result = check_t1(mock_plextv, {100: "sarah", 300: "newbie"}, {"sarah": "Shortlist_sarah"})
         assert not result.passed
         assert "newbie" in result.detail
         assert "sarah" not in result.detail
@@ -135,8 +147,8 @@ class TestCheckT2:
         mike's TV row was visible to everyone while T2 reported PASS on his movie row."""
         sarah = make_profile("sarah", account_id=100)
         collections = {
-            "sarah": OwnedRow("Rowarr_sarah", [571285]),
-            "mike": OwnedRow("Rowarr_mike", [571299, 571300]),  # movie row + TV row
+            "sarah": OwnedRow("Shortlist_sarah", [571285]),
+            "mike": OwnedRow("Shortlist_mike", [571299, 571300]),  # movie row + TV row
         }
         plex = self._plex_with_fixture_hubs(mock_plextv)
         plex.user_hubs.return_value = [
@@ -152,7 +164,7 @@ class TestCheckT2:
 
     def test_own_row_in_any_library_counts_as_visible(self, mock_plextv):
         sarah = make_profile("sarah", account_id=100)
-        collections = {"sarah": OwnedRow("Rowarr_sarah", [571285, 571286])}
+        collections = {"sarah": OwnedRow("Shortlist_sarah", [571285, 571286])}
         plex = self._plex_with_fixture_hubs(mock_plextv)
         plex.user_hubs.return_value = [{"key": "/library/collections/571286/children", "title": "Row"}]
 
@@ -173,19 +185,23 @@ class TestSharedRowsAreNotLeaks:
     """
 
     STORED_WITH_SHARED: ClassVar = {
-        "sarah": "Rowarr_sarah",
-        "mike": "Rowarr_mike",
-        "shared_popular": "Rowarr__shared_popular",
+        "sarah": "Shortlist_sarah",
+        "mike": "Shortlist_mike",
+        "shared_popular": "Shortlist__shared_popular",
     }
-    PUBLIC: ClassVar = {"rowarr__shared_popular": None}  # None = public: everyone may see it
+    PUBLIC: ClassVar = {"shortlist__shared_popular": None}  # None = public: everyone may see it
 
     def test_t1_passes_when_a_public_shared_row_is_excluded_from_nobody(self, mock_plextv):
         mock_plextv.users = [
             plextv_user(
-                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+                100,
+                "sarah",
+                filters={"filterMovies": "label!=Shortlist_mike", "filterTelevision": "label!=Shortlist_mike"},
             ),
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             ),
         ]
         result = check_t1(mock_plextv, KNOWN, self.STORED_WITH_SHARED, shared_labels=self.PUBLIC)
@@ -194,33 +210,37 @@ class TestSharedRowsAreNotLeaks:
     def test_t1_still_demands_the_exclude_for_a_shared_row_the_account_is_not_in(self, mock_plextv):
         """A SUBSET shared row is private to everyone outside its audience — the writer excludes it,
         so the check must insist on it. Sarah (100) is in the audience; mike (200) is not."""
-        subset = {"rowarr__shared_popular": {100}}
+        subset = {"shortlist__shared_popular": {100}}
         mock_plextv.users = [
             plextv_user(
-                100, "sarah", filters={"filterMovies": "label!=Rowarr_mike", "filterTelevision": "label!=Rowarr_mike"}
+                100,
+                "sarah",
+                filters={"filterMovies": "label!=Shortlist_mike", "filterTelevision": "label!=Shortlist_mike"},
             ),
             plextv_user(
-                200, "mike", filters={"filterMovies": "label!=Rowarr_sarah", "filterTelevision": "label!=Rowarr_sarah"}
+                200,
+                "mike",
+                filters={"filterMovies": "label!=Shortlist_sarah", "filterTelevision": "label!=Shortlist_sarah"},
             ),
         ]
         result = check_t1(mock_plextv, KNOWN, self.STORED_WITH_SHARED, shared_labels=subset)
         assert not result.passed
-        assert "Rowarr__shared_popular" in result.detail["mike"]
+        assert "Shortlist__shared_popular" in result.detail["mike"]
         assert "sarah" not in result.detail  # in the audience -> allowed to see it
 
     def test_a_stale_shared_collection_not_in_the_config_is_still_demanded(self, mock_plextv):
         """Fail-safe: a shared row the config no longer declares is treated as private and excluded
         from everyone — a leak we never write beats one we can't unwrite."""
-        mock_plextv.users = [plextv_user(200, "mike", filters={"filterMovies": "label!=Rowarr_sarah"})]
+        mock_plextv.users = [plextv_user(200, "mike", filters={"filterMovies": "label!=Shortlist_sarah"})]
         result = check_t1(mock_plextv, KNOWN, self.STORED_WITH_SHARED, shared_labels={})
         assert not result.passed
-        assert "Rowarr__shared_popular" in result.detail["mike"]
+        assert "Shortlist__shared_popular" in result.detail["mike"]
 
     def test_t2_a_public_shared_row_on_the_canarys_home_is_the_feature_not_a_leak(self, mock_plextv):
         sarah = make_profile("sarah", account_id=100)
         collections = {
-            "sarah": OwnedRow("Rowarr_sarah", [571285]),
-            "_shared_popular": OwnedRow("Rowarr__shared_popular", [571400]),
+            "sarah": OwnedRow("Shortlist_sarah", [571285]),
+            "_shared_popular": OwnedRow("Shortlist__shared_popular", [571400]),
         }
         plex = MagicMock()
         mock_plextv.canary_server_token.return_value = "canary-tok"
@@ -237,14 +257,14 @@ class TestSharedRowsAreNotLeaks:
     def test_t2_a_subset_shared_row_the_canary_is_not_in_is_a_leak(self, mock_plextv):
         sarah = make_profile("sarah", account_id=100)
         collections = {
-            "sarah": OwnedRow("Rowarr_sarah", [571285]),
-            "_shared_popular": OwnedRow("Rowarr__shared_popular", [571400]),
+            "sarah": OwnedRow("Shortlist_sarah", [571285]),
+            "_shared_popular": OwnedRow("Shortlist__shared_popular", [571400]),
         }
         plex = MagicMock()
         mock_plextv.canary_server_token.return_value = "canary-tok"
         plex.user_hubs.return_value = [{"key": "/library/collections/571400/children", "title": "Date Night"}]
 
-        result = check_t2(plex, mock_plextv, sarah, collections, shared_labels={"rowarr__shared_popular": {999}})
+        result = check_t2(plex, mock_plextv, sarah, collections, shared_labels={"shortlist__shared_popular": {999}})
 
         assert not result.passed
         assert result.detail["leaked"][0]["collection_id"] == 571400
@@ -252,7 +272,7 @@ class TestSharedRowsAreNotLeaks:
     def test_t2_without_shared_config_a_shared_row_is_treated_as_private(self, mock_plextv):
         """Fail-safe again: no config -> the row is not known to be shared -> its presence is a leak."""
         sarah = make_profile("sarah", account_id=100)
-        collections = {"_shared_popular": OwnedRow("Rowarr__shared_popular", [571400])}
+        collections = {"_shared_popular": OwnedRow("Shortlist__shared_popular", [571400])}
         plex = MagicMock()
         mock_plextv.canary_server_token.return_value = "canary-tok"
         plex.user_hubs.return_value = [{"key": "/library/collections/571400/children", "title": "Stale row"}]

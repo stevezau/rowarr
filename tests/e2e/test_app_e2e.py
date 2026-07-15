@@ -9,18 +9,18 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-from tests.e2e.conftest import RowarrApp
+from tests.e2e.conftest import ShortlistApp
 
 pytestmark = pytest.mark.e2e
 
 
 class TestAppLoads:
-    def test_dashboard_renders_users_from_the_api(self, page: Page, app: RowarrApp):
+    def test_dashboard_renders_users_from_the_api(self, page: Page, app: ShortlistApp):
         page.goto("/")
         expect(page.get_by_text("sarah", exact=False).first).to_be_visible(timeout=20_000)
         expect(page.get_by_text("mike", exact=False).first).to_be_visible()
 
-    def test_no_console_errors(self, page: Page, app: RowarrApp):
+    def test_no_console_errors(self, page: Page, app: ShortlistApp):
         errors: list[str] = []
         page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         page.goto("/")
@@ -31,12 +31,12 @@ class TestAppLoads:
 class TestMutationContract:
     """A mutation issued BY THE SPA must reach the backend and actually take effect.
 
-    Regression cover for the two HIGH review findings: the missing `x-rowarr-csrf` header
+    Regression cover for the two HIGH review findings: the missing `x-shortlist-csrf` header
     (every UI mutation 403'd) and the uninstall body that never carried its confirmation.
     The browser context deliberately does not inject the header — the app must send it.
     """
 
-    def test_user_toggle_from_the_ui_persists(self, page: Page, app: RowarrApp):
+    def test_user_toggle_from_the_ui_persists(self, page: Page, app: ShortlistApp):
         page.goto("/users")
         toggle = page.get_by_role("switch").first
         expect(toggle).to_be_visible(timeout=20_000)
@@ -56,12 +56,12 @@ class TestMutationContract:
         expect(page.get_by_role("switch").first).to_be_visible(timeout=20_000)
         assert page.get_by_role("switch").first.is_checked() is not before
 
-    def test_no_spa_mutation_leaves_without_the_csrf_header(self, page: Page, app: RowarrApp):
+    def test_no_spa_mutation_leaves_without_the_csrf_header(self, page: Page, app: ShortlistApp):
         missing: list[str] = []
 
         def check(request) -> None:
             is_mutation = request.method not in ("GET", "HEAD", "OPTIONS") and "/api/" in request.url
-            if is_mutation and not request.header_value("x-rowarr-csrf"):
+            if is_mutation and not request.header_value("x-shortlist-csrf"):
                 missing.append(f"{request.method} {request.url}")
 
         page.on("request", check)

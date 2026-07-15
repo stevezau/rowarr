@@ -13,4 +13,4 @@ globs: "**/*.py"
 - 4-space indentation, max 120 char lines (per project ruff config)
 - Logging: `from loguru import logger` (never stdlib `logging`)
 - Imports ordered: stdlib -> third-party -> local (relative imports within package)
-- `rowarr/engine/` must not import from `rowarr/server/` — the engine is a pure library
+- `shortlist/engine/` must not import from `shortlist/server/` — the engine is a pure library

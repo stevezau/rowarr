@@ -102,8 +102,8 @@ def remove_label_excludes(raw: str, labels: set[str]) -> str:
     return serialize_filter(out)
 
 
-def rowarr_labels_in(raw: str, label_prefix: str) -> set[str]:
-    """Return the rowarr-owned labels currently excluded in a filter string."""
+def shortlist_labels_in(raw: str, label_prefix: str) -> set[str]:
+    """Return the shortlist-owned labels currently excluded in a filter string."""
     prefix = f"{label_prefix}_".lower()
     found = set()
     for cond in parse_filter(raw):
@@ -212,11 +212,11 @@ def sync_user_restrictions(
     snapshots: SnapshotStore,
     *,
     own_label: str | None = None,
-    label_prefix: str = "rowarr",
+    label_prefix: str = "shortlist",
     shared_labels: dict[str, set[int] | None] | None = None,
     dry_run: bool = False,
 ) -> dict[str, tuple[str, str]] | None:
-    """Merge the desired rowarr excludes into one user's share filters.
+    """Merge the desired shortlist excludes into one user's share filters.
 
     `remote` is this user's CURRENT plex.tv record, passed in rather than fetched: the caller
     already holds the whole roster, and re-fetching it per user would mean a full `GET /api/users`
@@ -272,7 +272,7 @@ def sync_user_restrictions(
     readback = plextv.get_user(user.plex_account_id)
     for fieldname, expected in desired_fields.items():
         got = readback.filters[fieldname]
-        missing = rowarr_labels_in(expected, label_prefix) - rowarr_labels_in(got, label_prefix)
+        missing = shortlist_labels_in(expected, label_prefix) - shortlist_labels_in(got, label_prefix)
         if missing:
             raise RuntimeError(f"{user.username}: read-back missing excludes {missing} on {fieldname}")
         if got != expected:

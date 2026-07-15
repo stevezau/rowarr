@@ -52,7 +52,7 @@ class UninstallRequest(BaseModel):
 
 @router.post("/uninstall", dependencies=[Depends(require_owner)])
 async def uninstall(body: UninstallRequest, request: Request) -> dict:
-    """Trust feature: restore every snapshot, delete every rowarr collection, report.
+    """Trust feature: restore every snapshot, delete every shortlist collection, report.
 
     dry_run=true previews the plan; the real thing requires the literal confirmation
     string UNINSTALL — this is the one deliberately scary button in the product.
@@ -89,10 +89,10 @@ async def uninstall(body: UninstallRequest, request: Request) -> dict:
         deleted = []
         for section in ctx.plex.sections():
             for collection in section.collections():
-                if any(label.tag.lower().startswith("rowarr_") for label in collection.labels):
+                if any(label.tag.lower().startswith("shortlist_") for label in collection.labels):
                     deleted.append(collection.title)
                     if not body.dry_run:
-                        ctx.plex.delete_owned_collection(collection, "rowarr")
+                        ctx.plex.delete_owned_collection(collection, "shortlist")
         return {"filters_restored": restored, "collections_deleted": deleted, "dry_run": body.dry_run}, per_user_events
 
     result, per_user = await asyncio.get_running_loop().run_in_executor(None, do_uninstall)

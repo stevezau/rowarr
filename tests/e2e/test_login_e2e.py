@@ -14,7 +14,7 @@ import contextlib
 import pytest
 from playwright.sync_api import Browser, Page, expect
 
-from tests.e2e.conftest import RowarrApp
+from tests.e2e.conftest import ShortlistApp
 
 pytestmark = pytest.mark.e2e
 
@@ -22,7 +22,7 @@ LOAD = 20_000
 
 
 @pytest.fixture
-def anonymous_page(browser: Browser, app: RowarrApp) -> Page:
+def anonymous_page(browser: Browser, app: ShortlistApp) -> Page:
     """A visitor with NO session cookie — exactly what a stranger (or the owner) first sees."""
     context = browser.new_context(base_url=app.url)
     page = context.new_page()
@@ -30,7 +30,7 @@ def anonymous_page(browser: Browser, app: RowarrApp) -> Page:
     context.close()
 
 
-def test_an_unauthenticated_visitor_lands_on_the_login_screen(anonymous_page: Page, app: RowarrApp):
+def test_an_unauthenticated_visitor_lands_on_the_login_screen(anonymous_page: Page, app: ShortlistApp):
     """Once the instance is CLAIMED (the `app` fixture has a linked server), it is the owner's."""
     page = anonymous_page
     page.goto("/")
@@ -41,7 +41,7 @@ def test_an_unauthenticated_visitor_lands_on_the_login_screen(anonymous_page: Pa
     expect(page.get_by_role("button", name="Sign in with Plex")).to_be_enabled()
 
 
-def test_a_fresh_install_opens_the_wizard_without_asking_anyone_to_sign_in(browser: Browser, fresh_app: RowarrApp):
+def test_a_fresh_install_opens_the_wizard_without_asking_anyone_to_sign_in(browser: Browser, fresh_app: ShortlistApp):
     """Nobody has linked a Plex server yet: there is no token, no user list, no history — nothing
     to protect and nobody to protect it for. Demanding a sign-in first is a door with no house
     behind it. Signing in with Plex is not a gate in front of setup; it IS a step of setup, and it
@@ -59,7 +59,7 @@ def test_a_fresh_install_opens_the_wizard_without_asking_anyone_to_sign_in(brows
         context.close()
 
 
-def test_a_protected_route_redirects_a_stranger_to_login(anonymous_page: Page, app: RowarrApp):
+def test_a_protected_route_redirects_a_stranger_to_login(anonymous_page: Page, app: ShortlistApp):
     page = anonymous_page
     page.goto("/settings")
 
@@ -67,7 +67,7 @@ def test_a_protected_route_redirects_a_stranger_to_login(anonymous_page: Page, a
     expect(page.get_by_role("button", name="Sign in with Plex")).to_be_visible()
 
 
-def test_the_login_screen_does_not_hammer_the_api_with_retries(anonymous_page: Page, app: RowarrApp):
+def test_the_login_screen_does_not_hammer_the_api_with_retries(anonymous_page: Page, app: ShortlistApp):
     """A 401 cannot fix itself: retrying it just hides the login screen behind a spinner."""
     page = anonymous_page
     calls: list[str] = []
@@ -80,7 +80,7 @@ def test_the_login_screen_does_not_hammer_the_api_with_retries(anonymous_page: P
     assert not calls, f"owner-only setup state was fetched while signed out: {calls}"
 
 
-def test_the_plex_token_never_reaches_the_browser(anonymous_page: Page, app: RowarrApp):
+def test_the_plex_token_never_reaches_the_browser(anonymous_page: Page, app: ShortlistApp):
     """The owner's Plex token is the keys to their server. It stays on the server.
 
     It used to be handed to the SPA so the wizard could probe and link — which meant an XSS

@@ -32,7 +32,7 @@ library and unwatched by that user. Anything else it returns is dropped and logg
 with provider "None", Shortlist works with no AI at all.
 
 **Will it fight with Kometa?**
-No. Shortlist only ever modifies or deletes collections carrying a `rowarr_*` label. Anything
+No. Shortlist only ever modifies or deletes collections carrying a `shortlist_*` label. Anything
 else — Kometa overlays, your own collections — is detected and left alone.
 
 **What does it send to the LLM?**
@@ -40,7 +40,7 @@ Titles, years and genres only. No usernames, no account ids, no viewing timestam
 
 **What if I uninstall?**
 One flow, with a preview: every user's share filters are restored from the snapshot taken
-before Shortlist's first write, every rowarr collection is deleted, and the report says exactly
+before Shortlist's first write, every shortlist collection is deleted, and the report says exactly
 what changed. Your server is as we found it.
 
 **Managed users / kids' accounts?**

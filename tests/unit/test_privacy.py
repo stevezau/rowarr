@@ -14,8 +14,8 @@ from shortlist.engine.privacy import (
     merge_label_excludes,
     parse_filter,
     remove_label_excludes,
-    rowarr_labels_in,
     serialize_filter,
+    shortlist_labels_in,
     sync_user_restrictions,
 )
 from tests.conftest import make_profile, plextv_user
@@ -50,65 +50,65 @@ class TestParseSerializeRoundTrip:
 
 
 class TestMergeLabelExcludes:
-    """Filter-state matrix: empty / rowarr-only / pre-existing-foreign / mixed."""
+    """Filter-state matrix: empty / shortlist-only / pre-existing-foreign / mixed."""
 
     def test_merge_into_empty_filter(self):
-        assert merge_label_excludes("", {"Rowarr_sarah"}) == "label!=Rowarr_sarah"
+        assert merge_label_excludes("", {"Shortlist_sarah"}) == "label!=Shortlist_sarah"
 
-    def test_merge_into_existing_rowarr_excludes_appends(self):
-        merged = merge_label_excludes("label!=Rowarr_mike", {"Rowarr_sarah"})
-        assert merged == "label!=Rowarr_mike,Rowarr_sarah"
+    def test_merge_into_existing_shortlist_excludes_appends(self):
+        merged = merge_label_excludes("label!=Shortlist_mike", {"Shortlist_sarah"})
+        assert merged == "label!=Shortlist_mike,Shortlist_sarah"
 
     def test_merge_preserves_foreign_conditions_byte_identical(self):
         raw = "contentRating!=R,NC-17|genre=Horror"
-        merged = merge_label_excludes(raw, {"Rowarr_sarah"})
-        assert merged == raw + "|label!=Rowarr_sarah"
+        merged = merge_label_excludes(raw, {"Shortlist_sarah"})
+        assert merged == raw + "|label!=Shortlist_sarah"
 
     def test_merge_mixed_only_touches_the_label_condition(self):
-        raw = "contentRating!=R|label!=kids_hide,Rowarr_mike|genre=Horror"
-        merged = merge_label_excludes(raw, {"Rowarr_sarah"})
-        assert merged == "contentRating!=R|label!=kids_hide,Rowarr_mike,Rowarr_sarah|genre=Horror"
+        raw = "contentRating!=R|label!=kids_hide,Shortlist_mike|genre=Horror"
+        merged = merge_label_excludes(raw, {"Shortlist_sarah"})
+        assert merged == "contentRating!=R|label!=kids_hide,Shortlist_mike,Shortlist_sarah|genre=Horror"
 
     def test_merge_is_idempotent(self):
-        once = merge_label_excludes("label!=x", {"Rowarr_a", "Rowarr_b"})
-        assert merge_label_excludes(once, {"Rowarr_a", "Rowarr_b"}) == once
+        once = merge_label_excludes("label!=x", {"Shortlist_a", "Shortlist_b"})
+        assert merge_label_excludes(once, {"Shortlist_a", "Shortlist_b"}) == once
 
     def test_merge_already_present_returns_input_unchanged(self):
-        raw = "label!=Rowarr_sarah|contentRating!=R"
-        assert merge_label_excludes(raw, {"Rowarr_sarah"}) is raw
+        raw = "label!=Shortlist_sarah|contentRating!=R"
+        assert merge_label_excludes(raw, {"Shortlist_sarah"}) is raw
 
     def test_merge_is_case_insensitive_like_plex_tag_matching(self):
         # A case-variant of an already excluded label must never be appended as a duplicate.
-        raw = "label!=Rowarr_sarah"
-        assert merge_label_excludes(raw, {"rowarr_sarah"}) is raw
+        raw = "label!=Shortlist_sarah"
+        assert merge_label_excludes(raw, {"shortlist_sarah"}) is raw
 
     def test_desired_excludes_only_covers_users_with_real_collections(self):
-        stored = {"mike": "Rowarr_mike"}  # newbie has no collection yet — nothing to leak
-        assert privacy.desired_excludes("Rowarr_sarah", stored) == {"Rowarr_mike"}
+        stored = {"mike": "Shortlist_mike"}  # newbie has no collection yet — nothing to leak
+        assert privacy.desired_excludes("Shortlist_sarah", stored) == {"Shortlist_mike"}
 
-    def test_desired_excludes_covers_rows_whose_owner_rowarr_does_not_manage(self):
+    def test_desired_excludes_covers_rows_whose_owner_shortlist_does_not_manage(self):
         """A row is visible to anyone whose filter doesn't exclude it. Plex does not care that
-        Rowarr considers its owner disabled, paused, or a stranger — so the excludes come from
+        Shortlist considers its owner disabled, paused, or a stranger — so the excludes come from
         the rows that EXIST, never from the roster of users we happen to be processing."""
-        stored = {"sarah": "Rowarr_sarah", "mike": "Rowarr_mike"}
+        stored = {"sarah": "Shortlist_sarah", "mike": "Shortlist_mike"}
 
         # An account that owns no row (own_label=None) is excluded from every one of them.
-        assert privacy.desired_excludes(None, stored) == {"Rowarr_sarah", "Rowarr_mike"}
+        assert privacy.desired_excludes(None, stored) == {"Shortlist_sarah", "Shortlist_mike"}
 
     def test_a_user_is_never_excluded_from_their_own_row(self):
-        assert privacy.desired_excludes("Rowarr_sarah", {"sarah": "Rowarr_sarah"}) == set()
+        assert privacy.desired_excludes("Shortlist_sarah", {"sarah": "Shortlist_sarah"}) == set()
 
     def test_identity_is_the_label_not_the_name(self):
         """Two Plex display names can slugify to the same string, and anyone can rename
         themselves. If "is this row mine?" were answered from a name, one account would be let
         off an exclude it needs (they see someone else's row) and another would be excluded from
         their own. The caller resolves the label from the ACCOUNT ID and passes it here."""
-        stored = {"bob_smith": "Rowarr_bob_smith", "mike": "Rowarr_mike"}
+        stored = {"bob_smith": "Shortlist_bob_smith", "mike": "Shortlist_mike"}
 
         # A different account whose name happens to slugify to "bob_smith" owns no row...
-        assert privacy.desired_excludes(None, stored) == {"Rowarr_bob_smith", "Rowarr_mike"}
+        assert privacy.desired_excludes(None, stored) == {"Shortlist_bob_smith", "Shortlist_mike"}
         # ...while the account that really owns it is not excluded from itself.
-        assert privacy.desired_excludes("Rowarr_bob_smith", stored) == {"Rowarr_mike"}
+        assert privacy.desired_excludes("Shortlist_bob_smith", stored) == {"Shortlist_mike"}
 
 
 class TestSharedRowExcludes:
@@ -117,49 +117,53 @@ class TestSharedRowExcludes:
     (the `shared_labels` map), never by the label string."""
 
     def test_public_shared_row_is_excluded_from_nobody(self):
-        stored = {"sarah": "Rowarr_sarah", "shared_popular": "Rowarr__shared_popular"}
-        shared = {"rowarr__shared_popular": None}  # configured public shared row
+        stored = {"sarah": "Shortlist_sarah", "shared_popular": "Shortlist__shared_popular"}
+        shared = {"shortlist__shared_popular": None}  # configured public shared row
         # The public shared row is excluded from nobody; the per-person label still is.
-        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Rowarr_sarah"}
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Shortlist_sarah"}
 
     def test_subset_shared_row_is_hidden_from_accounts_outside_the_audience(self):
-        stored = {"shared_staff": "Rowarr__shared_staff"}
-        shared = {"rowarr__shared_staff": {201, 202}}
+        stored = {"shared_staff": "Shortlist__shared_staff"}
+        shared = {"shortlist__shared_staff": {201, 202}}
         assert privacy.desired_excludes(None, stored, account_id=201, shared_labels=shared) == set()
         assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == set()
-        assert privacy.desired_excludes(None, stored, account_id=203, shared_labels=shared) == {"Rowarr__shared_staff"}
+        assert privacy.desired_excludes(None, stored, account_id=203, shared_labels=shared) == {
+            "Shortlist__shared_staff"
+        }
 
     def test_a_private_row_is_never_misread_as_shared_by_its_slug(self):
-        """A per-person user whose slug looks shared (label rowarr_shared_tv) is NOT in the config
+        """A per-person user whose slug looks shared (label shortlist_shared_tv) is NOT in the config
         map, so it's treated as private and excluded — never leaked. This is the HIGH bug regression."""
-        stored = {"shared_tv": "Rowarr_shared_tv"}  # a real user's private label, single underscore
-        shared = {"rowarr__shared_popular": None}  # the only configured shared row is something else
-        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Rowarr_shared_tv"}
+        stored = {"shared_tv": "Shortlist_shared_tv"}  # a real user's private label, single underscore
+        shared = {"shortlist__shared_popular": None}  # the only configured shared row is something else
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Shortlist_shared_tv"}
 
     def test_a_stale_shared_label_not_in_config_is_excluded_not_leaked(self):
         # A shared collection left on the server but no longer configured -> hidden, not public.
-        stored = {"gone": "Rowarr__shared_gone"}
-        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels={}) == {"Rowarr__shared_gone"}
+        stored = {"gone": "Shortlist__shared_gone"}
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels={}) == {"Shortlist__shared_gone"}
 
     def test_subset_shared_and_private_rows_compose(self):
-        stored = {"sarah": "Rowarr_sarah", "shared_staff": "Rowarr__shared_staff"}
-        shared = {"rowarr__shared_staff": {202}}
+        stored = {"sarah": "Shortlist_sarah", "shared_staff": "Shortlist__shared_staff"}
+        shared = {"shortlist__shared_staff": {202}}
         # Mike (202) is in the staff audience but must still be hidden from sarah's private row.
-        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Rowarr_sarah"}
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Shortlist_sarah"}
 
     @given(st.sets(st.integers(min_value=1, max_value=5), min_size=0, max_size=5), st.integers(1, 6))
     def test_shared_label_is_excluded_from_exactly_the_non_audience(self, audience: set[int], account_id: int):
         """Property: a subset shared row is excluded from an account iff that account is not in its
         audience — for any audience and any account. Never leaks in, never over-hides."""
-        stored = {"shared_x": "Rowarr__shared_x"}
-        shared = {"rowarr__shared_x": audience}
+        stored = {"shared_x": "Shortlist__shared_x"}
+        shared = {"shortlist__shared_x": audience}
         excludes = privacy.desired_excludes(None, stored, account_id=account_id, shared_labels=shared)
         if account_id in audience:
-            assert "Rowarr__shared_x" not in excludes
+            assert "Shortlist__shared_x" not in excludes
         else:
-            assert excludes == {"Rowarr__shared_x"}
+            assert excludes == {"Shortlist__shared_x"}
 
-    @given(filter_string, st.sets(st.sampled_from(["Rowarr_a", "Rowarr_b", "Rowarr_c"]), min_size=1, max_size=3))
+    @given(
+        filter_string, st.sets(st.sampled_from(["Shortlist_a", "Shortlist_b", "Shortlist_c"]), min_size=1, max_size=3)
+    )
     def test_merge_never_drops_existing_conditions(self, raw: str, labels: set[str]):
         merged_conditions = parse_filter(merge_label_excludes(raw, labels))
         for original in parse_filter(raw):
@@ -168,7 +172,7 @@ class TestSharedRowExcludes:
             surviving_values = set().union(*(set(c.values) for c in match))
             assert set(original.values) <= surviving_values
 
-    @given(filter_string, st.sets(st.sampled_from(["Rowarr_a", "Rowarr_b"]), min_size=1, max_size=2))
+    @given(filter_string, st.sets(st.sampled_from(["Shortlist_a", "Shortlist_b"]), min_size=1, max_size=2))
     def test_remove_inverts_merge_when_labels_were_absent(self, raw: str, labels: set[str]):
         for cond in parse_filter(raw):
             if cond.field == "label" and cond.op == "!=" and set(cond.values) & labels:
@@ -176,10 +180,10 @@ class TestSharedRowExcludes:
         assert remove_label_excludes(merge_label_excludes(raw, labels), labels) == raw
 
 
-class TestRowarrLabelsIn:
+class TestShortlistLabelsIn:
     def test_finds_only_prefixed_labels_case_insensitive(self):
-        raw = "label!=Rowarr_sarah,kids_hide,rowarr_mike"
-        assert rowarr_labels_in(raw, "rowarr") == {"Rowarr_sarah", "rowarr_mike"}
+        raw = "label!=Shortlist_sarah,kids_hide,shortlist_mike"
+        assert shortlist_labels_in(raw, "shortlist") == {"Shortlist_sarah", "shortlist_mike"}
 
 
 class TestSyncUserRestrictions:
@@ -202,7 +206,7 @@ class TestSyncUserRestrictions:
             mock_plextv,
             managed,
             mock_plextv.get_user(managed.plex_account_id),
-            {"sarah": "Rowarr_sarah"},
+            {"sarah": "Shortlist_sarah"},
             snapshot_store,
         )
         call = mock_plextv.update_user_filters.call_args
@@ -211,8 +215,8 @@ class TestSyncUserRestrictions:
         assert sorted(call.args[1]) == ["filterMovies", "filterTelevision"]
         # ...and their VALUES. Asserting only the field names is bug-blind: a managed user written
         # the wrong exclude sees every row the filter was supposed to hide, with the test still green.
-        assert call.args[1]["filterMovies"] == "label!=Rowarr_sarah"
-        assert call.args[1]["filterTelevision"] == "label!=Rowarr_sarah"
+        assert call.args[1]["filterMovies"] == "label!=Shortlist_sarah"
+        assert call.args[1]["filterTelevision"] == "label!=Shortlist_sarah"
 
     def test_owner_is_never_restricted(self, mock_plextv, snapshot_store):
         _sarah, _mike, owner = self._users()
@@ -231,7 +235,7 @@ class TestSyncUserRestrictions:
             user.update(fields)
 
         mock_plextv.update_user_filters.side_effect = put
-        stored = {"mike": "Rowarr_mike", "steve": "Rowarr_steve"}
+        stored = {"mike": "Shortlist_mike", "steve": "Shortlist_steve"}
 
         wrote = sync_user_restrictions(
             mock_plextv, sarah, mock_plextv.get_user(sarah.plex_account_id), stored, snapshot_store
@@ -239,15 +243,15 @@ class TestSyncUserRestrictions:
 
         # The return value IS the audit record: what changed, on which field, from what to what.
         assert wrote == {
-            "filterMovies": ("contentRating!=R", "contentRating!=R|label!=Rowarr_mike,Rowarr_steve"),
-            "filterTelevision": ("", "label!=Rowarr_mike,Rowarr_steve"),
+            "filterMovies": ("contentRating!=R", "contentRating!=R|label!=Shortlist_mike,Shortlist_steve"),
+            "filterTelevision": ("", "label!=Shortlist_mike,Shortlist_steve"),
         }
         assert snapshot_store.saved[100].filters["filterMovies"] == "contentRating!=R"
         call = mock_plextv.update_user_filters.call_args
         assert call.args[0] == 100
         # Both fields merged; foreign condition preserved byte-identical; stored (title-cased) labels used.
-        assert call.args[1]["filterMovies"] == "contentRating!=R|label!=Rowarr_mike,Rowarr_steve"
-        assert call.args[1]["filterTelevision"] == "label!=Rowarr_mike,Rowarr_steve"
+        assert call.args[1]["filterMovies"] == "contentRating!=R|label!=Shortlist_mike,Shortlist_steve"
+        assert call.args[1]["filterTelevision"] == "label!=Shortlist_mike,Shortlist_steve"
 
     def test_steady_state_makes_zero_writes(self, mock_plextv, snapshot_store):
         sarah = self._users()[0]
@@ -256,12 +260,12 @@ class TestSyncUserRestrictions:
                 100,
                 "sarah",
                 filters={
-                    "filterMovies": "label!=Rowarr_mike,Rowarr_steve",
-                    "filterTelevision": "label!=Rowarr_mike,Rowarr_steve",
+                    "filterMovies": "label!=Shortlist_mike,Shortlist_steve",
+                    "filterTelevision": "label!=Shortlist_mike,Shortlist_steve",
                 },
             )
         ]
-        stored = {"mike": "Rowarr_mike", "steve": "Rowarr_steve"}
+        stored = {"mike": "Shortlist_mike", "steve": "Shortlist_steve"}
         wrote = sync_user_restrictions(
             mock_plextv, sarah, mock_plextv.get_user(sarah.plex_account_id), stored, snapshot_store
         )
@@ -275,13 +279,13 @@ class TestSyncUserRestrictions:
             mock_plextv,
             sarah,
             mock_plextv.get_user(sarah.plex_account_id),
-            {"mike": "Rowarr_mike"},
+            {"mike": "Shortlist_mike"},
             snapshot_store,
             dry_run=True,
         )
         assert wrote == {
-            "filterMovies": ("", "label!=Rowarr_mike"),
-            "filterTelevision": ("", "label!=Rowarr_mike"),
+            "filterMovies": ("", "label!=Shortlist_mike"),
+            "filterTelevision": ("", "label!=Shortlist_mike"),
         }
         mock_plextv.update_user_filters.assert_not_called()
         assert snapshot_store.saved == {}
@@ -292,7 +296,11 @@ class TestSyncUserRestrictions:
         mock_plextv.update_user_filters.side_effect = lambda *a: None  # write silently doesn't stick
         with pytest.raises(RuntimeError, match="read-back missing"):
             sync_user_restrictions(
-                mock_plextv, sarah, mock_plextv.get_user(sarah.plex_account_id), {"mike": "Rowarr_mike"}, snapshot_store
+                mock_plextv,
+                sarah,
+                mock_plextv.get_user(sarah.plex_account_id),
+                {"mike": "Shortlist_mike"},
+                snapshot_store,
             )
 
 
@@ -319,8 +327,8 @@ class TestRestore:
                 100,
                 "sarah",
                 filters={
-                    "filterMovies": "contentRating!=R|label!=Rowarr_mike",
-                    "filterTelevision": "label!=Rowarr_mike",
+                    "filterMovies": "contentRating!=R|label!=Shortlist_mike",
+                    "filterTelevision": "label!=Shortlist_mike",
                 },
             )
         ]
@@ -346,8 +354,10 @@ class TestRestore:
             taken_at=datetime.now(UTC),
             filters={"filterMovies": "contentRating!=R"},
         )
-        mock_plextv.users = [plextv_user(100, "sarah", filters={"filterMovies": "contentRating!=R|label!=Rowarr_mike"})]
-        # The write silently doesn't take — the read-back still shows the rowarr exclude.
+        mock_plextv.users = [
+            plextv_user(100, "sarah", filters={"filterMovies": "contentRating!=R|label!=Shortlist_mike"})
+        ]
+        # The write silently doesn't take — the read-back still shows the shortlist exclude.
         mock_plextv.update_user_filters.side_effect = lambda account_id, fields: None
         with pytest.raises(RuntimeError, match="restore mismatch"):
             privacy.restore_user_restrictions(mock_plextv, snapshot)

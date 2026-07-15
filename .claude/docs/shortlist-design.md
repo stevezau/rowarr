@@ -115,9 +115,9 @@ the weekly scheduled check): the owner never triggers it, and the write gate sim
 rows until a fresh passing result is on record. It only surfaces if it fails (the run pauses and says
 why). Settings still exposes a manual re-check. The mechanism, ~60 seconds with a live log:
 
-1. Create throwaway collection `Shortlist Privacy Probe` with one item, label `rowarr_probe`,
+1. Create throwaway collection `Shortlist Privacy Probe` with one item, label `shortlist_probe`,
    promote to shared Home.
-2. Write an exclude-restriction for `rowarr_probe` to a **canary user** (owner picks from a
+2. Write an exclude-restriction for `shortlist_probe` to a **canary user** (owner picks from a
    dropdown; a managed/Home user is auto-suggested when one exists).
 3. **Verify in tiers:**
    - **T1 (always):** read the share filters back from plex.tv and assert the exclusion persisted.
@@ -217,7 +217,7 @@ digest "your rows updated + hit rate") · **Danger zone:** pause all · full uni
 
 ### Full uninstall (trust feature)
 
-One flow, with preview: deletes all Shortlist collections, strips `rowarr_*` labels from collections,
+One flow, with preview: deletes all Shortlist collections, strips `shortlist_*` labels from collections,
 restores every user's share filters from the **original pre-Shortlist snapshot** (merging around any
 filters the owner changed since, shown as a diff before applying), then wipes local config. Ends
 with "your server is as we found it."
@@ -246,7 +246,7 @@ users are independent (`try/except` per user), shared caches across the loop.
                              Provider=None → keep heuristic order, template reasons.
 6. DELIVER                   upsert collection (rename if template dynamic) · clear+add items ·
                              custom sort (best first: sortUpdate("custom") + moveItem, verified in
-                             plexapi source) · label rowarr_<slug> · poster ·
+                             plexapi source) · label shortlist_<slug> · poster ·
                              collection mode = "hide" (modeUpdate — row shows on Home but the
                              collection stays out of library browsing, so 40 collections never
                              clutter anyone's Collections tab; same trick Kometa uses) ·
@@ -270,7 +270,7 @@ logged. Temperature low. One call per user per run; ~40 users ≈ pennies/night 
 
 ## 6. Privacy system (the load-bearing wall)
 
-**Label scheme:** collections get `rowarr_<user-slug>`; items get **no labels at all** (unlike
+**Label scheme:** collections get `shortlist_<user-slug>`; items get **no labels at all** (unlike
 Curatarr's item-labels — collections-only is sufficient since exclusions target the collection
 label, and it keeps user metadata pristine).
 
@@ -278,7 +278,7 @@ label, and it keeps user metadata pristine).
 
 ```
 for each enabled user U:
-  desired_excludes = { rowarr_<slug(V)> for V in enabled_users if V != U }
+  desired_excludes = { shortlist_<slug(V)> for V in enabled_users if V != U }
   current = GET plex.tv/api/users → parse U's filterMovies/filterTelevision
             (pipe-separated conditions; label!= is one comma-separated value)
   if first sync: snapshot current → RestrictionSnapshot(U, before=current)
@@ -309,7 +309,7 @@ snapshots, posters). Multi-arch (amd64/arm64) on GHCR + Docker Hub.
 | ----------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | API/backend | **FastAPI**                                                                        | Python shop; async; OpenAPI for free (public API = community integrations) |
 | Jobs        | **APScheduler** (in-process) + job rows in SQLite                                  | one container, no broker; runs are resumable/idempotent                    |
-| DB          | **SQLite + SQLAlchemy**                                                            | homelab-right; `/config/rowarr.db`; Alembic migrations                     |
+| DB          | **SQLite + SQLAlchemy**                                                            | homelab-right; `/config/shortlist.db`; Alembic migrations                     |
 | Frontend    | **React + Vite + Tailwind**                                                        | SPA served by FastAPI; SSE for live run progress                           |
 | Plex        | **plexapi** + thin raw client for plex.tv (pins, users, filters, home-user switch) | plexapi lacks some plex.tv surfaces                                        |
 | LLM         | provider interface: `curate(profile, candidates) → ranked picks`                   | Anthropic/OpenAI/Google SDKs + Ollama HTTP + Null provider                 |
@@ -318,11 +318,11 @@ snapshots, posters). Multi-arch (amd64/arm64) on GHCR + Docker Hub.
 **Code layout (monorepo, MIT):**
 
 ```
-rowarr/
+shortlist/
   engine/        # pure library: pipeline stages, providers, plex/tautulli/tmdb clients — no FastAPI imports
   server/        # FastAPI app, auth, SSE, scheduler wiring, DB models
   web/           # React SPA
-  cli.py         # `rowarr run --user X --dry-run` — same engine; this is what Steve's cron uses
+  cli.py         # `shortlist run --user X --dry-run` — same engine; this is what Steve's cron uses
 ```
 
 The engine/app split is contractual: **Steve's server runs `cli.py` from week 1** (Phase 1), the app
@@ -380,7 +380,7 @@ for everything above** — and it doubles as the manual dry-run of the Step-5 Pr
 | Phase                  | Scope                                                                                                                                                                           | Exit criteria                                                                                         | Effort         |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------- |
 | **0 — Validate**       | Manual privacy test on Steve's server (probe collection + one invited test account + a non-owner viewing account). Scaffold repo (engine/server/web skeleton, CI, ruff/pytest). | Privacy test passes on Home/Recommended/Related; repo builds                                          | ~1 day         |
-| **1 — Engine + pilot** | `rowarr/engine` + `cli.py` complete (history→TMDB→LLM→collections→privacy sync w/ snapshots). Cron on plex host via `error_checker.sh`. Roll out 5 → 15 → 40 of Steve's users.  | 40 users have private rows nightly for 1–2 weeks; zero privacy incidents; hit-rate baseline collected | ~1 week + soak |
+| **1 — Engine + pilot** | `shortlist/engine` + `cli.py` complete (history→TMDB→LLM→collections→privacy sync w/ snapshots). Cron on plex host via `error_checker.sh`. Roll out 5 → 15 → 40 of Steve's users.  | 40 users have private rows nightly for 1–2 weeks; zero privacy incidents; hit-rate baseline collected | ~1 week + soak |
 | **2 — App core**       | FastAPI + DB + scheduler + API; React shell; Dashboard, Users, Runs, Settings on the live engine                                                                                | Steve administers his own server through the UI instead of cron                                       | ~2 weeks       |
 | **3 — Onboarding**     | PIN auth, capability probes, wizard steps 0–6, automatic pre-write Privacy Check (T1/T2/T3), uninstall/rollback flow                                                            | Fresh `docker run` on a clean test server → rows, no docs needed                                      | ~1 week        |
 | **4 — Ship-ready**     | GHCR/Docker Hub images, README + docs site, screenshots/GIF, issue templates, 3–5 external beta testers recruited from r/PleX                                                   | Beta testers onboard unassisted; blockers fixed                                                       | ~1 week        |

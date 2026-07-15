@@ -48,7 +48,7 @@ describe("api", () => {
     await api.getUsers();
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(init.headers).not.toHaveProperty("x-rowarr-csrf");
+    expect(init.headers).not.toHaveProperty("x-shortlist-csrf");
   });
 
   it("sends the CSRF header on every mutation", async () => {
@@ -58,7 +58,7 @@ describe("api", () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(init.method).toBe("POST");
-    expect(init.headers).toMatchObject({ "x-rowarr-csrf": "1" });
+    expect(init.headers).toMatchObject({ "x-shortlist-csrf": "1" });
   });
 
   it("sends PATCH bodies as JSON with the content-type and CSRF headers", async () => {
@@ -71,7 +71,7 @@ describe("api", () => {
     expect(init.method).toBe("PATCH");
     expect(init.headers).toMatchObject({
       "Content-Type": "application/json",
-      "x-rowarr-csrf": "1",
+      "x-shortlist-csrf": "1",
     });
     expect(JSON.parse(init.body as string)).toEqual({
       enabled: false,
@@ -169,13 +169,13 @@ describe("api", () => {
   });
 
   it("prefixes requests with the configured base path, trimming trailing slashes", async () => {
-    configureApiBase("/rowarr/");
+    configureApiBase("/shortlist/");
     fetchMock.mockResolvedValue(jsonResponse([]));
 
     await api.getRuns();
 
     const [url] = fetchMock.mock.calls[0] as [string];
-    expect(url).toBe("/rowarr/api/runs");
+    expect(url).toBe("/shortlist/api/runs");
   });
 
   it("posts run requests with the selected users", async () => {

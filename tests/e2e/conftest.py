@@ -81,14 +81,14 @@ class _ThreadedServer(threading.Thread):
 
 
 @dataclass
-class RowarrApp:
+class ShortlistApp:
     url: str
     session_secret: str
     config_dir: Path
     pms_url: str = ""
 
     def plex_hubs_as(self, plex_account_id: int) -> list[dict]:
-        """The Home hubs a given user actually sees — Plex's answer, not Rowarr's.
+        """The Home hubs a given user actually sees — Plex's answer, not Shortlist's.
 
         The only way to prove a row is private is to look through the other user's eyes: the
         share filters can be perfectly correct while the row is still visible to everyone.
@@ -244,8 +244,8 @@ def _boot_app(config_dir: Path) -> tuple[FastAPI, _ThreadedServer]:
 
 
 @pytest.fixture
-def app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> Iterator[RowarrApp]:
-    """The real Rowarr app pointed at the fakes, with setup already completed."""
+def app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> Iterator[ShortlistApp]:
+    """The real Shortlist app pointed at the fakes, with setup already completed."""
     pms_url, plextv_url, state = fake_plex
     monkeypatch.setattr("shortlist.engine.clients.plextv.PLEXTV", plextv_url)  # engine uses absolute plex.tv URLs
     monkeypatch.setattr("shortlist.server.auth.PLEXTV", plextv_url)  # the PIN flow has its own constant
@@ -288,7 +288,7 @@ def app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> I
             )
         session.commit()
 
-    yield RowarrApp(
+    yield ShortlistApp(
         url=f"http://127.0.0.1:{server.port}",
         session_secret=fastapi_app.state.session_secret,
         config_dir=tmp_path,
@@ -298,8 +298,8 @@ def app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> I
 
 
 @pytest.fixture
-def fresh_app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> Iterator[RowarrApp]:
-    """A never-configured Rowarr: no server linked, no users, setup NOT completed.
+def fresh_app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch) -> Iterator[ShortlistApp]:
+    """A never-configured Shortlist: no server linked, no users, setup NOT completed.
 
     This is what a first boot looks like, so `/` bounces to `/setup` and the wizard is the
     only thing the owner can reach.
@@ -318,7 +318,7 @@ def fresh_app(fake_plex, fake_tmdb, reset_fake_plex, tmp_path: Path, monkeypatch
     monkeypatch.setattr("shortlist.engine.clients.tmdb.API", fake_tmdb)
 
     fastapi_app, server = _boot_app(tmp_path)
-    yield RowarrApp(
+    yield ShortlistApp(
         url=f"http://127.0.0.1:{server.port}",
         session_secret=fastapi_app.state.session_secret,
         config_dir=tmp_path,
@@ -339,7 +339,7 @@ def browser() -> Iterator[Browser]:
         chromium.close()
 
 
-def _owner_page(browser: Browser, app: RowarrApp) -> Page:
+def _owner_page(browser: Browser, app: ShortlistApp) -> Page:
     cookie = session_serializer(app.session_secret).dumps({"account_id": OWNER_ACCOUNT_ID, "username": "owner"})
     context = browser.new_context(base_url=app.url)
     context.add_cookies([{"name": SESSION_COOKIE, "value": cookie, "url": app.url}])
@@ -347,7 +347,7 @@ def _owner_page(browser: Browser, app: RowarrApp) -> Page:
 
 
 @pytest.fixture
-def page(browser: Browser, app: RowarrApp) -> Iterator[Page]:
+def page(browser: Browser, app: ShortlistApp) -> Iterator[Page]:
     """A page carrying a valid owner session (the PIN popup flow is tested separately).
 
     Deliberately does NOT inject the CSRF header at the context level: the SPA must send it
@@ -359,7 +359,7 @@ def page(browser: Browser, app: RowarrApp) -> Iterator[Page]:
 
 
 @pytest.fixture
-def fresh_page(browser: Browser, fresh_app: RowarrApp) -> Iterator[Page]:
+def fresh_page(browser: Browser, fresh_app: ShortlistApp) -> Iterator[Page]:
     """A brand-new install, opened by someone with NO session — the real first-boot experience.
 
     Injecting an owner session here would skip the only part of the wizard a new owner cannot
@@ -372,7 +372,7 @@ def fresh_page(browser: Browser, fresh_app: RowarrApp) -> Iterator[Page]:
     context.close()
 
 
-def build_real_rows(app: RowarrApp) -> dict:
+def build_real_rows(app: ShortlistApp) -> dict:
     """Get an app that has actually written rows to Plex: pass the privacy gate, then run for real.
 
     Uses the API rather than the UI on purpose — tests that assert on Runs/Users/uninstall need
@@ -386,10 +386,10 @@ def build_real_rows(app: RowarrApp) -> dict:
     return run
 
 
-def stub_plex_pin(page: Page, app: RowarrApp | None = None, *, username: str = "owner") -> None:
+def stub_plex_pin(page: Page, app: ShortlistApp | None = None, *, username: str = "owner") -> None:
     """Block only the plex.tv POPUP — the human's trip to plex.tv/link.
 
-    Rowarr's own PIN endpoints are NOT stubbed: they run for real against the fake plex.tv, which
+    Shortlist's own PIN endpoints are NOT stubbed: they run for real against the fake plex.tv, which
     serves `/api/v2/pins` and `/api/v2/user`. That matters because those endpoints are what mint
     the session cookie. An earlier version of this fixture forged the cookie itself, which meant
     every e2e would still pass if `poll_pin` stopped setting one — the sign-in being tested was

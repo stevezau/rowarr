@@ -29,7 +29,7 @@ COPY --from=web /build/dist ./web/dist
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENV ROWARR_CONFIG=/config \
+ENV SHORTLIST_CONFIG=/config \
     PORT=5959 \
     PUID=1000 \
     PGID=1000

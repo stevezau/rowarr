@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy the latest built image directly to the dev site (rows.stevez0.com), with a health-gated
+# Deploy the latest built image directly to the plex host, with a health-gated
 # rollback. Run AFTER the GitHub Docker workflow has published the tag. Watchtower is intentionally
 # disabled on this container (its 4h poll is too slow and once raced a manual deploy into an
 # outage), so this script is the single deployer.
@@ -7,10 +7,10 @@
 # Usage:  ssh plex 'bash -s' < scripts/deploy.sh
 set -uo pipefail
 
-readonly IMAGE="ghcr.io/stevezau/shortlist:dev"   # rename: bump to .../shortlist:dev in one place
-readonly NAME="rowarr"
+readonly IMAGE="ghcr.io/stevezau/shortlist:dev"   # published by CI on every master push
+readonly NAME="shortlist"
 readonly PORT="5959"
-readonly CONFIG_VOL="/config/rowarr:/config"
+readonly CONFIG_VOL="/config/shortlist:/config"
 
 echo "== pulling ${IMAGE} =="
 docker pull "${IMAGE}"

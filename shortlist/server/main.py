@@ -38,7 +38,7 @@ def _instance_secret(config_dir: Path, name: str) -> str:
 
 
 def create_app(config_dir: Path | None = None) -> FastAPI:
-    config_dir = config_dir or Path(os.environ.get("ROWARR_CONFIG", "/config"))
+    config_dir = config_dir or Path(os.environ.get("SHORTLIST_CONFIG", "/config"))
     config_dir.mkdir(parents=True, exist_ok=True)
 
     @asynccontextmanager
@@ -99,7 +99,7 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
         scheduler = build_scheduler(app)
         scheduler.start()
         app.state.scheduler = scheduler
-        logger.info("rowarr server up (config: {})", config_dir)
+        logger.info("shortlist server up (config: {})", config_dir)
         try:
             yield
         finally:
@@ -130,4 +130,4 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
     return app
 
 
-app = create_app() if os.environ.get("ROWARR_CONFIG") else None  # uvicorn target in the container
+app = create_app() if os.environ.get("SHORTLIST_CONFIG") else None  # uvicorn target in the container

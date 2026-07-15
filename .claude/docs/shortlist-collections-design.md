@@ -109,13 +109,13 @@ or any provider.**
 
 |              | per‑person Row                                                                     | shared Row                                                 |
 | ------------ | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Plex label   | `rowarr_<userslug>` (today; **one per user**, shared by all their per‑person rows) | `rowarr_shared_<rowslug>` (**one per shared Row**)         |
+| Plex label   | `shortlist_<userslug>` (today; **one per user**, shared by all their per‑person rows) | `shortlist_shared_<rowslug>` (**one per shared Row**)         |
 | how many     | 1 per audience‑member per library                                                  | 1 per library, server‑wide                                 |
 | title marker | `row_marker(account_id)` (`delivery.py:138`) — unique per person                   | fixed `row_marker(0)` — one stable membership              |
 | promoted     | `promote(shared=True)` after filters merged                                        | `promote(shared=True)`                                     |
 | hidden from  | everyone except that person                                                        | everyone **not** in the audience (none, if audience = all) |
 
-A person's multiple per‑person rows all carry the **same** `rowarr_<userslug>` label (the label is the
+A person's multiple per‑person rows all carry the **same** `shortlist_<userslug>` label (the label is the
 privacy primitive — all of a person's private rows must be hidden from others as one set); they're told
 apart by **title** + the per‑account zero‑width marker (`delivery.py:16-34`). Each _shared_ Row gets its
 **own** label because shared Rows can have different audiences.
@@ -135,7 +135,7 @@ Everything below is one idea that already exists, generalized:
 
 Today this is hard‑coded to the special case "each per‑user label is hidden from everyone but its
 owner." The single chokepoint is `desired_excludes(own_label, stored_labels)` (`privacy.py:123-142`) —
-a pure set‑difference over every `rowarr_*` label. The generalization replaces "except your own" with
+a pure set‑difference over every `shortlist_*` label. The generalization replaces "except your own" with
 "except the ones whose audience includes you":
 
 ```python
@@ -150,10 +150,10 @@ def desired_excludes(user, all_labels, visible_to_user):
 
 The audience of each label:
 
-- `rowarr_<userslug>` → `{that user}` (per‑person; excluded from everyone else — identical to today).
-- `rowarr_shared_<rowslug>` with audience = **all** → visible to everyone → excluded from **nobody**
+- `shortlist_<userslug>` → `{that user}` (per‑person; excluded from everyone else — identical to today).
+- `shortlist_shared_<rowslug>` with audience = **all** → visible to everyone → excluded from **nobody**
   (this is the easy "shared to all" case; a strict _reduction_ of exclusions).
-- `rowarr_shared_<rowslug>` with audience = **subset** → excluded from everyone not in the subset
+- `shortlist_shared_<rowslug>` with audience = **subset** → excluded from everyone not in the subset
   (the hard case; new privacy surface).
 
 Everything else in the privacy path is untouched: per‑slug targeting, the read‑modify‑write merge that
@@ -168,7 +168,7 @@ a small server — from ever reaching a public row.
 
 ### 6.2 Ownership & the sweep
 
-`rowarr_shared_<slug>` carries the `rowarr_` prefix, so ownership checks already treat it as ours
+`shortlist_shared_<slug>` carries the `shortlist_` prefix, so ownership checks already treat it as ours
 (`clients/plex.py:320-325`, sweep `delivery.py:293-297`); the sweep won't delete a well‑typed shared row
 (marker lookup → `None` → not a colliding shared‑tag). Kometa coexistence unaffected.
 
@@ -185,7 +185,7 @@ and guidance still apply; `validate_picks` still caps length and drops hallucina
 - **Rule 2 (snapshot):** shared‑to‑all writes no share filters (nothing hidden) → no snapshot needed.
   Shared‑to‑subset _does_ write excludes onto non‑audience users → snapshots first, like any user.
 - **Rule 3 (merge, never rebuild):** unchanged — still union/remove single labels in place.
-- **Rule 4 (touch only what we own):** shared label is `rowarr_`‑prefixed → already "ours".
+- **Rule 4 (touch only what we own):** shared label is `shortlist_`‑prefixed → already "ours".
 - **Rule 5 (owner/managed):** the shared row is promoted to all with library access; owner sees it like
   anyone; managed users get excludes written exactly like shared users (no special branch today,
   `privacy.py:169-171` only special‑cases the owner).

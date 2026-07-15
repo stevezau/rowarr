@@ -20,7 +20,7 @@ from loguru import logger
 from shortlist.engine.models import UserType
 
 PLEXTV = "https://plex.tv"
-CLIENT_ID = "rowarr"
+CLIENT_ID = "shortlist"
 
 
 @dataclass(frozen=True)

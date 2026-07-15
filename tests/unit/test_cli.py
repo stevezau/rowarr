@@ -137,7 +137,7 @@ class TestPrivacyGate:
     def test_real_run_refused_without_recorded_check(self, tmp_path: Path, monkeypatch):
         result = self._invoke_run(tmp_path, monkeypatch)
         assert result.exit_code != 0
-        assert "rowarr verify" in result.output
+        assert "shortlist verify" in result.output
 
     def test_real_run_refused_when_check_failed(self, tmp_path: Path, monkeypatch):
         write_gate(tmp_path, passed=False)
@@ -195,7 +195,7 @@ class TestVerifyCommand:
         from shortlist.engine.models import PrivacyCheckResult
 
         ctx = fake_ctx(tmp_path)
-        ctx.plex.owned_collections.return_value = {"sarah": OwnedRow("Rowarr_sarah", [1])}
+        ctx.plex.owned_collections.return_value = {"sarah": OwnedRow("Shortlist_sarah", [1])}
         ctx.plex.version = "1.43.3.10793-cd55560bb"
         monkeypatch.setattr(cli_mod, "load_context", lambda *a, **k: (ctx, {"users": "all"}, []))
         monkeypatch.setattr(cli_mod, "select_users", lambda ctx, raw, only, remote=None: [])
@@ -230,7 +230,7 @@ class TestUninstallCommand:
         ctx = fake_ctx(tmp_path)
         owned = MagicMock()
         owned.title = "Picked for You"
-        owned.labels = [SimpleNamespace(tag="Rowarr_sarah")]
+        owned.labels = [SimpleNamespace(tag="Shortlist_sarah")]
         section = MagicMock()
         section.collections.return_value = [owned]
         ctx.plex.sections.return_value = [section]
@@ -241,13 +241,13 @@ class TestUninstallCommand:
         result = CliRunner().invoke(cli_mod.main, ["--config-dir", str(tmp_path), "uninstall", "--dry-run"])
 
         assert result.exit_code == 0, result.output
-        assert "1 rowarr collection(s)" in result.output
+        assert "1 shortlist collection(s)" in result.output
         assert "no changes made" in result.output
         ctx.plex.delete_owned_collection.assert_not_called()
 
 
 class TestRosterSlugs:
-    """The slug IS the identity: a user's row label is `rowarr_<slug>`.
+    """The slug IS the identity: a user's row label is `shortlist_<slug>`.
 
     So it has to belong to the ACCOUNT, permanently. Plex display names are free text (two can
     slugify to the same string) and mutable (people rename themselves), and plex account ids come
@@ -309,7 +309,7 @@ class TestRosterSlugs:
         assert slugs[500] == "bob_smith_2"
 
     def test_a_lost_map_is_not_silently_rebuilt_when_rows_already_exist(self, tmp_path: Path):
-        """The map cannot be reconstructed from the server: a `rowarr_bob_smith` label does not
+        """The map cannot be reconstructed from the server: a `shortlist_bob_smith` label does not
         say WHICH account owns it. Re-deriving it from names would reassign the base slug by
         ascending account id — which is exactly how a newcomer takes an incumbent's row. If the
         file is gone and rows exist, stop and say so rather than guess."""

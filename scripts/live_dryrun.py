@@ -5,7 +5,7 @@ write is logged as a would-be diff instead of performed. Prints, per user and pe
 counts and the actual picks + reasons — so you can see whether the candidate sources produce good
 titles from the real library. Also prints what it WOULD deliver/exclude/promote and would request.
 
-Usage (on the plex host):  docker exec rowarr python /config/live_dryrun.py
+Usage (on the plex host):  docker exec shortlist python /config/live_dryrun.py
 (The scripts/ dir isn't in the image, so copy it into the mounted /config volume first — the
 one-liner the assistant provides does exactly that.)
 """

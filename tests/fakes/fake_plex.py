@@ -7,7 +7,7 @@ unmodified. ``make_fake_plextv(state)`` builds the plex.tv surface (``/api/users
 so tests can assert on server-side effects directly.
 
 Fidelity notes (mirrors of real-Plex behavior the engine depends on):
-- New labels are stored title-cased (``rowarr_x`` -> ``Rowarr_x``), like a real PMS.
+- New labels are stored title-cased (``shortlist_x`` -> ``Shortlist_x``), like a real PMS.
 - ``/hubs`` respects the requesting token: ``server-<accountID>`` tokens see only collections
   promoted to shared Home whose labels are NOT in that user's ``label!=`` share-filter excludes.
 - plex.tv Home-user switch mints ``switch-<id>``; ``/api/v2/resources`` exchanges it for the
@@ -228,7 +228,7 @@ class FakePlexState:
 
     @staticmethod
     def store_label(label: str) -> str:
-        """Title-case a new label exactly like a real PMS does (``rowarr_x`` -> ``Rowarr_x``)."""
+        """Title-case a new label exactly like a real PMS does (``shortlist_x`` -> ``Shortlist_x``)."""
         return label[:1].upper() + label[1:] if label else label
 
     def user_for_token(self, token: str) -> FakeUser | None:

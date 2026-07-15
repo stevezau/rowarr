@@ -1,7 +1,7 @@
 # Shortlist — Architecture & Execution Plan
 
 **Status:** ready to execute (gated on Phase 0 privacy test) · **Date:** 2026-07-12 ·
-**Companions:** [`rowarr-design.md`](rowarr-design.md) (product/UX design) · media_preview_generator
+**Companions:** [`shortlist-design.md`](shortlist-design.md) (product/UX design) · media_preview_generator
 (MPG, `stevezau/media_preview_generator`) — the donor repo for release infrastructure.
 
 ---
@@ -13,7 +13,7 @@ MPG is a mature shipping app (1,321 tests, ~79% coverage, codecov, multi-arch Do
 templates, PR preview images). **Port the chassis wholesale; write the app fresh.** The chassis is
 framework-agnostic; the app layer (Flask+SocketIO+Jinja in MPG) is NOT what Shortlist needs (see §3).
 
-### Reuse manifest (port from MPG → rowarr)
+### Reuse manifest (port from MPG → shortlist)
 
 | Asset                                                                                                                                                                                | Action                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -45,17 +45,17 @@ framework-agnostic; the app layer (Flask+SocketIO+Jinja in MPG) is NOT what Shor
 
 ---
 
-## 2. Repo layout (`stevezau/rowarr`, fresh, MIT)
+## 2. Repo layout (`stevezau/shortlist`, fresh, MIT)
 
 ```
-rowarr/
+shortlist/
 ├── .claude/                      # ported chassis (see manifest)
 │   ├── CLAUDE.md · settings.json
 │   ├── rules/ (python, testing, commenting, docker, docs, shell, frontend, plex-safety)
 │   ├── agents/architecture-review.md
 │   └── skills/release/
 ├── .github/                      # ported: ci.yml, docker-pr(+cleanup).yml, architecture-review.yml, templates
-├── rowarr/                       # Python package (backend + engine + CLI)
+├── shortlist/                       # Python package (backend + engine + CLI)
 │   ├── engine/                   # PURE library — zero FastAPI/DB imports; talks to clients only
 │   │   ├── pipeline.py           # per-user stage orchestration (history→candidates→filter→rank→curate→deliver→privacy)
 │   │   ├── models.py             # dataclasses: Seed, Candidate, Pick, UserProfile, RunReport
@@ -79,7 +79,7 @@ rowarr/
 │   │   ├── scheduler.py          # APScheduler; run rows are the durable queue (resume on restart)
 │   │   ├── services/             # run_service (engine adapter + SSE emit), snapshot_service, hit_rate, secrets (Fernet @ /config/secret.key)
 │   │   └── settings_store.py     # typed settings table access; env-var seeding on first boot (MPG pattern)
-│   ├── cli.py                    # `rowarr run [--user X] [--dry-run]` · `verify` · `uninstall` · `export-report` — same engine, used by Steve's cron in Phase 1
+│   ├── cli.py                    # `shortlist run [--user X] [--dry-run]` · `verify` · `uninstall` · `export-report` — same engine, used by Steve's cron in Phase 1
 │   └── logging_config.py         # loguru + Rich (ported)
 ├── web/                          # React 18 + Vite + TypeScript + Tailwind + shadcn/ui
 │   └── src/
@@ -102,20 +102,20 @@ rowarr/
 └── README.md · DOCKERHUB_README.md · CONTRIBUTING.md · LICENSE(MIT) · llms.txt
 ```
 
-**The contract that keeps this honest:** `rowarr/engine/` imports nothing from `rowarr/server/`.
+**The contract that keeps this honest:** `shortlist/engine/` imports nothing from `shortlist/server/`.
 Engine functions take plain config dataclasses + client instances and return report objects. The CLI
 and the FastAPI service are two thin adapters over one engine — Steve's Phase-1 cron and the shipped
 app run byte-identical logic.
 
 ---
 
-## 3. Data model (SQLAlchemy, SQLite at `/config/rowarr.db`)
+## 3. Data model (SQLAlchemy, SQLite at `/config/shortlist.db`)
 
 ```
 settings              key TEXT PK · value JSON · updated_at            (typed access via settings_store)
 server                id · machine_id · name · url · token_enc · version · owner_account_id · plex_pass BOOL · capabilities JSON
 users                 id · plex_account_id · username · slug · avatar_url · user_type(shared|managed|owner)
-                      · enabled BOOL · cold_start BOOL · label ("rowarr_<slug>") · prefs JSON
+                      · enabled BOOL · cold_start BOOL · label ("shortlist_<slug>") · prefs JSON
                       (row_name_tpl, row_size, excluded_genres, max_rating, paused)
 runs                  id · trigger(schedule|manual|wizard) · started_at · finished_at · status · dry_run BOOL · stats JSON
 run_users             run_id FK · user_id FK · status · error · duration_ms · llm_tokens · diff JSON (added/removed/kept)
@@ -180,7 +180,7 @@ API), same as the *arr convention.
 | Server        | pytest + httpx AsyncClient                                    | API contract tests against the OpenAPI schema                                                                                                                                 |
 | Frontend      | vitest + testing-library                                      | wizard state machine fully unit-tested                                                                                                                                        |
 | E2E           | Playwright vs built Docker image + `tests/fakes/fake_plex.py` | full wizard → first run → dashboard, no real Plex needed; CI-shardable (MPG's e2e sharding pattern)                                                                           |
-| Live smoke    | `rowarr verify` CLI                                           | run against Steve's real server pre-release                                                                                                                                   |
+| Live smoke    | `shortlist verify` CLI                                           | run against Steve's real server pre-release                                                                                                                                   |
 
 `fake_plex.py` is a deliberate investment (~300 lines): stubs `/identity`, `/library/sections`,
 `/status/sessions/history/all`, `/hubs`, collection CRUD, plus plex.tv `/api/v2/pins`, `/api/users`,
@@ -217,7 +217,7 @@ GitHub Release → images.
 
 | Phase                                     | Scope                                                                                                                                                                    | Exit criteria                                                   |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| **0 — Gate + scaffold** (~1–2 d)          | Manual privacy test on Steve's server. `gh repo create stevezau/rowarr` + port MPG chassis (.claude, .github, pre-commit, docs skeleton, Dockerfile skeleton, pyproject) | Privacy test passes; CI green on empty skeleton                 |
+| **0 — Gate + scaffold** (~1–2 d)          | Manual privacy test on Steve's server. `gh repo create stevezau/shortlist` + port MPG chassis (.claude, .github, pre-commit, docs skeleton, Dockerfile skeleton, pyproject) | Privacy test passes; CI green on empty skeleton                 |
 | **1 — Engine + CLI pilot** (~1 wk + soak) | `engine/` + `clients/` + `cli.py` + unit suite. Cron on plex host (`error_checker.sh`). Rollout 5→15→40 users                                                            | 1–2 wks nightly runs, zero privacy incidents, hit-rate baseline |
 | **2 — Server + UI core** (~2 wks)         | FastAPI + DB + scheduler + SSE; dashboard/users/runs/settings                                                                                                            | Steve manages his instance via UI, cron retired                 |
 | **3 — Onboarding** (~1 wk)                | PIN auth, wizard 0–7, automated Privacy Check, uninstall/restore, fake_plex e2e                                                                                          | Clean-server `docker run` → rows with zero docs                 |

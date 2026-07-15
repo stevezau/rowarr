@@ -2,8 +2,8 @@
 
 > A private, AI-curated **"Picked for You"** row for every user on your Plex server.
 
-[![CI](https://github.com/stevezau/rowarr/actions/workflows/ci.yml/badge.svg)](https://github.com/stevezau/rowarr/actions/workflows/ci.yml)
-[![Docker](https://github.com/stevezau/rowarr/actions/workflows/docker.yml/badge.svg)](https://github.com/stevezau/rowarr/actions/workflows/docker.yml)
+[![CI](https://github.com/stevezau/shortlist/actions/workflows/ci.yml/badge.svg)](https://github.com/stevezau/shortlist/actions/workflows/ci.yml)
+[![Docker](https://github.com/stevezau/shortlist/actions/workflows/docker.yml/badge.svg)](https://github.com/stevezau/shortlist/actions/workflows/docker.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![AI-Assisted](https://img.shields.io/badge/AI-assisted%20development-8A2BE2)
 
@@ -39,8 +39,8 @@ Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on tha
 ## Quick start
 
 ```bash
-mkdir rowarr && cd rowarr
-curl -fsSLO https://raw.githubusercontent.com/stevezau/rowarr/master/docker-compose.example.yml
+mkdir shortlist && cd shortlist
+curl -fsSLO https://raw.githubusercontent.com/stevezau/shortlist/master/docker-compose.example.yml
 mv docker-compose.example.yml docker-compose.yml
 docker compose up -d
 # open http://your-host:5959 → the wizard (connect Plex is step 1) → ~10 min to first rows

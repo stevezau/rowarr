@@ -11,7 +11,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Rowarr version
+      label: Shortlist version
       placeholder: e.g. 1.0.0 (Settings → About, or image tag)
     validations:
       required: true

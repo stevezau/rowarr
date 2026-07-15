@@ -106,7 +106,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: {
         Accept: "application/json",
         // Backend rejects any mutation without this header (CSRF guard).
-        ...(mutating ? { "x-rowarr-csrf": "1" } : {}),
+        ...(mutating ? { "x-shortlist-csrf": "1" } : {}),
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
       ...init,

@@ -1,6 +1,6 @@
-# Contributing to Rowarr
+# Contributing to Shortlist
 
-Thanks for considering it! Rowarr is a small, safety-critical codebase — it modifies other
+Thanks for considering it! Shortlist is a small, safety-critical codebase — it modifies other
 people's Plex views — so the bar for write-path changes is deliberately high.
 
 ## Dev setup
@@ -11,16 +11,16 @@ pnpm -C web install               # frontend
 pytest                            # unit + integration (no network, ever)
 pnpm -C web test && pnpm -C web build
 ruff check . --fix && ruff format .
-uvicorn rowarr.server.main:app --reload --port 5959   # with ROWARR_CONFIG=./devconfig
+uvicorn shortlist.server.main:app --reload --port 5959   # with SHORTLIST_CONFIG=./devconfig
 pnpm -C web dev                   # Vite on :5173, proxies /api to :5959
 ```
 
 ## The rules that matter
 
-1. **`rowarr/engine/` never imports from `rowarr/server/`.** The engine is a pure library.
+1. **`shortlist/engine/` never imports from `shortlist/server/`.** The engine is a pure library.
 2. **Read `.claude/rules/plex-safety.md` before touching any code path that writes to Plex
    or plex.tv.** Highlights: snapshot before restriction writes; share filters are
-   read-modify-write merges, never rebuilt; only `rowarr_*`-labeled collections may be
+   read-modify-write merges, never rebuilt; only `shortlist_*`-labeled collections may be
    touched; every write path takes `dry_run`; tokens never in logs or exceptions.
 3. **Tests are required.** No test may touch the network — use the conftest fixtures,
    recorded fixtures in `tests/fixtures/`, or `tests/fakes/fake_plex.py`. Privacy/merge code

@@ -12,8 +12,8 @@
 ## Install (Docker)
 
 ```bash
-mkdir rowarr && cd rowarr
-curl -fsSLO https://raw.githubusercontent.com/stevezau/rowarr/master/docker-compose.example.yml
+mkdir shortlist && cd shortlist
+curl -fsSLO https://raw.githubusercontent.com/stevezau/shortlist/master/docker-compose.example.yml
 mv docker-compose.example.yml docker-compose.yml
 docker compose up -d
 ```

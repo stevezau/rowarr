@@ -315,7 +315,7 @@ def _privacy_sync_phase(
     # consider its owner "not enabled in Shortlist" or "not in tonight's run". Syncing only the
     # processed users is how, on a live server, 45 of 48 accounts ended up able to see three other
     # people's private rows: only the three Shortlist managed had excludes written at all. It is also
-    # why `rowarr run --user <slug>` — the documented rollout command — used to mint a row that
+    # why `shortlist run --user <slug>` — the documented rollout command — used to mint a row that
     # nobody's filter hid.
     #
     # We ask plex.tv who can see the server rather than trusting our own user table, because the

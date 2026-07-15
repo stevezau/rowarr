@@ -44,7 +44,7 @@ fixture (`tests/fixtures/`) or fake_plex instead.
 
 Any write to Plex/plex.tv that: skips the privacy gate; mutates restrictions without a prior
 snapshot; **rebuilds a share-filter string instead of merging**; touches a collection/label without
-the `rowarr_*` ownership check; restricts the owner or edits a managed user's restriction profile;
+the `shortlist_*` ownership check; restricts the owner or edits a managed user's restriction profile;
 lacks `dry_run` support; or logs a token. See `.claude/rules/plex-safety.md`.
 **Flag when:** the diff touches `privacy.py`, `delivery.py`, `verify.py`, or `clients/plex*.py` and
 any of the eleven plex-safety rules is not observably satisfied. Always HIGH.
@@ -75,12 +75,12 @@ boundary (HTTP client, fake_plex) instead.
 
 New branching code with only one or two matrix cells tested. Shortlist's recurring branch variables:
 `user_type` (shared/managed/owner), history source, curator provider, privacy tier, filter state
-(empty / rowarr-only / foreign / mixed).
+(empty / shortlist-only / foreign / mixed).
 **Flag when:** a new branching variable has fewer test rows than distinct values.
 
 ### 9. Engine/server layering breach
 
-`rowarr/engine/` importing from `rowarr/server/` (or engine code reaching into the DB/FastAPI). The
+`shortlist/engine/` importing from `shortlist/server/` (or engine code reaching into the DB/FastAPI). The
 engine must stay a pure library — the CLI and server are its only adapters.
 **Flag when:** the diff adds such an import or DB access inside `engine/`.
 

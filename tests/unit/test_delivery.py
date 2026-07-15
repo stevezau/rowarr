@@ -109,7 +109,7 @@ class TestDeliverRows:
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies, MediaType.SHOW: shows}
         plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
-        plex.stored_label.return_value = "Rowarr_sarah"
+        plex.stored_label.return_value = "Shortlist_sarah"
         return plex
 
     def test_library_keys_target_one_library_and_remap_its_rating_keys(self, engine_config: EngineConfig):
@@ -144,7 +144,7 @@ class TestDeliverRows:
 
         assert diff.created is True
         assert diff.added == ["Movie 1", "Movie 2"]
-        assert stored == "Rowarr_sarah"
+        assert stored == "Shortlist_sarah"
         plex.fetch_items.assert_called_once_with([1001, 1002])
         create = plex.create_collection.call_args
         assert create.args[0] is movies
@@ -154,7 +154,7 @@ class TestDeliverRows:
         assert create.args[1].startswith("✨ Picked for You"), "what a human reads must not change"
         # The report shows the human title — the marker is Plex's business, not the owner's.
         assert diff.collection_title == "✨ Picked for You"
-        assert plex.stored_label.call_args.args[1] == "rowarr_sarah"
+        assert plex.stored_label.call_args.args[1] == "shortlist_sarah"
         # Promotion is the pipeline's job, AFTER filters are merged — never delivery's.
         plex.promote.assert_not_called()
 
@@ -181,7 +181,7 @@ class TestDeliverRows:
         assert sorted(diff.added) == ["Movie 1", "Movie 2", "Show 5", "Show 6", "Show 7"]
         # Both collections carry the SAME label — that one label is what every other user's
         # share filter excludes, so a second label would leave one of the two rows visible.
-        assert [c.args[1] for c in plex.stored_label.call_args_list] == ["rowarr_sarah", "rowarr_sarah"]
+        assert [c.args[1] for c in plex.stored_label.call_args_list] == ["shortlist_sarah", "shortlist_sarah"]
 
     def test_a_library_with_no_picks_keeps_its_existing_row(self, engine_config: EngineConfig, movies, shows):
         """A row nobody wrote to this run is stale, NOT leaking: it still carries its label, so
@@ -237,7 +237,7 @@ class TestDeliverRows:
         diff, stored = deliver_rows(plex, make_profile(), picks(), engine_config, dry_run=True)
 
         assert diff.created is True
-        assert stored == "rowarr_sarah"  # requested form; nothing was written to read back
+        assert stored == "shortlist_sarah"  # requested form; nothing was written to read back
         plex.create_collection.assert_not_called()
         plex.set_items.assert_not_called()
         plex.stored_label.assert_not_called()
@@ -250,7 +250,7 @@ class TestDeliverRows:
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
         plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
-        plex.stored_label.return_value = "Rowarr_sarah"
+        plex.stored_label.return_value = "Shortlist_sarah"
 
         diff, _ = deliver_rows(plex, make_profile(), picks(media_type=MediaType.SHOW), engine_config)
 
@@ -273,7 +273,7 @@ class TestDeliverRows:
         plex.create_collection.assert_called_once()
         assert plex.create_collection.call_args.args[0] is movies
         assert diff.created is True
-        assert stored == "Rowarr_sarah"
+        assert stored == "Shortlist_sarah"
         # The deletion is the SWEEP's to report — counting it here too would tell an owner
         # approving a dry run that twice as many rows would be destroyed as actually would.
         assert diff.deleted == []
@@ -291,7 +291,7 @@ class TestDeliverRows:
 
     def test_nothing_delivered_reports_no_stored_label(self, engine_config: EngineConfig, movies, shows):
         """The requested label is NOT the stored one — Plex title-cases it. Handing the raw form
-        back would write `label!=rowarr_sarah` onto every other user's share, and since excludes
+        back would write `label!=shortlist_sarah` onto every other user's share, and since excludes
         are compared case-insensitively that wrong casing would look present forever."""
         plex = self._plex(movies, shows)
 
@@ -327,7 +327,7 @@ class TestServerWithTwoLibrariesOfTheSameType:
         plex.sections.return_value = list(sections)
         plex.find_owned_collections.return_value = []
         plex.matches_section.return_value = True
-        plex.stored_label.return_value = "Rowarr_sarah"
+        plex.stored_label.return_value = "Shortlist_sarah"
         return plex
 
     def test_an_unpinned_row_builds_in_every_library_of_its_type(self, engine_config: EngineConfig):
@@ -350,7 +350,7 @@ class TestServerWithTwoLibrariesOfTheSameType:
         # items of the library it lives in, so the other library's keys name items that are not there.
         assert [call.args[0] for call in plex.fetch_items.call_args_list] == [[4001, 4002], [1001, 1002]]
         # One label across both, because one `label!=` exclude on everyone else has to hide the pair.
-        assert [call.args[1] for call in plex.stored_label.call_args_list] == ["rowarr_sarah", "rowarr_sarah"]
+        assert [call.args[1] for call in plex.stored_label.call_args_list] == ["shortlist_sarah", "shortlist_sarah"]
 
     def test_a_pinned_row_builds_only_in_the_library_it_names(self, engine_config: EngineConfig):
         """`library_keys` is the ONLY thing that narrows a row to one library of its type."""
@@ -433,17 +433,17 @@ class TestSweepBrokenRows:
         return collection
 
     def test_deletes_a_row_that_cannot_be_hidden_and_names_its_owner(self, engine_config: EngineConfig, movies, shows):
-        stranded = self._collection(movies, "Rowarr_mike")  # a show-subtype row in the movie library
+        stranded = self._collection(movies, "Shortlist_mike")  # a show-subtype row in the movie library
         plex = self._plex(movies, shows, stranded)
         plex.matches_section.return_value = False
 
         deleted = sweep_broken_rows(plex, engine_config)
 
         assert deleted == {"mike": ["✨ Picked for You"]}
-        plex.delete_owned_collection.assert_called_once_with(stranded, "rowarr")
+        plex.delete_owned_collection.assert_called_once_with(stranded, "shortlist")
 
     def test_leaves_a_well_typed_row_alone(self, engine_config: EngineConfig, movies, shows):
-        healthy = self._collection(movies, "Rowarr_mike")
+        healthy = self._collection(movies, "Shortlist_mike")
         plex = self._plex(movies, shows, healthy)
         plex.matches_section.return_value = True
 
@@ -463,7 +463,7 @@ class TestSweepBrokenRows:
     def test_dry_run_reports_the_deletion_without_making_it(self, engine_config: EngineConfig, movies, shows):
         """`--dry-run` exists so an owner can see what a run would do to a live server. If this
         guard ever breaks, dry-run silently destroys real collections."""
-        stranded = self._collection(movies, "Rowarr_mike")
+        stranded = self._collection(movies, "Shortlist_mike")
         plex = self._plex(movies, shows, stranded)
         plex.matches_section.return_value = False
 
@@ -474,8 +474,8 @@ class TestSweepBrokenRows:
 
     def test_sweeps_every_library_and_every_user(self, engine_config: EngineConfig, movies, shows):
         """It is not scoped to tonight's users: a paused user's leaking row is still a leak."""
-        stranded_movie = self._collection(movies, "Rowarr_mike")
-        stranded_show = self._collection(shows, "Rowarr_sarah", title="Because you watched Fargo")
+        stranded_movie = self._collection(movies, "Shortlist_mike")
+        stranded_show = self._collection(shows, "Shortlist_sarah", title="Because you watched Fargo")
         plex = self._plex(movies, shows, stranded_movie, stranded_show)
         plex.matches_section.return_value = False
 
@@ -490,7 +490,7 @@ class TestSweepBrokenRows:
 
 
 class TestAnUnlabelledRowIsNeverLeftBehind:
-    """A collection without a `rowarr_*` label is invisible to Rowarr forever.
+    """A collection without a `shortlist_*` label is invisible to Shortlist forever.
 
     `find_owned_collection`, `owned_collections`, `sweep_unhidable_rows` and uninstall ALL match
     on that label prefix. So a row created but not labelled can never be found, never be hidden
@@ -548,7 +548,7 @@ class TestARowSharingItsTagWithOthers:
         plex.sections.return_value = [movies, shows]
         plex.sections_by_type.return_value = {MediaType.MOVIE: movies, MediaType.SHOW: shows}
         plex.matches_section.return_value = True
-        plex.stored_label.return_value = "Rowarr_sarah"
+        plex.stored_label.return_value = "Shortlist_sarah"
         return plex
 
     def test_a_row_without_the_marker_is_rebuilt_not_renamed(self, engine_config: EngineConfig, movies, shows):
@@ -609,7 +609,7 @@ class TestTheSweepRemovesSharedTagRows:
         collection = MagicMock()
         collection.title = title
         collection.section = section
-        collection.labels = [SimpleNamespace(tag=f"Rowarr_{slug}")]
+        collection.labels = [SimpleNamespace(tag=f"Shortlist_{slug}")]
         return collection
 
     def test_a_row_without_its_owners_marker_is_removed(self, engine_config: EngineConfig, movies, shows):
@@ -619,7 +619,7 @@ class TestTheSweepRemovesSharedTagRows:
         deleted = sweep_broken_rows(plex, engine_config, markers={"mike": row_marker(202)})
 
         assert deleted == {"mike": ["✨ Picked for You"]}
-        plex.delete_owned_collection.assert_called_once_with(legacy, "rowarr")
+        plex.delete_owned_collection.assert_called_once_with(legacy, "shortlist")
 
     def test_a_row_with_its_owners_marker_is_left_alone(self, engine_config: EngineConfig, movies, shows):
         healthy = self._row(movies, "mike", "✨ Picked for You" + row_marker(202))
@@ -628,7 +628,9 @@ class TestTheSweepRemovesSharedTagRows:
         assert sweep_broken_rows(plex, engine_config, markers={"mike": row_marker(202)}) == {}
         plex.delete_owned_collection.assert_not_called()
 
-    def test_a_row_whose_owner_rowarr_cannot_identify_is_left_alone(self, engine_config: EngineConfig, movies, shows):
+    def test_a_row_whose_owner_shortlist_cannot_identify_is_left_alone(
+        self, engine_config: EngineConfig, movies, shows
+    ):
         """Without the account id there is no marker to check and no way to rebuild the row —
         destroying something we cannot replace would be worse than leaving it."""
         unknown = self._row(movies, "stranger", "✨ Picked for You")

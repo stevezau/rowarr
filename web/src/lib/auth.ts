@@ -131,7 +131,7 @@ export function usePlexPin(
       setCode(pin.code);
       popupRef.current = window.open(
         plexAuthUrl(pin.client_id, pin.code),
-        "rowarr-plex-auth",
+        "shortlist-plex-auth",
         "width=600,height=720",
       );
       if (!popupRef.current) setPopupBlocked(true);

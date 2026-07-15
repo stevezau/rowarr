@@ -7,7 +7,7 @@
 | `PORT`                                                                     | `5959`    | live                                                                  |
 | `TZ`                                                                       | `Etc/UTC` | live                                                                  |
 | `PUID` / `PGID`                                                            | `1000`    | live                                                                  |
-| `ROWARR_CONFIG`                                                            | `/config` | live                                                                  |
+| `SHORTLIST_CONFIG`                                                            | `/config` | live                                                                  |
 | `PLEX_URL`, `PLEX_TOKEN`, `TAUTULLI_URL`, `TAUTULLI_APIKEY`, `TMDB_APIKEY` | —         | **seed once**: copied into settings on first boot, ignored afterwards |
 
 ## Settings keys (DB-backed; Settings UI or `PUT /api/settings`)
@@ -114,7 +114,7 @@ wanting user's tag, and the tag of every per-person row that user is in the audi
 tags round-trip through `GET /api/requests` (`tags[]`) and are applied on `send`.
 
 All endpoints except `/api/system/health` require the owner session; mutations require the
-`x-rowarr-csrf: 1` header.
+`x-shortlist-csrf: 1` header.
 
 ## The write gate
 

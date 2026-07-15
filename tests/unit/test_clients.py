@@ -42,16 +42,16 @@ class TestPlexTvClient:
         users = self._client().list_users()
         assert users[0].id == 555000100
         assert users[0].user_type is UserType.SHARED
-        assert users[0].filters["filterMovies"] == "label!=Rowarr_mike"
+        assert users[0].filters["filterMovies"] == "label!=Shortlist_mike"
         assert users[1].user_type is UserType.MANAGED
         assert users[1].home is True
 
     @respx.mock
     def test_update_filters_sends_only_given_fields_with_token_header(self):
         route = respx.put("https://plex.tv/api/users/100").mock(return_value=httpx.Response(200))
-        self._client().update_user_filters(100, {"filterMovies": "label!=Rowarr_a"})
+        self._client().update_user_filters(100, {"filterMovies": "label!=Shortlist_a"})
         request = route.calls.last.request
-        assert request.url.params["filterMovies"] == "label!=Rowarr_a"
+        assert request.url.params["filterMovies"] == "label!=Shortlist_a"
         assert "filterTelevision" not in request.url.params
         assert request.headers["X-Plex-Token"] == "tok"
 
@@ -303,8 +303,8 @@ class TestPlexClient:
 
     def test_stored_label_returns_existing_title_cased_form_without_write(self, mock_plex: PlexClient):
         collection = MagicMock()
-        collection.labels = [SimpleNamespace(tag="Rowarr_sarah")]
-        assert mock_plex.stored_label(collection, "rowarr_sarah") == "Rowarr_sarah"
+        collection.labels = [SimpleNamespace(tag="Shortlist_sarah")]
+        assert mock_plex.stored_label(collection, "shortlist_sarah") == "Shortlist_sarah"
         collection.addLabel.assert_not_called()
 
     def test_stored_label_adds_and_reads_back_when_missing(self, mock_plex: PlexClient):
@@ -312,24 +312,24 @@ class TestPlexClient:
         collection.labels = []
 
         def add(label):
-            collection.labels = [SimpleNamespace(tag="Rowarr_sarah")]  # Plex title-cases on write
+            collection.labels = [SimpleNamespace(tag="Shortlist_sarah")]  # Plex title-cases on write
 
         collection.addLabel.side_effect = add
-        assert mock_plex.stored_label(collection, "rowarr_sarah") == "Rowarr_sarah"
+        assert mock_plex.stored_label(collection, "shortlist_sarah") == "Shortlist_sarah"
         collection.reload.assert_called()
 
-    def test_delete_refuses_collections_without_rowarr_label(self, mock_plex: PlexClient):
+    def test_delete_refuses_collections_without_shortlist_label(self, mock_plex: PlexClient):
         foreign = MagicMock()
         foreign.title = "Kometa Collection"
         foreign.labels = [SimpleNamespace(tag="Overlay")]
         with pytest.raises(PermissionError, match="not ours"):
-            mock_plex.delete_owned_collection(foreign, "rowarr")
+            mock_plex.delete_owned_collection(foreign, "shortlist")
         foreign.delete.assert_not_called()
 
     def test_delete_demotes_then_deletes_owned(self, mock_plex: PlexClient):
         owned = MagicMock()
-        owned.labels = [SimpleNamespace(tag="Rowarr_sarah")]
-        mock_plex.delete_owned_collection(owned, "rowarr")
+        owned.labels = [SimpleNamespace(tag="Shortlist_sarah")]
+        mock_plex.delete_owned_collection(owned, "shortlist")
         vis = owned.visibility.return_value
         assert vis.updateVisibility.call_args.kwargs == {"recommended": False, "home": False, "shared": False}
         owned.delete.assert_called_once()
@@ -343,29 +343,29 @@ class TestPlexClient:
 
     def test_owned_collections_maps_slug_to_stored_label_and_id(self, mock_plex: PlexClient):
         ours = MagicMock(ratingKey=571285)
-        ours.labels = [SimpleNamespace(tag="Rowarr_sarah")]
+        ours.labels = [SimpleNamespace(tag="Shortlist_sarah")]
         kometa = MagicMock(ratingKey=9)
         kometa.labels = [SimpleNamespace(tag="Overlay")]
         section = MagicMock()
         section.type = "movie"
         section.collections.return_value = [ours, kometa]
         mock_plex._server.library.sections.return_value = [section]
-        assert mock_plex.owned_collections("rowarr") == {"sarah": OwnedRow("Rowarr_sarah", [571285])}
+        assert mock_plex.owned_collections("shortlist") == {"sarah": OwnedRow("Shortlist_sarah", [571285])}
 
     def test_owned_collections_collects_a_users_row_from_every_library(self, mock_plex: PlexClient):
         """One user, one collection per library. Collapsing them to a single id once hid a real
         leak: T2 compared only the last collection it saw and passed while another was visible."""
         movie_row = MagicMock(ratingKey=571285)
-        movie_row.labels = [SimpleNamespace(tag="Rowarr_sarah")]
+        movie_row.labels = [SimpleNamespace(tag="Shortlist_sarah")]
         show_row = MagicMock(ratingKey=571290)
-        show_row.labels = [SimpleNamespace(tag="Rowarr_sarah")]
+        show_row.labels = [SimpleNamespace(tag="Shortlist_sarah")]
         movies, shows = MagicMock(), MagicMock()
         movies.type, shows.type = "movie", "show"
         movies.collections.return_value = [movie_row]
         shows.collections.return_value = [show_row]
         mock_plex._server.library.sections.return_value = [movies, shows]
 
-        assert mock_plex.owned_collections("rowarr") == {"sarah": OwnedRow("Rowarr_sarah", [571285, 571290])}
+        assert mock_plex.owned_collections("shortlist") == {"sarah": OwnedRow("Shortlist_sarah", [571285, 571290])}
 
     def test_server_name_returns_friendly_name(self, mock_plex: PlexClient):
         mock_plex._server.friendlyName = "SFLIX"

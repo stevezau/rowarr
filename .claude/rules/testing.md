@@ -51,7 +51,7 @@ mock_put.assert_called_once()
 
 # GOOD — asserts the contract the SUT is responsible for
 call = mock_put.call_args
-assert call.kwargs["params"]["filterMovies"] == "label!=rowarr_sarah,rowarr_mike"
+assert call.kwargs["params"]["filterMovies"] == "label!=shortlist_sarah,shortlist_mike"
 ```
 
 Rule of thumb: if removing a parameter from the SUT wouldn't break the test, the test isn't
@@ -67,7 +67,7 @@ variables, each of which needs its full matrix:
 - history source: tautulli / plex
 - curator provider: anthropic / openai / google / ollama / null
 - privacy tier: T1 / T2 / PROBE
-- filter state: empty / rowarr-only / pre-existing-foreign-filters / mixed
+- filter state: empty / shortlist-only / pre-existing-foreign-filters / mixed
 
 If a row would just duplicate another, add a one-liner explaining _why_ they collapse — otherwise
 write it.

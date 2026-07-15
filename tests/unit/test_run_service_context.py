@@ -220,7 +220,7 @@ class TestServerPrivacyGate:
         """A fake engine context + enabled profile so run_privacy_check's canary branch can be driven."""
         ctx = MagicMock()
         ctx.plex.owned_collections.return_value = {}
-        ctx.config.label_prefix = "rowarr"
+        ctx.config.label_prefix = "shortlist"
         ctx.plextv.home_users.return_value = [{"id": 100, "protected": False}] if canary else []
         monkeypatch.setattr(service, "build_context", lambda **kw: ctx)
         monkeypatch.setattr(service, "enabled_profiles", lambda session: [MagicMock(plex_account_id=100)])
@@ -264,7 +264,7 @@ class TestServerPrivacyGate:
 
         service.run_privacy_check(probe=True)
 
-        assert t1.call_args.kwargs["shared_labels"] == {"rowarr__shared_popular": None}
+        assert t1.call_args.kwargs["shared_labels"] == {"shortlist__shared_popular": None}
 
     def test_run_privacy_check_without_a_canary_records_a_failed_probe(self, service, sessions, monkeypatch):
         self._stub_check_ctx(service, monkeypatch, canary=False)

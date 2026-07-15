@@ -15,9 +15,9 @@ from loguru import logger
 
 PLEXTV = "https://plex.tv"
 PRODUCT = "Shortlist"
-SESSION_COOKIE = "rowarr_session"
+SESSION_COOKIE = "shortlist_session"
 SESSION_MAX_AGE_S = 14 * 24 * 3600
-CSRF_HEADER = "x-rowarr-csrf"
+CSRF_HEADER = "x-shortlist-csrf"
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -31,7 +31,7 @@ def _client_headers(client_id: str) -> dict[str, str]:
 
 
 def session_serializer(secret: str) -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(secret, salt="rowarr-session")
+    return URLSafeTimedSerializer(secret, salt="shortlist-session")
 
 
 def read_session(request: Request) -> dict | None:

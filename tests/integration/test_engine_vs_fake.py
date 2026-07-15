@@ -169,9 +169,9 @@ def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
     # have picks in — never one collection holding both types, which no share filter can hide.
     owned = plex.owned_collections()
     assert {slug: row.label for slug, row in owned.items()} == {
-        "sarah": "Rowarr_sarah",
-        "mike": "Rowarr_mike",
-        "canary": "Rowarr_canary",
+        "sarah": "Shortlist_sarah",
+        "mike": "Shortlist_mike",
+        "canary": "Shortlist_canary",
     }
     rows_by_library = {
         slug: sorted(state.collections[key].section_id for key in row.rating_keys) for slug, row in owned.items()
@@ -196,9 +196,9 @@ def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
     # Filters merged on the fake plex.tv: every user excludes the OTHER two users' stored labels.
     remote = {u.id: u for u in plextv.list_users()}
     expected = {
-        201: "label!=Rowarr_canary,Rowarr_mike",
-        202: "label!=Rowarr_canary,Rowarr_sarah",
-        203: "label!=Rowarr_mike,Rowarr_sarah",
+        201: "label!=Shortlist_canary,Shortlist_mike",
+        202: "label!=Shortlist_canary,Shortlist_sarah",
+        203: "label!=Shortlist_mike,Shortlist_sarah",
     }
     for account_id, merged in expected.items():
         assert remote[account_id].filters["filterMovies"] == merged
@@ -340,7 +340,7 @@ def test_a_row_builds_in_every_movie_library_with_that_librarys_own_rating_keys(
 
     # And the excludes hide every one of them from everyone else — through the canary's own eyes.
     for account_id in (202, 203):
-        assert "Rowarr_sarah" in state.users[account_id].filters["filterMovies"]
+        assert "Shortlist_sarah" in state.users[account_id].filters["filterMovies"]
         visible = {collection_id_from_hub(h) for h in plex.user_hubs(f"server-{account_id}")}
         assert not (set(owned["sarah"].rating_keys) & visible), f"account {account_id} sees sarah's row"
 
@@ -384,7 +384,7 @@ def test_two_per_person_rows_share_one_label_and_are_both_hidden(fakes, tmp_path
     assert report.ok, [(u.username, u.error) for u in report.users]
 
     owned = plex.owned_collections()
-    assert owned["sarah"].label == "Rowarr_sarah"  # one label for all of a user's rows
+    assert owned["sarah"].label == "Shortlist_sarah"  # one label for all of a user's rows
     sarah_titles = {_strip_marker(state.collections[k].title) for k in owned["sarah"].rating_keys}
     # Sarah watched movies AND shows, so each of her two rows lands in both libraries.
     assert sarah_titles == {"✨ Picked for You", "Hidden Gems"}
@@ -397,8 +397,8 @@ def test_two_per_person_rows_share_one_label_and_are_both_hidden(fakes, tmp_path
 
     # One exclude of the single label hides all of sarah's rows from mike (and vice-versa).
     remote = {u.id: u for u in plextv.list_users()}
-    assert "Rowarr_sarah" in remote[202].filters["filterMovies"]
-    assert "Rowarr_mike" in remote[201].filters["filterMovies"]
+    assert "Shortlist_sarah" in remote[202].filters["filterMovies"]
+    assert "Shortlist_mike" in remote[201].filters["filterMovies"]
 
 
 def _watch(state: FakePlexState, account_id: int, rating_key: int) -> None:
@@ -446,7 +446,7 @@ def test_shared_row_is_public_built_from_aggregate_and_never_excluded(fakes, tmp
     )
     assert report.ok, [(u.username, u.error) for u in report.users]
 
-    shared = _shared_rows(plex, "rowarr__shared_popular")
+    shared = _shared_rows(plex, "shortlist__shared_popular")
     assert shared, "the shared row was not delivered"
     for rating_key in shared[0].rating_keys:
         collection = state.collections[rating_key]
@@ -460,7 +460,7 @@ def test_shared_row_is_public_built_from_aggregate_and_never_excluded(fakes, tmp
         assert "shared" not in account.filters.get("filterTelevision", "").lower()
     # The per-person rows are still hidden from each other.
     remote = {u.id: u for u in plextv.list_users()}
-    assert "Rowarr_sarah" in remote[202].filters["filterMovies"]
+    assert "Shortlist_sarah" in remote[202].filters["filterMovies"]
 
     # Aggregate framing — never per-person, and no seed leaks through.
     shared_report = next(r for r in report.users if r.slug == "shared_popular")
@@ -480,7 +480,7 @@ def test_a_solo_watched_title_never_reaches_a_shared_row(fakes, tmp_path):
     _ctx, _users, _report = _run(
         plex, plextv, tmp_path, [RowSpec(slug="popular", name_template="Popular", size=6, shared=True, min_watchers=1)]
     )
-    assert not _shared_rows(plex, "rowarr__shared_popular")
+    assert not _shared_rows(plex, "shortlist__shared_popular")
 
 
 def test_shared_row_restricted_to_a_subset_is_hidden_from_the_rest(fakes, tmp_path):
@@ -497,14 +497,14 @@ def test_shared_row_restricted_to_a_subset_is_hidden_from_the_rest(fakes, tmp_pa
         [RowSpec(slug="staff", name_template="Staff Picks", size=6, shared=True, audience={201, 202})],
     )
     assert report.ok, [(u.username, u.error) for u in report.users]
-    assert _shared_rows(plex, "rowarr__shared_staff")
+    assert _shared_rows(plex, "shortlist__shared_staff")
 
     remote = {u.id: u for u in plextv.list_users()}
     # In the audience (sarah 201, mike 202) -> not excluded.
     assert "shared" not in remote[201].filters.get("filterTelevision", "").lower()
     assert "shared" not in remote[202].filters.get("filterTelevision", "").lower()
     # Outside it (canary 203) -> the shared label IS excluded, hiding the row from them.
-    assert "Rowarr__shared_staff" in remote[203].filters["filterTelevision"]
+    assert "Shortlist__shared_staff" in remote[203].filters["filterTelevision"]
 
 
 def test_a_per_person_row_only_builds_for_its_audience(fakes, tmp_path):
@@ -576,7 +576,7 @@ def test_a_run_heals_the_leaking_rows_a_previous_version_left_behind(fakes, tmp_
             title="✨ Picked for You",
             section_id=state.section_id,  # movie library...
             subtype="show",  # ...holding shows. Unhidable.
-            labels=[f"Rowarr_{username}"],
+            labels=[f"Shortlist_{username}"],
             item_keys=items,
             mode=0,
             promoted_own_home=True,
@@ -586,7 +586,7 @@ def test_a_run_heals_the_leaking_rows_a_previous_version_left_behind(fakes, tmp_
         broken[username] = collection
 
     for user in state.users.values():
-        excludes = ",".join(sorted(f"Rowarr_{u.username.lower()}" for u in state.users.values() if u is not user))
+        excludes = ",".join(sorted(f"Shortlist_{u.username.lower()}" for u in state.users.values() if u is not user))
         user.filters["filterMovies"] = f"label!={excludes}"
         user.filters["filterTelevision"] = f"label!={excludes}"
 
@@ -622,7 +622,7 @@ def test_a_bad_night_upstream_does_not_destroy_an_established_row(fakes, tmp_pat
 
     TMDB turns a 404 into an empty result rather than an error, so a single removed/unknown TV id
     can leave a user with zero show candidates for a night. Their TV row still holds its items and
-    its `rowarr_<slug>` label, so every other user's `label!=` exclude still hides it — it is
+    its `shortlist_<slug>` label, so every other user's `label!=` exclude still hides it — it is
     stale, not leaking. Deleting it would mean an upstream hiccup silently destroys a working row
     (and Plex would hand the rebuilt one a new id, so it would vanish and reappear on Home).
     """
@@ -691,15 +691,15 @@ def test_a_stranded_row_is_removed_even_from_a_user_who_produces_no_picks(fakes,
         title="✨ Picked for You",
         section_id=state.section_id,  # movie library...
         subtype="show",  # ...full of shows: no share filter can touch it
-        labels=["Rowarr_mike"],
+        labels=["Shortlist_mike"],
         item_keys=[301, 302, 303],
         mode=0,
         promoted_own_home=True,
         promoted_shared_home=True,
     )
     state.collections[stranded.rating_key] = stranded
-    state.users[201].filters["filterMovies"] = "label!=Rowarr_mike"
-    state.users[201].filters["filterTelevision"] = "label!=Rowarr_mike"
+    state.users[201].filters["filterMovies"] = "label!=Shortlist_mike"
+    state.users[201].filters["filterTelevision"] = "label!=Shortlist_mike"
     assert stranded.rating_key in {collection_id_from_hub(h) for h in plex.user_hubs("server-201")}
 
     # mike watches only TV, so a TV outage leaves him with nothing to recommend at all.
@@ -741,15 +741,15 @@ def test_a_stranded_row_is_removed_even_when_tmdb_errors_out(fakes, tmp_path):
         title="✨ Picked for You",
         section_id=state.section_id,  # movie library...
         subtype="show",  # ...full of shows: unhidable
-        labels=["Rowarr_mike"],
+        labels=["Shortlist_mike"],
         item_keys=[301, 302, 303],
         mode=0,
         promoted_own_home=True,
         promoted_shared_home=True,
     )
     state.collections[stranded.rating_key] = stranded
-    state.users[201].filters["filterMovies"] = "label!=Rowarr_mike"
-    state.users[201].filters["filterTelevision"] = "label!=Rowarr_mike"
+    state.users[201].filters["filterMovies"] = "label!=Shortlist_mike"
+    state.users[201].filters["filterTelevision"] = "label!=Shortlist_mike"
     assert stranded.rating_key in {collection_id_from_hub(h) for h in plex.user_hubs("server-201")}
 
     tmdb_app.state.tv_status = 429  # mike watches only TV, so every one of his lookups blows up
@@ -789,15 +789,15 @@ def test_a_leaking_row_is_swept_even_when_its_owner_is_not_in_the_run(fakes, tmp
         title="✨ Picked for You",
         section_id=state.section_id,  # movie library...
         subtype="show",  # ...full of shows: unhidable
-        labels=["Rowarr_mike"],
+        labels=["Shortlist_mike"],
         item_keys=[301, 302, 303],
         mode=0,
         promoted_own_home=True,
         promoted_shared_home=True,
     )
     state.collections[stranded.rating_key] = stranded
-    state.users[201].filters["filterMovies"] = "label!=Rowarr_mike"
-    state.users[201].filters["filterTelevision"] = "label!=Rowarr_mike"
+    state.users[201].filters["filterMovies"] = "label!=Shortlist_mike"
+    state.users[201].filters["filterTelevision"] = "label!=Shortlist_mike"
     assert stranded.rating_key in {collection_id_from_hub(h) for h in plex.user_hubs("server-201")}
 
     # mike is paused/disabled tonight: he is not in the user list at all.
@@ -829,7 +829,7 @@ def test_the_sweep_runs_even_when_every_user_is_paused(fakes, tmp_path):
         title="✨ Picked for You",
         section_id=state.section_id,
         subtype="show",
-        labels=["Rowarr_mike"],
+        labels=["Shortlist_mike"],
         item_keys=[301, 302],
         promoted_shared_home=True,
     )
@@ -862,7 +862,7 @@ def test_a_dry_run_reports_the_sweep_without_touching_the_server(fakes, tmp_path
         title="✨ Picked for You",
         section_id=state.section_id,
         subtype="show",
-        labels=["Rowarr_sarah"],
+        labels=["Shortlist_sarah"],
         item_keys=[301, 302],
         promoted_shared_home=True,
     )
@@ -909,7 +909,7 @@ def test_a_sweep_that_fails_part_way_aborts_the_run_and_still_audits_what_it_del
             title=f"Row for {slug}",
             section_id=section_id,
             subtype="show",  # unhidable
-            labels=[f"Rowarr_{slug}"],
+            labels=[f"Shortlist_{slug}"],
             item_keys=[301, 302],
             promoted_shared_home=True,
         )
@@ -991,8 +991,8 @@ def test_a_row_created_before_a_mid_delivery_failure_is_still_excluded_on_every_
 
     # ...and mike's share filter excludes it, even though the run that made it failed.
     mike_filters = state.users[202].filters
-    assert "Rowarr_sarah" in mike_filters["filterMovies"], "a live row that nobody's filter hides"
-    assert "Rowarr_sarah" in mike_filters["filterTelevision"]
+    assert "Shortlist_sarah" in mike_filters["filterMovies"], "a live row that nobody's filter hides"
+    assert "Shortlist_sarah" in mike_filters["filterTelevision"]
 
     # It is NOT promoted: a failed run does not put a half-built row on anyone's Home.
     assert not state.collections[sarah_rows[0]].promoted_shared_home
@@ -1002,12 +1002,12 @@ def test_every_account_that_shares_the_server_gets_the_excludes_not_just_the_man
     """The leak that was live on a real server: 45 of its 48 accounts could see three other
     people's private rows.
 
-    Rowarr had only ever written share filters for the three users it MANAGED. Everyone else —
-    every account the owner shares the server with but never enabled in Rowarr — had empty
+    Shortlist had only ever written share filters for the three users it MANAGED. Everyone else —
+    every account the owner shares the server with but never enabled in Shortlist — had empty
     filters, so all three rows showed up on their Home screen. A row is visible to anyone whose
     filter does not exclude it; Plex does not care whether we call its owner "enabled".
 
-    This also covers the documented rollout path (`rowarr run --user <slug>`, 5 -> 15 -> 40
+    This also covers the documented rollout path (`shortlist run --user <slug>`, 5 -> 15 -> 40
     users): a run that processes ONE user must still hide that user's new row from everyone.
     """
     state, pms_url, _tmdb_app = fakes
@@ -1034,11 +1034,11 @@ def test_every_account_that_shares_the_server_gets_the_excludes_not_just_the_man
     # Every OTHER account on the server excludes her label — in both filter fields.
     for account_id in (202, 203):
         filters = state.users[account_id].filters
-        assert "Rowarr_sarah" in filters["filterMovies"], f"account {account_id} can see sarah's row"
-        assert "Rowarr_sarah" in filters["filterTelevision"], f"account {account_id} can see sarah's row"
+        assert "Shortlist_sarah" in filters["filterMovies"], f"account {account_id} can see sarah's row"
+        assert "Shortlist_sarah" in filters["filterTelevision"], f"account {account_id} can see sarah's row"
 
     # And sarah is never excluded from her own row.
-    assert "Rowarr_sarah" not in state.users[201].filters["filterMovies"]
+    assert "Shortlist_sarah" not in state.users[201].filters["filterMovies"]
 
     # Proof through their eyes: nobody but sarah can see sarah's rows.
     for account_id in (202, 203):
@@ -1054,7 +1054,7 @@ def test_a_user_who_is_no_longer_shared_with_does_not_block_everyone_elses_rows(
     """A stale user row must not stop the whole server working.
 
     `POST /users/sync` never deletes users, so un-sharing the server with someone leaves a ghost
-    in Rowarr's table. If the privacy sync errors on an account plex.tv no longer lists, that one
+    in Shortlist's table. If the privacy sync errors on an account plex.tv no longer lists, that one
     dead row makes every OTHER user's row go unpromoted — every night, forever.
     """
     state, pms_url, _tmdb_app = fakes
@@ -1086,7 +1086,7 @@ def test_a_user_who_is_no_longer_shared_with_does_not_block_everyone_elses_rows(
 def test_a_user_who_renamed_themselves_is_not_hidden_from_their_own_row(fakes, tmp_path):
     """Identity is the account id, not the name.
 
-    Rowarr's slug — and therefore the label on a user's row — is fixed the first time it sees an
+    Shortlist's slug — and therefore the label on a user's row — is fixed the first time it sees an
     account. Plex usernames are not: people change them. If "is this row mine?" were answered from
     the CURRENT name, a renamed user who isn't in tonight's run would have their own row's label
     merged into their own filter, and `merge_label_excludes` never removes — so their row would
@@ -1118,7 +1118,7 @@ def test_a_user_who_renamed_themselves_is_not_hidden_from_their_own_row(fakes, t
     assert engine_run(ctx, [sarah]).ok
 
     # His own label was never merged into his own filter — he can still see his row.
-    assert "Rowarr_mike" not in state.users[202].filters["filterMovies"]
+    assert "Shortlist_mike" not in state.users[202].filters["filterMovies"]
     visible = {collection_id_from_hub(h) for h in plex.user_hubs("server-202")}
     assert set(mike_rows) <= visible, "a rename hid a user from their own row"
 
@@ -1206,7 +1206,7 @@ def test_migration_night_rebuilds_every_shared_row_in_one_run(fakes, tmp_path):
             title="✨ Picked for You",  # identical for everyone: ONE tag
             section_id=state.section_id,
             subtype="movie",
-            labels=[f"Rowarr_{slug}"],
+            labels=[f"Shortlist_{slug}"],
             item_keys=items,
             mode=0,
             promoted_own_home=True,

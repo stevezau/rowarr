@@ -195,7 +195,7 @@ def remove_row(
 
     Muting means "you don't get this row" — but a row delivered BEFORE the mute still exists on the
     server, so it must be removed, not merely skipped on the next run. Deleting only makes the server
-    strictly more private (the row's `rowarr_<slug>` label keeps it excluded on every other share
+    strictly more private (the row's `shortlist_<slug>` label keeps it excluded on every other share
     until it's gone), so this is always safe. A row whose title depends on its picks (a `{top_seed}`
     template) can't be reconstructed without them, so it's left for a later sweep; static-titled rows
     — the default row and most custom rows — match exactly and are removed here.
@@ -234,7 +234,7 @@ def _create_labelled_collection(
 ) -> str:
     """Create the collection, apply its label, and delete it if the label doesn't stick.
 
-    A collection with no rowarr_* label is invisible to every lookup we have — all of them key off
+    A collection with no shortlist_* label is invisible to every lookup we have — all of them key off
     that prefix — so nothing would ever find it again, no filter could hide it, and it would be
     visible to everyone forever. Create and label must therefore succeed together or not at all.
     Returns the stored (Plex title-cased) label.
@@ -252,7 +252,7 @@ def _create_labelled_collection(
             # Two PMS failures back to back. Name the orphan loudly: it is unlabelled, so no
             # future run can find it, and only a human with this ratingKey can remove it.
             logger.critical(
-                "{}: ORPHANED COLLECTION — '{}' (ratingKey {}) in '{}' exists with NO rowarr "
+                "{}: ORPHANED COLLECTION — '{}' (ratingKey {}) in '{}' exists with NO shortlist "
                 "label. Shortlist cannot find or remove it and no share filter can hide it. "
                 "Delete it in Plex (find it by ratingKey — the title carries invisible "
                 "characters and will not match a search).",

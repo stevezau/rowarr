@@ -17,11 +17,11 @@ from loguru import logger
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.models import FilterSnapshot, PrivacyCheckResult, UserProfile
-from shortlist.engine.privacy import SnapshotStore, merge_label_excludes, rowarr_labels_in
+from shortlist.engine.privacy import SnapshotStore, merge_label_excludes, shortlist_labels_in
 from shortlist.engine.verify import collection_id_from_hub
 
 PROBE_TITLE = "Shortlist Privacy Probe"
-PROBE_LABEL = "rowarr_probe"
+PROBE_LABEL = "shortlist_probe"
 
 
 def _canary_sees_collection(plex: PlexClient, token: str, collection_id: int) -> bool:
@@ -117,7 +117,7 @@ def run_privacy_probe(
         plextv.update_user_filters(canary.plex_account_id, changed)
         readback = plextv.get_user(canary.plex_account_id)
         t1_ok = all(
-            stored_label.lower() in {v.lower() for v in rowarr_labels_in(readback.filters[f], "rowarr")}
+            stored_label.lower() in {v.lower() for v in shortlist_labels_in(readback.filters[f], "shortlist")}
             for f in ("filterMovies", "filterTelevision")
         )
         detail["t1_filter_persisted"] = t1_ok
@@ -158,6 +158,6 @@ def run_privacy_probe(
         try:
             if collection is not None:
                 step("deleting the probe collection")
-                plex.delete_owned_collection(collection, "rowarr")
+                plex.delete_owned_collection(collection, "shortlist")
         except Exception:
             logger.exception("privacy probe: probe collection cleanup FAILED — delete {!r} manually", PROBE_TITLE)

@@ -17,7 +17,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from shortlist.engine.delivery import row_marker
-from tests.e2e.conftest import RowarrApp, stub_plex_pin
+from tests.e2e.conftest import ShortlistApp, stub_plex_pin
 from tests.fakes.fake_plex import FakePlexState
 
 pytestmark = pytest.mark.e2e
@@ -35,7 +35,7 @@ def _connect_plex(page: Page, pms_url: str) -> None:
     Nobody signed in to reach this wizard — on a fresh install there is nothing to sign in TO.
     Connecting your Plex account is step 1, and it is what claims the instance. Once connected,
     the picker opens straight onto your servers, with every address Plex advertises for them
-    already tried from where Rowarr actually runs.
+    already tried from where Shortlist actually runs.
     """
     expect(page.get_by_role("heading", name="Welcome")).to_be_visible(timeout=LOAD)
     page.get_by_role("button", name="Connect Plex").click()
@@ -130,7 +130,7 @@ def _pick_users(page: Page, *usernames: str) -> None:
             expect(toggle).not_to_be_checked(timeout=LOAD)
 
 
-def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fake_plex):
+def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: ShortlistApp, fake_plex):
     """The whole wizard, start to finish, exactly as an owner would walk it."""
     page, app = fresh_page, fresh_app
     pms_url, _, state = fake_plex
@@ -192,10 +192,10 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fa
     rows: dict[str, list] = {}
     for collection in state.collections.values():
         for label in collection.labels:
-            if label.lower().startswith("rowarr_"):
+            if label.lower().startswith("shortlist_"):
                 rows.setdefault(label.lower(), []).append(collection)
 
-    assert set(rows) == {"rowarr_sarah", "rowarr_mike", "rowarr_canary"}
+    assert set(rows) == {"shortlist_sarah", "shortlist_mike", "shortlist_canary"}
     for label, collections in rows.items():
         # row.size is the budget across a user's rows: sarah's 10 picks split into a movie row
         # and a TV row, and each row is big enough for Plex to render it.
@@ -206,22 +206,22 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fa
 
     # The dynamic template renders per row, from the top seed of that row's own picks — so a TV
     # row says "Because you watched <a show>", not whatever movie happened to rank first.
-    assert len(rows["rowarr_sarah"]) == 2, "sarah watches movies and TV: one row in each library"
-    assert {c.section_id for c in rows["rowarr_sarah"]} == {state.section_id, state.show_section_id}
-    for collection in rows["rowarr_sarah"]:
+    assert len(rows["shortlist_sarah"]) == 2, "sarah watches movies and TV: one row in each library"
+    assert {c.section_id for c in rows["shortlist_sarah"]} == {state.section_id, state.show_section_id}
+    for collection in rows["shortlist_sarah"]:
         kind = "Movie" if collection.section_id == state.section_id else "Show"
         assert collection.title.startswith(f"Because you watched {kind}"), collection.title
-    assert rows["rowarr_mike"][0].title.startswith("Because you watched Show")  # mike only watches TV
+    assert rows["shortlist_mike"][0].title.startswith("Because you watched Show")  # mike only watches TV
     # A cold-start user has no seed to fill {top_seed} with, so the row falls back to the default
     # title rather than putting the dangling half-sentence "Because you watched" on their Home.
-    assert rows["rowarr_canary"][0].title.startswith("✨ Picked for You")
+    assert rows["shortlist_canary"][0].title.startswith("✨ Picked for You")
 
     # Every row carries its owner's INVISIBLE marker, so no two rows in a library share a title —
     # and a Plex collection is a tag keyed by title, so identically-titled rows would be ONE tag
     # holding everyone's picks. Users still read exactly the title they were promised.
     accounts = {user.username.lower(): user.id for user in state.users.values()}
     for label, collections in rows.items():
-        account_id = accounts[label.removeprefix("rowarr_")]
+        account_id = accounts[label.removeprefix("shortlist_")]
         for collection in collections:
             assert collection.title.endswith(row_marker(account_id)), (
                 f"{label}'s row has no marker — it shares a collection tag with everyone else's"
@@ -231,9 +231,9 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fa
         assert len(titles) == len(set(titles)), f"two rows share a collection tag in library {library}"
 
     # Every user's share now excludes the OTHER users' labels — the whole point of the product.
-    assert state.users[201].filters["filterMovies"] == "label!=Rowarr_canary,Rowarr_mike"
-    assert state.users[202].filters["filterMovies"] == "label!=Rowarr_canary,Rowarr_sarah"
-    assert state.users[203].filters["filterMovies"] == "label!=Rowarr_mike,Rowarr_sarah"
+    assert state.users[201].filters["filterMovies"] == "label!=Shortlist_canary,Shortlist_mike"
+    assert state.users[202].filters["filterMovies"] == "label!=Shortlist_canary,Shortlist_sarah"
+    assert state.users[203].filters["filterMovies"] == "label!=Shortlist_mike,Shortlist_sarah"
 
     run = app.api("GET", "/api/runs").json()[0]
     assert run["status"] == "ok"
@@ -241,7 +241,7 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: RowarrApp, fa
     assert run["stats"]["users_ok"] == 3
 
 
-def test_choosing_ollama_as_the_curator_saves_its_url(fresh_page: Page, fresh_app: RowarrApp, fake_plex):
+def test_choosing_ollama_as_the_curator_saves_its_url(fresh_page: Page, fresh_app: ShortlistApp, fake_plex):
     """Ollama takes a URL and no key. That key used to be unknown to the settings store, so the
     whole payload 422'd — taking curator.provider down with it and blocking setup entirely."""
     page, app = fresh_page, fresh_app
@@ -266,7 +266,7 @@ def test_choosing_ollama_as_the_curator_saves_its_url(fresh_page: Page, fresh_ap
     assert settings["curator.ollama_url"] == "http://127.0.0.1:11434"
 
 
-def test_wizard_resumes_on_the_same_step_after_a_reload(fresh_page: Page, fresh_app: RowarrApp, fake_plex):
+def test_wizard_resumes_on_the_same_step_after_a_reload(fresh_page: Page, fresh_app: ShortlistApp, fake_plex):
     """A refresh mid-wizard must not restart it: progress is persisted server-side per step."""
     page, app = fresh_page, fresh_app
     pms_url, _, _ = fake_plex
@@ -294,7 +294,7 @@ def test_wizard_resumes_on_the_same_step_after_a_reload(fresh_page: Page, fresh_
 
 def test_a_canary_less_server_refuses_real_writes(
     fresh_page: Page,
-    fresh_app: RowarrApp,
+    fresh_app: ShortlistApp,
     fake_plex,
     reset_fake_plex: FakePlexState,
 ):

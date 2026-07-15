@@ -144,7 +144,7 @@ shortlist --config-dir /config run --dry-run   # log every would-be change, writ
 shortlist --config-dir /config run             # the nightly pipeline
 shortlist --config-dir /config verify          # T1 read-back + T2 canary view
 shortlist --config-dir /config verify --probe  # full probe (throwaway collection, ~90s)
-shortlist --config-dir /config uninstall       # restore snapshots, delete rowarr collections
+shortlist --config-dir /config uninstall       # restore snapshots, delete shortlist collections
 ```
 
 `run` refuses real writes unless a passing `verify` is on record from the last 7 days —
@@ -163,4 +163,4 @@ that's deliberate.
   answer is thin.
 - **Everything broke, get me out** — `shortlist uninstall` (or Settings → Danger Zone →
   Uninstall) restores every user's share filters from the pre-Shortlist snapshots and deletes
-  every rowarr-labeled collection. Kometa and other tools' collections are never touched.
+  every shortlist-labeled collection. Kometa and other tools' collections are never touched.

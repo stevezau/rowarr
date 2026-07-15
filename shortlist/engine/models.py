@@ -22,7 +22,7 @@ class UserType(StrEnum):
 
 
 def slugify(name: str) -> str:
-    """Normalize a username into the slug used in labels: ``rowarr_<slug>``."""
+    """Normalize a username into the slug used in labels: ``shortlist_<slug>``."""
     text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
     text = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_").lower()
     return text or "user"
@@ -183,7 +183,7 @@ class UserProfile:
 
     @property
     def label(self) -> str:
-        return f"rowarr_{self.slug}"
+        return f"shortlist_{self.slug}"
 
 
 # Shared ("popular on this server") rows live in a namespace no per-person label can collide with.
@@ -191,15 +191,15 @@ class UserProfile:
 # username can never produce a slug containing "__" — the DOUBLE underscore here makes a shared
 # label unreachable from any user slug, so a private row can never be mistaken for a shared one.
 SHARED_SLUG_PREFIX = "shared"
-SHARED_LABEL_PREFIX = "rowarr__shared_"
+SHARED_LABEL_PREFIX = "shortlist__shared_"
 
 
 @dataclass
 class RowSpec:
     """One curated-row definition the engine delivers, built by the adapter from a Collection row.
 
-    A per-person spec produces one private row per audience member (label ``rowarr_<userslug>``); a
-    shared spec produces one public row for the whole audience (label ``rowarr_shared_<slug>``).
+    A per-person spec produces one private row per audience member (label ``shortlist_<userslug>``); a
+    shared spec produces one public row for the whole audience (label ``shortlist_shared_<slug>``).
     """
 
     slug: str
@@ -323,7 +323,7 @@ class EngineConfig:
 
     row_size: int = 15
     row_name_template: str = "✨ Picked for You"
-    label_prefix: str = "rowarr"
+    label_prefix: str = "shortlist"
     candidates_pre_rank: int = 40  # heuristic pre-rank keeps this many for the curator
     min_history: int = 10  # below this -> cold-start row
     min_completion: float = 0.7  # history completion threshold for "meaningful" watch
@@ -398,7 +398,7 @@ class OwnedRow:
     """Every Shortlist collection belonging to one user, across libraries.
 
     A user gets at most one collection per library section (movies, shows), all carrying the
-    same `rowarr_<slug>` label — which is what the share-filter excludes key off. The privacy
+    same `shortlist_<slug>` label — which is what the share-filter excludes key off. The privacy
     check must know about ALL of them: a leak in any library is a leak.
     """
 

@@ -13,7 +13,7 @@ from collections.abc import Callable
 import pytest
 from playwright.sync_api import Page, expect
 
-from tests.e2e.conftest import RowarrApp, build_real_rows
+from tests.e2e.conftest import ShortlistApp, build_real_rows
 
 pytestmark = pytest.mark.e2e
 
@@ -21,7 +21,7 @@ LOAD = 20_000
 SLOW = 90_000
 
 
-def _users_by_name(app: RowarrApp) -> dict[str, dict]:
+def _users_by_name(app: ShortlistApp) -> dict[str, dict]:
     return {user["username"]: user for user in app.api("GET", "/api/users").json()}
 
 
@@ -37,7 +37,7 @@ def _wait_until(condition: Callable[[], bool], message: str, timeout_s: float = 
 
 
 class TestUsers:
-    def test_disabling_a_user_persists_and_leaves_the_others_alone(self, page: Page, app: RowarrApp):
+    def test_disabling_a_user_persists_and_leaves_the_others_alone(self, page: Page, app: ShortlistApp):
         page.goto("/users")
         canary = page.get_by_role("switch", name="Shortlist row for canary")
         expect(canary).to_be_checked(timeout=LOAD)
@@ -54,7 +54,7 @@ class TestUsers:
         assert users["sarah"]["enabled"] is True
         assert users["mike"]["enabled"] is True
 
-    def test_per_user_overrides_persist(self, page: Page, app: RowarrApp):
+    def test_per_user_overrides_persist(self, page: Page, app: ShortlistApp):
         sarah_id = _users_by_name(app)["sarah"]["id"]
         page.goto(f"/users/{sarah_id}")
         expect(page.get_by_role("heading", name="sarah")).to_be_visible(timeout=LOAD)
@@ -84,7 +84,7 @@ class TestUsers:
         # Exactly this user changed — mike's prefs stay empty.
         assert _users_by_name(app)["mike"]["prefs"] == {}
 
-    def test_a_paused_user_is_skipped_by_the_next_run(self, page: Page, app: RowarrApp, reset_fake_plex):
+    def test_a_paused_user_is_skipped_by_the_next_run(self, page: Page, app: ShortlistApp, reset_fake_plex):
         """The override has to reach the ENGINE, not just the users table."""
         state = reset_fake_plex
         sarah_id = _users_by_name(app)["sarah"]["id"]
@@ -102,13 +102,13 @@ class TestUsers:
         assert built == {"mike", "canary"}, "a paused user must not be rebuilt"
 
         labels = {label.lower() for c in state.collections.values() for label in c.labels}
-        assert labels == {"rowarr_mike", "rowarr_canary"}
-        assert "rowarr_sarah" not in labels
+        assert labels == {"shortlist_mike", "shortlist_canary"}
+        assert "shortlist_sarah" not in labels
 
 
 class TestRuns:
     def test_a_run_started_from_the_ui_lands_in_runs_with_per_user_rows(
-        self, page: Page, app: RowarrApp, reset_fake_plex
+        self, page: Page, app: ShortlistApp, reset_fake_plex
     ):
         state = reset_fake_plex
         # The gate is real: without a passing check the server refuses to write (rule 1).
@@ -135,7 +135,7 @@ class TestRuns:
         for username in ("sarah", "mike", "canary"):
             expect(page.get_by_role("link", name=username, exact=True)).to_be_visible()
 
-    def test_run_detail_shows_what_changed(self, page: Page, app: RowarrApp, reset_fake_plex):
+    def test_run_detail_shows_what_changed(self, page: Page, app: ShortlistApp, reset_fake_plex):
         """The diff is the audit trail (rule 10): everything Added on the first run, and on the
         next run the staleness guard rotates fresh titles in — without ever shrinking a row."""
         state = reset_fake_plex
@@ -158,7 +158,7 @@ class TestRuns:
             sizes: dict[str, int] = {}
             for collection in state.collections.values():
                 for label in collection.labels:
-                    if label.lower().startswith("rowarr_"):
+                    if label.lower().startswith("shortlist_"):
                         sizes[label.lower()] = sizes.get(label.lower(), 0) + len(collection.item_keys)
             return sizes
 
@@ -179,7 +179,7 @@ class TestRuns:
             )
         expect(page.get_by_text(re.compile(r"^(Added|Kept) \(\d+\)$")).first).to_be_visible()
 
-    def test_a_users_picks_explain_themselves(self, page: Page, app: RowarrApp):
+    def test_a_users_picks_explain_themselves(self, page: Page, app: ShortlistApp):
         """Every pick carries its "Because you watched …" reason — the product's whole promise."""
         build_real_rows(app)
         sarah_id = _users_by_name(app)["sarah"]["id"]
@@ -204,7 +204,7 @@ class TestRuns:
         # Ranked, and the rank the engine chose is the rank shown.
         expect(page.get_by_text(sarah_picks[0]["title"], exact=True).first).to_be_visible()
 
-    def test_the_canary_gets_the_cold_start_row_and_says_so(self, page: Page, app: RowarrApp):
+    def test_the_canary_gets_the_cold_start_row_and_says_so(self, page: Page, app: ShortlistApp):
         """No history -> the popular-titles fallback, labelled honestly rather than faked."""
         build_real_rows(app)
         canary_id = _users_by_name(app)["canary"]["id"]

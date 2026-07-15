@@ -1,9 +1,9 @@
 """Privacy Check tiers, exactly as validated live in Phase 0 (2026-07-12).
 
 T1: read every restricted user's filters back from plex.tv and assert the expected
-    rowarr excludes are present.
+    shortlist excludes are present.
 T2: mint a canary Home user's server token (switch + resources exchange) and assert that no
-    OTHER user's rowarr collection appears among the canary's Home hubs. Detection is by
+    OTHER user's shortlist collection appears among the canary's Home hubs. Detection is by
     collection id parsed from each hub's key (``/library/collections/<id>/children``) — hub
     payloads do not carry labels, and row titles are shared templates, so ids are the only
     reliable discriminator. See tests/fixtures/pms_hubs_home.json.
@@ -18,7 +18,7 @@ from loguru import logger
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.models import OwnedRow, PrivacyCheckResult, UserProfile, UserType
-from shortlist.engine.privacy import desired_excludes, rowarr_labels_in, visible_shared_slugs
+from shortlist.engine.privacy import desired_excludes, shortlist_labels_in, visible_shared_slugs
 
 _COLLECTION_KEY = re.compile(r"/library/collections/(\d+)")
 
@@ -34,7 +34,7 @@ def check_t1(
     known_slugs: dict[int, str],
     stored_labels: dict[str, str],
     *,
-    label_prefix: str = "rowarr",
+    label_prefix: str = "shortlist",
     shared_labels: dict[str, set[int] | None] | None = None,
 ) -> PrivacyCheckResult:
     """Assert EVERY account sharing this server excludes every row that isn't theirs.
@@ -65,7 +65,7 @@ def check_t1(
         if not wanted:
             continue
         for fieldname in ("filterMovies", "filterTelevision"):
-            present = rowarr_labels_in(remote.filters.get(fieldname, ""), label_prefix)
+            present = shortlist_labels_in(remote.filters.get(fieldname, ""), label_prefix)
             missing = {w for w in wanted if w.lower() not in {p.lower() for p in present}}
             if missing:
                 failures[remote.username] = f"{fieldname} missing excludes: {sorted(missing)}"

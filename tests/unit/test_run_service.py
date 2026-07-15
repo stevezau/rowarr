@@ -369,7 +369,7 @@ class TestPauseAll:
             assert {p.slug for p in service.enabled_profiles(session)} == {"sarah", "mike"}
 
 
-class TestSnapshotsForAccountsRowarrDoesNotKnow:
+class TestSnapshotsForAccountsShortlistDoesNotKnow:
     """The server must be able to write share filters for accounts that aren't in its users table.
 
     A row is visible to anyone whose filter doesn't exclude it, so every account sharing the

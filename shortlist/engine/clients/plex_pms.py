@@ -3,7 +3,7 @@
 Plex quirks encoded here (all live-verified in Phase 0, 2026-07-12):
 - Plex fixes a collection's subtype from the items it is CREATED with and never revises it, so a
   mistyped collection must be rebuilt, never edited (see ``matches_section``).
-- Plex title-cases new labels (``rowarr_x`` -> ``Shortlist_x``); callers must use the label
+- Plex title-cases new labels (``shortlist_x`` -> ``Shortlist_x``); callers must use the label
   *as stored*, so collection helpers always read labels back after writing.
 """
 
@@ -125,8 +125,8 @@ class PlexClient:
                 break
         return out
 
-    def owned_collections(self, label_prefix: str = "rowarr") -> dict[str, OwnedRow]:
-        """Map slug -> OwnedRow for every rowarr-owned collection, across every library.
+    def owned_collections(self, label_prefix: str = "shortlist") -> dict[str, OwnedRow]:
+        """Map slug -> OwnedRow for every shortlist-owned collection, across every library.
 
         The PMS is the source of truth for label casing (Plex title-cases new labels) and for
         the collection ids the T2 privacy check compares hubs against. A user has one collection
@@ -218,7 +218,7 @@ class PlexClient:
             previous = item
 
     def delete_owned_collection(self, collection: Collection, label_prefix: str) -> None:
-        """Delete a collection only if it carries a rowarr label (Kometa coexistence)."""
+        """Delete a collection only if it carries a shortlist label (Kometa coexistence)."""
         if not any(label.tag.lower().startswith(f"{label_prefix}_") for label in collection.labels):
             raise PermissionError(f"refusing to delete {collection.title!r}: no {label_prefix}_* label — not ours")
         collection.visibility().updateVisibility(recommended=False, home=False, shared=False)

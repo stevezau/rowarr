@@ -16,8 +16,8 @@ class TestUserProfile:
     def test_slug_and_label_derived_from_username(self):
         profile = UserProfile(username="TheDen", plex_account_id=1, user_type=UserType.SHARED)
         assert profile.slug == "theden"
-        assert profile.label == "rowarr_theden"
+        assert profile.label == "shortlist_theden"
 
     def test_explicit_slug_wins(self):
         profile = UserProfile(username="TheDen", plex_account_id=1, user_type=UserType.SHARED, slug="den")
-        assert profile.label == "rowarr_den"
+        assert profile.label == "shortlist_den"

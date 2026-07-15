@@ -133,7 +133,7 @@ def roster_slugs(
 
     A rename never moves the slug either, for the same reason.
 
-    The map cannot be rebuilt from the server: a `rowarr_bob_smith` label does not say WHICH
+    The map cannot be rebuilt from the server: a `shortlist_bob_smith` label does not say WHICH
     account owns it. So if it is missing while rows already exist, seeding from scratch would be a
     guess — and a wrong guess hands one person's row, and their private picks, to someone else. We
     stop instead, and say so.
@@ -245,23 +245,23 @@ PRIVACY_GATE_MAX_AGE_DAYS = 7  # design: weekly scheduled re-verification
 def require_privacy_gate(config_dir: Path) -> None:
     """Refuse real writes without a recent passing Privacy Check (plex-safety rule 1).
 
-    `rowarr verify` records its result to <config-dir>/privacy_check.json, including the
+    `shortlist verify` records its result to <config-dir>/privacy_check.json, including the
     PMS version it verified against. Dry runs are always allowed.
     """
     gate_path = config_dir / "privacy_check.json"
     if not gate_path.exists():
         raise click.ClickException(
-            "no Privacy Check on record — run `rowarr verify` first (or use --dry-run). "
+            "no Privacy Check on record — run `shortlist verify` first (or use --dry-run). "
             "Shortlist never writes to Plex until your server has proven rows stay private."
         )
     gate = json.loads(gate_path.read_text())
     if not gate.get("passed"):
-        raise click.ClickException("last Privacy Check FAILED — fix it and re-run `rowarr verify`")
+        raise click.ClickException("last Privacy Check FAILED — fix it and re-run `shortlist verify`")
     age = datetime.now(UTC) - datetime.fromisoformat(gate["ran_at"])
     if age.days > PRIVACY_GATE_MAX_AGE_DAYS:
         raise click.ClickException(
             f"last passing Privacy Check is {age.days} days old "
-            f"(max {PRIVACY_GATE_MAX_AGE_DAYS}) — re-run `rowarr verify`"
+            f"(max {PRIVACY_GATE_MAX_AGE_DAYS}) — re-run `shortlist verify`"
         )
     version = tuple(gate.get("pms_version") or ())
     if version < MIN_PMS_VERSION:
@@ -374,7 +374,7 @@ def run_cmd(config_dir: Path, only: str | None, dry_run: bool, reseed: bool) -> 
 def verify_cmd(config_dir: Path, probe: bool) -> None:
     """Privacy verification: T1 filter read-back for all users, T2 canary view if configured.
 
-    Records the result to privacy_check.json — `rowarr run` refuses real writes without a
+    Records the result to privacy_check.json — `shortlist run` refuses real writes without a
     recent passing record.
     """
     ctx, raw, remote_users = load_context(config_dir, dry_run=True)
@@ -406,7 +406,7 @@ def verify_cmd(config_dir: Path, probe: bool) -> None:
             )
         )
         sys.exit(0 if result.passed else 1)
-    collections = ctx.plex.owned_collections("rowarr")
+    collections = ctx.plex.owned_collections("shortlist")
     stored = {slug: row.label for slug, row in collections.items()}  # real casing from the PMS
     shared = shared_label_audiences(ctx.config)
     t1 = check_t1(ctx.plextv, ctx.known_slugs, stored, shared_labels=shared)
@@ -443,13 +443,13 @@ def uninstall_cmd(config_dir: Path, yes: bool, dry_run: bool) -> None:
     """Restore every snapshot and delete every Shortlist collection — server as we found it."""
     ctx, _raw, _remote = load_context(config_dir, dry_run)
     snapshots = ctx.snapshots.all()
-    click.echo(f"{len(snapshots)} filter snapshot(s) to restore; scanning for rowarr collections…")
+    click.echo(f"{len(snapshots)} filter snapshot(s) to restore; scanning for shortlist collections…")
     owned = []
     for section in ctx.plex.sections():
         for collection in section.collections():
-            if any(label.tag.lower().startswith("rowarr_") for label in collection.labels):
+            if any(label.tag.lower().startswith("shortlist_") for label in collection.labels):
                 owned.append(collection)
-    click.echo(f"{len(owned)} rowarr collection(s) to delete: {[c.title for c in owned]}")
+    click.echo(f"{len(owned)} shortlist collection(s) to delete: {[c.title for c in owned]}")
     if not yes and not dry_run and not click.confirm("Proceed with full uninstall?"):
         raise SystemExit(1)
     for snapshot in snapshots:
@@ -458,7 +458,7 @@ def uninstall_cmd(config_dir: Path, yes: bool, dry_run: bool) -> None:
         if dry_run:
             logger.info("[dry-run] would delete collection '{}'", collection.title)
         else:
-            ctx.plex.delete_owned_collection(collection, "rowarr")
+            ctx.plex.delete_owned_collection(collection, "shortlist")
     click.echo("[dry-run] no changes made" if dry_run else "uninstall complete — server restored")
 
 

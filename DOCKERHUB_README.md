@@ -17,8 +17,8 @@ each user's Plex Home screen as their own private row — visible only to them.
 
 ```yaml
 services:
-  rowarr:
-    image: ghcr.io/stevezau/rowarr:latest
+  shortlist:
+    image: ghcr.io/stevezau/shortlist:latest
     ports: ["5959:5959"]
     volumes: ["./config:/config"]
     environment:
@@ -29,6 +29,6 @@ services:
 Open `http://your-host:5959` → **Login with Plex** → the wizard does the rest (~10 minutes
 including your first rows).
 
-Docs, source and issues: https://github.com/stevezau/rowarr
+Docs, source and issues: https://github.com/stevezau/shortlist
 
 Tags: `latest` (releases) · `X.Y.Z` · `dev` (master) · `pr-<n>` (PR previews). amd64 + arm64.

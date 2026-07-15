@@ -47,6 +47,8 @@ export interface Collection {
   library_keys: string[];
   /** Max fraction of the row that may be already-watched (0..1); null inherits the global cap. */
   watched_pct: number | null;
+  /** Day-to-day variability (0..1); null inherits the global freshness. */
+  freshness: number | null;
   /** Where the row shows once promoted: both (Home + Library), home only, or library only. */
   placement: "both" | "home" | "library";
   /** Pin the row to the top of its library's Recommended shelf (server-wide, not per viewer). */
@@ -77,6 +79,7 @@ export interface CollectionInput {
   candidate_sources: string[];
   library_keys: string[];
   watched_pct: number | null;
+  freshness: number | null;
   placement: "both" | "home" | "library";
   pin_top: boolean;
   prompt: { tone: string; guidance: string; template: string };

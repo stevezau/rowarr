@@ -99,6 +99,9 @@ class Collection(Base):
     # Per-row cap on already-finished titles, as a fraction (0.0 all fresh .. 1.0 no filtering).
     # NULL -> inherit the global recommendations.watched_pct.
     watched_pct: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    # Per-row day-to-day variability, as a fraction (0.0 stable .. 1.0 fresh). NULL -> inherit the
+    # global recommendations.freshness.
+    freshness: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     # Specific Plex library section keys this row builds in; [] -> every library of its media type.
     library_keys: Mapped[list] = mapped_column(JSON, default=list)
     min_watchers: Mapped[int] = mapped_column(Integer, default=2)  # shared: aggregate-privacy threshold

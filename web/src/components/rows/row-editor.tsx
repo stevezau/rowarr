@@ -8,6 +8,7 @@ import { AudiencePicker } from "@/components/rows/audience-picker";
 import { LibraryPicker } from "@/components/rows/library-picker";
 import { RowSourcesField } from "@/components/rows/row-sources-field";
 import { Segmented } from "@/components/segmented";
+import { FreshnessSlider } from "@/components/settings/freshness-slider";
 import { WatchedSlider } from "@/components/settings/watched-slider";
 import { Button } from "@/components/ui/button";
 import {
@@ -184,6 +185,29 @@ export function RowEditor({
                 id="row-watched-pct"
                 value={Math.round(input.watched_pct * 100)}
                 onChange={(pct) => set({ watched_pct: pct / 100 })}
+              />
+            )}
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <Label htmlFor="row-freshness">Freshness</Label>
+            <p className="text-sm text-muted-foreground">
+              How much this row changes day to day. Leave on the global default
+              to follow Settings → Recommendations.
+            </p>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm">Use the global default</span>
+              <Switch
+                checked={input.freshness === null}
+                onCheckedChange={(on) => set({ freshness: on ? null : 0 })}
+                aria-label="Use the global freshness default"
+              />
+            </div>
+            {input.freshness !== null && (
+              <FreshnessSlider
+                id="row-freshness"
+                value={Math.round(input.freshness * 100)}
+                onChange={(pct) => set({ freshness: pct / 100 })}
               />
             )}
           </div>

@@ -149,3 +149,51 @@ class TestWatchedCap:
         picks = [self._pick(i) for i in (1, 2, 3)]
         out = _apply_watched_cap(picks, [make_candidate(i, f"c{i}") for i in (1, 2, 3)], watched, k=3, pct=1.0)
         assert {p.tmdb_id for p in out} == {1, 2, 3}  # no filtering at 100%
+
+
+class TestFreshnessRotation:
+    """The freshness rotation: keep the strongest picks stable, rotate the rest by a per-day phase."""
+
+    def _ranked(self, n: int = 20) -> list:
+        # ids 1..n, already in rank order (best first).
+        return [make_candidate(i, f"c{i}") for i in range(1, n + 1)]
+
+    def test_zero_freshness_is_a_no_op(self):
+        from shortlist.engine.rows import _rotate_for_freshness
+
+        ranked = self._ranked()
+        assert _rotate_for_freshness(ranked, 5, 0.0, 100) is ranked
+
+    def test_day_zero_is_a_no_op(self):
+        from shortlist.engine.rows import _rotate_for_freshness
+
+        ranked = self._ranked()
+        assert _rotate_for_freshness(ranked, 5, 0.5, 0) is ranked
+
+    def test_a_pool_no_deeper_than_the_row_is_a_no_op(self):
+        from shortlist.engine.rows import _rotate_for_freshness
+
+        # Nothing below the row to rotate in: the guard must return the ranking untouched — a shallow
+        # pool can never SHRINK or reshuffle the row.
+        exactly_k = self._ranked(4)
+        assert _rotate_for_freshness(exactly_k, 4, 1.0, 5) is exactly_k
+        too_few = self._ranked(3)
+        assert _rotate_for_freshness(too_few, 4, 1.0, 5) is too_few
+
+    def test_keeps_the_top_stable_and_rotates_the_rest(self):
+        from shortlist.engine.rows import _rotate_for_freshness
+
+        ranked = self._ranked()
+        k = 4  # freshness 0.5 -> swap 2, keep top 2
+        day1 = [c.tmdb_id for c in _rotate_for_freshness(ranked, k, 0.5, 1)[:k]]
+        day2 = [c.tmdb_id for c in _rotate_for_freshness(ranked, k, 0.5, 2)[:k]]
+        assert day1[:2] == [1, 2] and day2[:2] == [1, 2], "the two strongest picks stay put every day"
+        assert day1[2:] != day2[2:], "the remaining slots rotate for day-to-day variety"
+        assert day1 == [c.tmdb_id for c in _rotate_for_freshness(ranked, k, 0.5, 1)[:k]], "same day is reproducible"
+
+    def test_full_freshness_moves_the_whole_row_off_the_top(self):
+        from shortlist.engine.rows import _rotate_for_freshness
+
+        ranked = self._ranked()
+        day1 = [c.tmdb_id for c in _rotate_for_freshness(ranked, 4, 1.0, 1)[:4]]
+        assert day1 != [1, 2, 3, 4], "at full freshness even the top slots rotate"

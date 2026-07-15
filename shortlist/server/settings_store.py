@@ -55,6 +55,9 @@ DEFAULTS: dict[str, Any] = {
     # Cap on already-finished titles in a row, as a fraction: 0.0 = all fresh (default), 1.0 = no
     # filtering, in between = at most that share of the row may be things already watched. Per-row.
     "recommendations.watched_pct": 0.0,
+    # How much rows vary day to day: 0.0 = stable (same strong picks), 1.0 = fresh (rotate + reach
+    # deep for variety). Per-row overridable.
+    "recommendations.freshness": 0.0,
     "plextv.throttle_s": 1.0,
     "paused_all": False,  # Danger zone: stop all scheduled + manual runs without disabling users
     "setup.completed": False,

@@ -1,5 +1,6 @@
 import {
   DEFAULT_ROW_SLUG,
+  freshnessBadgeLabel,
   TONE_LABELS,
   watchedBadgeLabel,
 } from "@/lib/constants";
@@ -28,6 +29,7 @@ export function blankInput(): CollectionInput {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    freshness: null,
     placement: "both",
     pin_top: false,
     prompt: { tone: "", guidance: "", template: "" },
@@ -51,6 +53,7 @@ export function toInput(collection: Collection): CollectionInput {
     candidate_sources: collection.candidate_sources,
     library_keys: collection.library_keys,
     watched_pct: collection.watched_pct ?? null,
+    freshness: collection.freshness ?? null,
     placement: collection.placement ?? "both",
     pin_top: collection.pin_top ?? false,
     prompt: {
@@ -106,6 +109,11 @@ export function rowOverrides(
   // prompt, this override IS honoured on the default row, so it isn't gated on the slug.
   if (collection.watched_pct !== null && collection.watched_pct !== undefined) {
     parts.push(watchedBadgeLabel(collection.watched_pct));
+  }
+
+  // null inherits the global freshness, so only badge a per-row override.
+  if (collection.freshness !== null && collection.freshness !== undefined) {
+    parts.push(freshnessBadgeLabel(collection.freshness));
   }
 
   // "both" is the default placement (Home + Library), so only badge a narrowed one.

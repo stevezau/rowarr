@@ -79,6 +79,9 @@ class EngineContext:
     # by a later auto-send. Empty for the CLI, which has no inbox.
     handled_requests: set[tuple[int, str]] = field(default_factory=set)
     progress: Callable[[str, str, dict], None] | None = None  # (user_slug, stage, counts) -> None
+    # Day number of this run (date.toordinal()), the phase for freshness rotation so a row shifts
+    # day to day but is reproducible within a day. Set at the start of run(); 0 disables rotation.
+    run_day: int = 0
 
 
 def _emit(ctx: EngineContext, slug: str, stage: str, counts: dict) -> None:
@@ -98,6 +101,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     collection is never visible to anyone before the exclusions that hide it exist.
     """
     report = RunReport(started_at=datetime.now(UTC), dry_run=ctx.config.dry_run)
+    # Freshness rotates a row by a per-DAY phase, so it shifts day to day but stays reproducible
+    # within a day (a re-run the same night doesn't reshuffle). Only overwrite the default 0 (which
+    # disables rotation) so a caller/test can pin a specific day.
+    if not ctx.run_day:
+        ctx.run_day = report.started_at.toordinal()
 
     # Tell the UI the full queue up front — cards can say "queued (3rd in line)"
     # instead of a bare "waiting…" while the indexes build.

@@ -362,6 +362,24 @@ class TestCollectionsSeed:
             specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
         assert next(s for s in specs if s.slug == "rewatch_row").watched_pct == 0.5
 
+    def test_per_row_freshness_round_trips_and_reaches_the_spec(self, client: TestClient):
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
+
+        created = client.post("/api/collections", json={"name": "Fresh Row", "freshness": 0.75})
+        assert created.status_code == 201 and created.json()["freshness"] == 0.75
+        # Out of the 0..1 range is rejected.
+        assert client.post("/api/collections", json={"name": "X", "freshness": 1.5}).status_code == 422
+        # And the global freshness setting is range-checked too.
+        assert client.put("/api/settings", json={"values": {"recommendations.freshness": 2.0}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"recommendations.freshness": 0.3}}).status_code == 200
+
+        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
+        with client.app.state.sessions() as session:
+            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
+        assert next(s for s in specs if s.slug == "fresh_row").freshness == 0.75
+
     def test_per_row_placement_round_trips_and_reaches_the_spec(self, client: TestClient):
         from shortlist.server.services.context_builder import ContextBuilder
         from shortlist.server.services.sse import EventBus

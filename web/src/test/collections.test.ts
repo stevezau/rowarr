@@ -27,6 +27,7 @@ function collection(patch: Partial<Collection> = {}): Collection {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    freshness: null,
     placement: "both",
     pin_top: false,
     prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style
@@ -116,6 +117,21 @@ describe("rowOverrides", () => {
 
   it("shows no watched badge when the row inherits the global cap", () => {
     expect(rowOverrides(collection({ watched_pct: null }), LIBRARIES)).toEqual(
+      [],
+    );
+  });
+
+  it("badges a row's own freshness override, but not when it inherits the global one", () => {
+    expect(rowOverrides(collection({ freshness: 0 }), LIBRARIES)).toContain(
+      "Freshness: stable",
+    );
+    expect(rowOverrides(collection({ freshness: 0.5 }), LIBRARIES)).toContain(
+      "Freshness: 50%",
+    );
+    expect(rowOverrides(collection({ freshness: 1 }), LIBRARIES)).toContain(
+      "Freshness: max",
+    );
+    expect(rowOverrides(collection({ freshness: null }), LIBRARIES)).toEqual(
       [],
     );
   });

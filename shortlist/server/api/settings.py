@@ -76,6 +76,7 @@ VALIDATORS = {
     "requests.auto_send": _is_bool,
     "candidates.sources": _known_sources,
     "recommendations.watched_pct": _bounded_float(0.0, 1.0),
+    "recommendations.freshness": _bounded_float(0.0, 1.0),
     "curator.provider": _one_of("anthropic", "openai", "google", "ollama", "none"),
     "curator.prompt_tone": _one_of("balanced", "warm", "concise", "cinephile", "playful"),
     "requests.rating_source": _one_of("tmdb", "imdb"),

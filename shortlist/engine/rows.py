@@ -108,6 +108,26 @@ def _apply_watched_cap(
     return [replace(p, rank=i + 1) for i, p in enumerate(kept)]
 
 
+def _rotate_for_freshness(ranked: list, k: int, freshness: float, day: int) -> list:
+    """Rotate a fraction of a row's ranked candidates by a per-day phase, keeping the strongest put.
+
+    Freshness ``f`` rotates ``round(f * k)`` of the k slots: the top ``k - swap`` picks stay (quality
+    preserved), and the remaining slots rotate daily through the candidates ranked just below them —
+    so the row shifts day to day without dropping its best titles or reaching for weak ones until
+    ``f`` is high. ``day`` is the phase (``date.toordinal()``): the same day yields the same order, a
+    later day a shifted one. ``f == 0``, a zero ``day``, or a pool no deeper than ``k`` is a no-op.
+    """
+    if freshness <= 0 or day <= 0 or len(ranked) <= k:
+        return ranked
+    swap = round(freshness * k)
+    if swap <= 0:
+        return ranked
+    stable = k - swap
+    tail = ranked[stable:]  # everything eligible to rotate through the swap slots
+    offset = (day * swap) % len(tail)
+    return ranked[:stable] + tail[offset:] + tail[:offset]
+
+
 def _rating_key_resolver(seed_index: dict[int, int]) -> Callable[[WatchedItem], int | None]:
     """A resolver from a watched item to its tmdb_id, via ratingKey, across EVERY library.
 
@@ -322,6 +342,9 @@ def _run_user(
     def effective_watched_pct(spec: RowSpec) -> float:
         return spec.watched_pct if spec.watched_pct is not None else cfg.watched_pct
 
+    def effective_freshness(spec: RowSpec) -> float:
+        return spec.freshness if spec.freshness is not None else cfg.freshness
+
     def effective_sources(spec: RowSpec) -> tuple[str, ...]:
         # Sorted so two rows with the same sources in a different order share ONE pool (gather is
         # set-based) — otherwise they'd each rebuild it, re-hitting rate-limited/LLM sources and, for
@@ -479,13 +502,18 @@ def _run_user(
             if cold:
                 # Cold picks already come FROM a library (plex.top_rated), so they're in-library by
                 # construction; delivery remaps each to the target library and drops any it lacks.
-                cands = [p for p in base_cold if p.media_type is kind][:k]
+                cands = _rotate_for_freshness(
+                    [p for p in base_cold if p.media_type is kind], k, effective_freshness(spec), ctx.run_day
+                )[:k]
                 section_picks[section.key] = [replace(p, rank=i + 1) for i, p in enumerate(cands)]
                 continue
             sec_idx = ctx.section_index.get(section.key, {})
             sub = [c for c in pool_for_row if c.media_type is kind and c.tmdb_id in sec_idx]
             if not sub:
                 continue
+            # Freshness rotates which strong candidates lead today, so the row shifts day to day
+            # without dropping its best titles (at 0 this is a no-op — the ranking is untouched).
+            sub = _rotate_for_freshness(sub, k, effective_freshness(spec), ctx.run_day)
             try:
                 sec_picks = ctx.curator.curate(row_profile, sub, k)
                 user_report.llm_tokens += getattr(ctx.curator, "last_tokens", 0)
@@ -652,12 +680,14 @@ def _shared_row(
     # shared row come back all-movies-no-shows.
     targets = _target_sections(ctx.delivery_sections, spec)
     section_picks: dict[str, list[Pick]] = {}
+    freshness = spec.freshness if spec.freshness is not None else cfg.freshness
     for section in targets:
         kind = _section_kind(section)
         sec_idx = ctx.section_index.get(section.key, {})
         sub = [c for c in ranked if c.media_type is kind and c.tmdb_id in sec_idx]
         if not sub:
             continue
+        sub = _rotate_for_freshness(sub, k, freshness, ctx.run_day)  # rotate a public row day to day too
         try:
             sec_picks = ctx.curator.curate(agg, sub, k)
         except CuratorError:

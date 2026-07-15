@@ -681,6 +681,35 @@ class TestPerRowOverrides:
             assert len(entry["picks"]) == 5, "each library's row has its own full set of picks"
             assert [p["rank"] for p in entry["picks"]] == [1, 2, 3, 4, 5], "picks ranked 1..k within the library"
 
+    def test_freshness_rotates_which_candidates_the_curator_sees(self, ctx: EngineContext, mock_plextv):
+        """A freshness>0 row rotates its candidates by the run's day, so the curator leads with a
+        different (still strong) title than the raw #1 — the mechanism behind day-to-day variety."""
+        ctx.config.rows = [RowSpec(slug="picked", name_template="", size=4, media="movie", freshness=1.0)]
+        ctx.config.min_history = 1
+        ctx.config.candidates_pre_rank = 50
+        ctx.run_day = 2  # a non-zero phase, so rotation is active and reproducible
+        idx = {900: 999, **{i: 1000 + i for i in range(1, 21)}}
+        ctx.plex.build_library_index.return_value = idx
+        # Distinct descending ratings so the pre-rank order is deterministic: id 1 is the strongest.
+        pool = [{"id": i, "title": f"T{i}", "genre_ids": [], "vote_average": 9.9 - i * 0.1} for i in range(1, 21)]
+        ctx.tmdb.suggestions.return_value = pool
+        ctx.history_source.fetch.return_value = [make_watched("Fargo", days_ago=1, rating_key=999)]
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        seen: dict[str, int] = {}
+
+        def capture(profile, ranked, k):
+            seen.setdefault("first", ranked[0].tmdb_id)
+            return curated_picks(profile, ranked, k)
+
+        ctx.curator.curate.side_effect = capture
+
+        pipeline_mod.run(ctx, [sarah])
+
+        # Exact, not just "changed": freshness 1.0 with run_day 2 and k 4 rotates by (2*4) % 20 = 8,
+        # so the curator's first candidate is the rank-9 title (id 9) — pinning the phase/direction.
+        assert seen["first"] == 9, f"expected the day-2 rotation to lead with id 9, saw {seen['first']}"
+
     def test_a_shared_row_also_records_a_breakdown(self, ctx: EngineContext, mock_plextv):
         """A shared 'popular on this server' row records a per-library breakdown too, keyed by its own
         slug — so the run detail groups a public row the same way it groups a private one."""

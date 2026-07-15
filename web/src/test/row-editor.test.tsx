@@ -44,6 +44,7 @@ function row(patch: Partial<Collection> = {}): Collection {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    freshness: null,
     placement: "both",
     pin_top: false,
     prompt: { tone: "", guidance: "", template: "" },
@@ -134,5 +135,37 @@ describe("RowEditor — placement", () => {
     const body = updateCollection.mock.calls.at(0)?.[1] as Collection;
     expect(body.placement).toBe("home");
     expect(body.pin_top).toBe(true);
+  });
+});
+
+describe("RowEditor — freshness", () => {
+  beforeEach(() => {
+    updateCollection.mockClear();
+  });
+
+  it("shows the freshness slider only when the row overrides the global default", () => {
+    renderEditor(row({ freshness: 0.25 }));
+    expect(
+      screen.getByRole("slider", { name: /varies day to day/i }),
+    ).toHaveValue("25");
+    expect(
+      screen.getByRole("switch", { name: /global freshness default/i }),
+    ).not.toBeChecked();
+  });
+
+  it("round-trips a per-row freshness into the PATCH body", async () => {
+    renderEditor(row({ freshness: null }));
+
+    await userEvent.click(
+      screen.getByRole("switch", { name: /global freshness default/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Save changes/i }),
+    );
+
+    await waitFor(() => expect(updateCollection).toHaveBeenCalled());
+    expect(
+      (updateCollection.mock.calls.at(0)?.[1] as Collection).freshness,
+    ).toBe(0);
   });
 });

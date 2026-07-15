@@ -41,3 +41,27 @@ export function watchedBadgeLabel(pct: number): string {
   if (whole >= 100) return "Watched: no filter";
   return `Watched: ≤${whole}%`;
 }
+
+/**
+ * Freshness, as a whole percentage. 0 = stable (the same strong picks each day, best quality),
+ * 100 = maximum variety (rotates the row daily and reaches deep down the ranked list for new
+ * titles). In between trades quality for novelty. Stored as a 0..1 fraction; the UI is whole percent.
+ */
+export const FRESHNESS_DEFAULT = 0;
+
+/** Human sentence describing a given whole-percent freshness, for helper text under the control. */
+export function freshnessDescription(pct: number): string {
+  if (pct <= 0)
+    return "Stable — the same strong picks each day. Best match quality, least day-to-day change.";
+  if (pct >= 100)
+    return "Fresh — rotates the row every day and reaches deep for new titles. Most variety, occasionally weaker matches.";
+  return `Rotates the row daily and reaches about ${pct}% down the ranked list for variety — higher is fresher, lower keeps the safest picks.`;
+}
+
+/** Terse label for a row card's "this row overrides the freshness" badge (fraction → percent). */
+export function freshnessBadgeLabel(pct: number): string {
+  const whole = Math.round(pct * 100);
+  if (whole <= 0) return "Freshness: stable";
+  if (whole >= 100) return "Freshness: max";
+  return `Freshness: ${whole}%`;
+}

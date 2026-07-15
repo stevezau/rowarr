@@ -224,6 +224,10 @@ class RowSpec:
     # Per-row cap on already-watched titles, as a fraction of the row (0.0 = all fresh, 1.0 = no
     # filtering). None -> inherit EngineConfig.watched_pct.
     watched_pct: float | None = None
+    # How much this row varies day to day, as a fraction: 0.0 = stable (same strong picks daily,
+    # best quality), 1.0 = fresh (rotate the whole row + reach deep for novelty). None -> inherit
+    # EngineConfig.freshness.
+    freshness: float | None = None
     # Where the row's collection appears once promoted: "both" (Home + Library Recommended, the
     # default and legacy behaviour), "home" (Home only), or "library" (Library Recommended only).
     placement: str = "both"
@@ -352,6 +356,9 @@ class EngineConfig:
     # at most that fraction of the row may be things already finished. Overridable per row.
     watched_pct: float = 0.0
     watched_show_pct: float = 0.9  # a show watched to >= this fraction of its episodes counts as finished
+    # Day-to-day variability, as a fraction: 0.0 (default) = stable (the strongest picks every day);
+    # 1.0 = fresh (rotate the whole row daily and reach deep down the ranked list). Overridable per row.
+    freshness: float = 0.0
     # Which candidate sources to pool (see engine/candidates.py). Empty/default = TMDB similar only,
     # preserving legacy behaviour; owners widen recall by enabling more.
     candidate_sources: list[str] = field(default_factory=lambda: ["tmdb_similar"])

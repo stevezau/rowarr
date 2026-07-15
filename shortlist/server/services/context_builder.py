@@ -86,6 +86,7 @@ class ContextBuilder:
                 # the same everywhere (gather_candidates still floors an explicit [] at tmdb_similar).
                 candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
                 watched_pct=float(store.get("recommendations.watched_pct") or 0.0),
+                freshness=float(store.get("recommendations.freshness") or 0.0),
                 dry_run=dry_run,
                 rows=self._build_rows(session, store),
                 # The server owns the row list: an empty one means every row is DISABLED, not
@@ -332,6 +333,7 @@ class ContextBuilder:
                     request_tag=(collection.request_tag or "").strip(),
                     candidate_sources=list(collection.candidate_sources or []),
                     watched_pct=collection.watched_pct,  # None -> inherit the global watched cap
+                    freshness=collection.freshness,  # None -> inherit the global freshness
                     placement=collection.placement or "both",
                     pin_top=bool(collection.pin_top),
                     library_keys=[str(k) for k in (collection.library_keys or [])],

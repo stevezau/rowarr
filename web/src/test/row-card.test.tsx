@@ -37,6 +37,7 @@ function collection(patch: Partial<Collection> = {}): Collection {
     candidate_sources: [],
     library_keys: [],
     watched_pct: null,
+    freshness: null,
     placement: "both",
     pin_top: false,
     prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style

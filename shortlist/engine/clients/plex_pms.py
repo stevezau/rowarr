@@ -70,6 +70,13 @@ class PlexClient:
 
     def __init__(self, base_url: str, token: str, *, timeout: int = 30):
         self._server = PlexServer(base_url, token, session=_retrying_session(), timeout=timeout)
+        # Per-run read caches. A PlexClient is built fresh for each run (the server/CLI adapters
+        # construct one per run), so these live exactly one run — no cross-run staleness. Library
+        # sections don't change mid-run; a section's collection LIST changes only when WE create or
+        # delete one, so it is busted on exactly those two operations. Item edits, label adds and
+        # promotes mutate the cached Collection objects in place, so they need no busting.
+        self._sections_cache: list[LibrarySection] | None = None
+        self._collections_cache: dict[str, list[Collection]] = {}
 
     @property
     def machine_id(self) -> str:
@@ -85,7 +92,24 @@ class PlexClient:
         return self._server.friendlyName
 
     def sections(self, types: tuple[str, ...] = ("movie", "show")) -> list[LibrarySection]:
-        return [s for s in self._server.library.sections() if s.type in types]
+        if self._sections_cache is None:
+            self._sections_cache = self._server.library.sections()
+        return [s for s in self._sections_cache if s.type in types]
+
+    def _section_collections(self, section: LibrarySection) -> list[Collection]:
+        """This section's collections, fetched once per run and reused (busted on create/delete).
+
+        The full collection list of a section is otherwise re-pulled for every owned-collections
+        scan, every delivery, and every promote — the biggest single source of repeated PMS reads.
+        """
+        if section.key not in self._collections_cache:
+            self._collections_cache[section.key] = section.collections()
+        return self._collections_cache[section.key]
+
+    def _invalidate_collections(self) -> None:
+        """Drop the collection-list cache after a create/delete, so the next read is authoritative.
+        Wholesale (not per-section) so the privacy sync and sweep can never act on a stale list."""
+        self._collections_cache.clear()
 
     def sections_by_type(self) -> dict[MediaType, LibrarySection]:
         """One representative library per media type — used for cold-start discovery and the
@@ -103,28 +127,41 @@ class PlexClient:
             by_type.setdefault(kind, section)
         return by_type
 
-    def build_library_index(
-        self, section: LibrarySection, episode_counts: dict[int, int] | None = None
-    ) -> dict[int, int]:
-        """Map tmdb_id -> ratingKey for every item in a section (once per run, cached upstream).
+    def build_library_index(self, section: LibrarySection) -> tuple[dict[int, int], dict[int, int]]:
+        """Scan a section once, returning ``(index, episodes)``.
 
-        When ``episode_counts`` is given, also record each show's total episode count (``leafCount``)
-        keyed by tmdb_id — the watched-filter uses it to tell a finished show from one you've only
-        sampled or that just got a new season (which grows the count).
+        * ``index`` — ``tmdb_id -> ratingKey`` for every TMDB-identified item.
+        * ``episodes`` — ``tmdb_id -> total episode count`` (``leafCount``); populated only for shows
+          (movies have no leafCount). The watched-filter uses it to tell a finished show from one
+          you've only sampled or that just got a new season (which grows the count).
+
+        Returned rather than mutating a passed-in dict so the whole result is a single cacheable
+        value (see the cross-run library-index cache in the pipeline).
         """
         index: dict[int, int] = {}
+        episodes: dict[int, int] = {}
         for item in section.all():
             tmdb_id = _tmdb_guid(item)
             if tmdb_id is not None:
                 index[tmdb_id] = item.ratingKey
-                if episode_counts is not None:
-                    leaf = getattr(item, "leafCount", None)
-                    if leaf:
-                        episode_counts[tmdb_id] = int(leaf)
+                leaf = getattr(item, "leafCount", None)
+                if leaf:
+                    episodes[tmdb_id] = int(leaf)
         logger.debug(
             "library index for '{}': {} of {} items have TMDB ids", section.title, len(index), section.totalSize
         )
-        return index
+        return index, episodes
+
+    def section_signature(self, section: LibrarySection) -> str | None:
+        """A cheap fingerprint of a section's contents for the cross-run index cache — its item count
+        plus last-updated stamp, both already loaded on the section (no extra PMS call). Returns None
+        when neither is available, which tells the caller to scan rather than trust a cache."""
+        total = getattr(section, "totalSize", None)
+        updated = getattr(section, "updatedAt", None)
+        if total is None and updated is None:
+            return None
+        stamp = int(updated.timestamp()) if hasattr(updated, "timestamp") else updated
+        return f"{total}:{stamp}"
 
     def build_library_catalog(self, section: LibrarySection) -> list[dict]:
         """Every TMDB-identified item with the metadata the AI-from-library source reasons over.
@@ -178,7 +215,7 @@ class PlexClient:
         prefix = f"{label_prefix}_".lower()
         owned: dict[str, OwnedRow] = {}
         for section in self.sections():
-            for collection in section.collections():
+            for collection in self._section_collections(section):
                 for label in collection.labels:
                     if label.tag.lower().startswith(prefix):
                         slug = label.tag[len(prefix) :].lower()
@@ -213,10 +250,12 @@ class PlexClient:
         picks the one with the matching title, and promotion promotes them all.
         """
         wl = wanted_label.lower()
-        return [c for c in section.collections() if any(label.tag.lower() == wl for label in c.labels)]
+        return [c for c in self._section_collections(section) if any(label.tag.lower() == wl for label in c.labels)]
 
     def create_collection(self, section: LibrarySection, title: str, items: list) -> Collection:
-        return self._server.createCollection(title=title, section=section, items=items)
+        collection = self._server.createCollection(title=title, section=section, items=items)
+        self._invalidate_collections()  # a new collection changes the section's list
+        return collection
 
     def stored_label(self, collection: Collection, label: str) -> str:
         """Ensure `label` is on the collection and return it AS STORED (Plex title-cases it)."""
@@ -315,6 +354,7 @@ class PlexClient:
             raise PermissionError(f"refusing to delete {collection.title!r}: no {label_prefix}_* label — not ours")
         collection.visibility().updateVisibility(recommended=False, home=False, shared=False)
         collection.delete()
+        self._invalidate_collections()  # a removed collection changes the section's list
 
     def fetch_items(self, rating_keys: list[int]) -> list:
         return self._server.fetchItems(rating_keys)

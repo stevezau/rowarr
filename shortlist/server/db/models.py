@@ -222,7 +222,7 @@ class PrivacyCheck(Base):
 class CacheRow(Base):
     __tablename__ = "caches"
 
-    kind: Mapped[str] = mapped_column(String(32), primary_key=True)  # tmdb | library_index
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)  # tmdb | trakt | library_index
     key: Mapped[str] = mapped_column(String(512), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
     expires_at: Mapped[float] = mapped_column(Float)  # unix timestamp

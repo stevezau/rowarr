@@ -76,7 +76,11 @@ class ContextBuilder:
             plex = PlexClient(plex_url, plex_token)
             plextv = PlexTvClient(plex_token, plex.machine_id, min_write_interval=float(store.get("plextv.throttle_s")))
             tmdb = TmdbClient(store.get("tmdb.apikey"), cache=DbCache(self._sessions))
-            trakt = TraktClient(store.get("trakt.client_id")) if store.get("trakt.client_id") else None
+            trakt = (
+                TraktClient(store.get("trakt.client_id"), cache=DbCache(self._sessions, kind="trakt"))
+                if store.get("trakt.client_id")
+                else None
+            )
             history = self._history_source(store, plex)
             provider = store.get("curator.provider")
             curator_kwargs = {}
@@ -131,6 +135,7 @@ class ContextBuilder:
             history_source=history,
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),
+            index_cache=DbCache(self._sessions, kind="library_index"),
             recent_picks=recent,
             known_slugs=known_slugs,
             handled_requests=self._handled_requests(session),

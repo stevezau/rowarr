@@ -23,6 +23,19 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 USERS_XML = (FIXTURES / "plextv_users.xml").read_text()
 
 
+class _MemoryCache:
+    """Minimal in-memory Cache (get/set) for exercising the client caches without a DB or file."""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def set(self, key, value, ttl_s):
+        self.store[key] = value
+
+
 class TestPmsVersion:
     def test_parse_strips_build_hash(self):
         assert parse_pms_version("1.43.3.10793-cd55560bb") == (1, 43, 3, 10793)
@@ -222,17 +235,7 @@ class TestTmdbClient:
             return_value=httpx.Response(200, json={"results": []})
         )
 
-        class DictCache:
-            def __init__(self):
-                self.store = {}
-
-            def get(self, key):
-                return self.store.get(key)
-
-            def set(self, key, value, ttl_s):
-                self.store[key] = value
-
-        client = TmdbClient("k", cache=DictCache())
+        client = TmdbClient("k", cache=_MemoryCache())
         client.suggestions(1, MediaType.MOVIE)
         client.suggestions(1, MediaType.MOVIE)
         assert route.call_count == 1
@@ -322,7 +325,8 @@ class TestPlexClient:
             fake_media_item(2, "No Guid"),
             SimpleNamespace(ratingKey=3, title="Other Guid", guids=[SimpleNamespace(id="imdb://tt1")]),
         ]
-        assert mock_plex.build_library_index(section) == {42: 1}
+        index, _episodes = mock_plex.build_library_index(section)
+        assert index == {42: 1}
 
     def test_stored_label_returns_existing_title_cased_form_without_write(self, mock_plex: PlexClient):
         collection = MagicMock()
@@ -405,6 +409,58 @@ class TestPlexClient:
         mock_plex._server.library.sections.return_value = [movies, shows]
 
         assert mock_plex.owned_collections("shortlist") == {"sarah": OwnedRow("Shortlist_sarah", [571285, 571290])}
+
+    def test_section_collections_are_cached_within_a_run(self, mock_plex: PlexClient):
+        # The section's collection list is otherwise re-pulled for every owned/find scan. Two reads
+        # of the same section fetch it once.
+        section = MagicMock(type="movie")
+        section.collections.return_value = []
+        mock_plex._server.library.sections.return_value = [section]
+        mock_plex.owned_collections("shortlist")
+        mock_plex.find_owned_collections(section, "Shortlist_sarah")
+        assert section.collections.call_count == 1
+
+    def test_create_collection_busts_the_collections_cache(self, mock_plex: PlexClient):
+        # A new collection changes the section's list — the next read must be authoritative (this is
+        # what keeps the privacy sync's re-read from acting on a stale list).
+        section = MagicMock(type="movie")
+        section.collections.return_value = []
+        mock_plex._server.library.sections.return_value = [section]
+        mock_plex.find_owned_collections(section, "x")  # populates the cache
+        mock_plex.create_collection(section, "New Row", [])
+        mock_plex.find_owned_collections(section, "x")  # must re-fetch
+        assert section.collections.call_count == 2
+
+    def test_delete_busts_the_collections_cache(self, mock_plex: PlexClient):
+        section = MagicMock(type="movie")
+        section.collections.return_value = []
+        mock_plex._server.library.sections.return_value = [section]
+        mock_plex.find_owned_collections(section, "x")  # populates the cache
+        doomed = MagicMock(labels=[SimpleNamespace(tag="shortlist_sarah")])
+        mock_plex.delete_owned_collection(doomed, "shortlist")
+        mock_plex.find_owned_collections(section, "x")  # must re-fetch
+        assert section.collections.call_count == 2
+
+    def test_section_signature_uses_count_and_updated_timestamp(self, mock_plex: PlexClient):
+        # The index cache invalidates ONLY on this signature, so its shape assumptions matter: a real
+        # LibrarySection carries a datetime `updatedAt`, which we key on as an int timestamp.
+        from datetime import UTC, datetime
+
+        updated = datetime(2026, 7, 15, tzinfo=UTC)
+        section = SimpleNamespace(totalSize=1234, updatedAt=updated)
+        assert mock_plex.section_signature(section) == f"1234:{int(updated.timestamp())}"
+
+    def test_section_signature_passes_through_a_non_datetime_updated(self, mock_plex: PlexClient):
+        section = SimpleNamespace(totalSize=1234, updatedAt=999)  # already numeric — used as-is
+        assert mock_plex.section_signature(section) == "1234:999"
+
+    def test_section_signature_falls_back_to_count_alone(self, mock_plex: PlexClient):
+        section = SimpleNamespace(totalSize=1234)  # no updatedAt available
+        assert mock_plex.section_signature(section) == "1234:None"
+
+    def test_section_signature_is_none_when_nothing_is_available(self, mock_plex: PlexClient):
+        # No signal at all -> the cache is disabled (the pipeline always re-scans), never wrongly reused.
+        assert mock_plex.section_signature(SimpleNamespace()) is None
 
     def test_server_name_returns_friendly_name(self, mock_plex: PlexClient):
         mock_plex._server.friendlyName = "SFLIX"
@@ -547,3 +603,38 @@ class TestTraktClient:
             TraktClient("secret-cid").ping()
         assert "rejected the API key" in str(excinfo.value)
         assert "secret-cid" not in str(excinfo.value)
+
+    @respx.mock
+    def test_related_is_cached_across_calls(self):
+        # The related graph depends only on (tmdb_id, media_type), so a second call — a second user,
+        # or the next nightly run — must serve from cache without re-hitting Trakt.
+        search = respx.get("https://api.trakt.tv/search/tmdb/550").mock(
+            return_value=httpx.Response(200, json=[{"movie": {"ids": {"slug": "fight-club-1999", "tmdb": 550}}}])
+        )
+        related = respx.get("https://api.trakt.tv/movies/fight-club-1999/related").mock(
+            return_value=httpx.Response(200, json=[{"title": "Se7en", "ids": {"tmdb": 807}}])
+        )
+        client = TraktClient("cid", cache=_MemoryCache())
+        first = client.related(550, MediaType.MOVIE)
+        second = client.related(550, MediaType.MOVIE)
+        assert first == second
+        assert search.call_count == 1 and related.call_count == 1  # second call served from cache
+
+    @respx.mock
+    def test_empty_related_is_cached_too(self):
+        # A seed Trakt doesn't know stays unknown for the TTL rather than being re-looked-up every run.
+        search = respx.get("https://api.trakt.tv/search/tmdb/999").mock(return_value=httpx.Response(200, json=[]))
+        client = TraktClient("cid", cache=_MemoryCache())
+        assert client.related(999, MediaType.MOVIE) == []
+        assert client.related(999, MediaType.MOVIE) == []
+        assert search.call_count == 1  # the miss was cached, not re-attempted
+
+    @respx.mock
+    def test_a_trakt_error_is_never_cached(self):
+        # A failure must not poison the cache — the next run should retry, not serve []. (403 isn't
+        # retried, so this stays fast: no backoff sleeps.)
+        respx.get("https://api.trakt.tv/search/tmdb/550").mock(return_value=httpx.Response(403))
+        client = TraktClient("cid", cache=_MemoryCache())
+        with pytest.raises(TraktError):
+            client.related(550, MediaType.MOVIE)
+        assert client._cache.get("trakt:related:movie:550:20") is None

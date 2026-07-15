@@ -93,6 +93,9 @@ def mock_plex():
     """PlexClient built without a real PlexServer connection; ._server is a MagicMock."""
     client = PlexClient.__new__(PlexClient)
     client._server = MagicMock()
+    # __new__ skips __init__, so replicate its per-run read caches (sections + collections).
+    client._sections_cache = None
+    client._collections_cache = {}
     return client
 
 

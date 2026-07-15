@@ -8,6 +8,7 @@ guarantees that depend on it.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ import shortlist.engine.rows as rows
 from shortlist.engine import requests as requests_mod
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
-from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.clients.tmdb import Cache, NullCache, TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import Curator
 from shortlist.engine.delivery import row_marker, sweep_broken_rows
@@ -79,6 +80,10 @@ class EngineContext:
     # by a later auto-send. Empty for the CLI, which has no inbox.
     handled_requests: set[tuple[int, str]] = field(default_factory=set)
     progress: Callable[[str, str, dict], None] | None = None  # (user_slug, stage, counts) -> None
+    # Cross-run cache for the per-library tmdb_id -> ratingKey index, keyed by a cheap change signal
+    # (item count + last-updated). An unchanged library skips its full scan next run. NullCache (the
+    # default) disables it — safe, since a stale/missing entry only ever means a re-scan.
+    index_cache: Cache = field(default_factory=NullCache)
     # Day number of this run (date.toordinal()), the phase for freshness rotation so a row shifts
     # day to day but is reproducible within a day. Set at the start of run(); 0 disables rotation.
     run_day: int = 0
@@ -120,8 +125,7 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     # doesn't look frozen while it runs.
     _emit(ctx, "Shortlist", "preparing", {})
     sections = ctx.plex.sections()
-    targets = ctx.plex.sections_by_type()
-    seed_index, library_index = _build_indexes(ctx, users, sections, targets)
+    seed_index, library_index = _build_indexes(ctx, users, sections)
     # What the delivery libraries now hold — so the server can drop inbox candidates that have since
     # arrived on the server (grabbed elsewhere) instead of leaving them to linger forever.
     report.library_present = {(tmdb_id, media_type) for media_type, idx in library_index.items() for tmdb_id in idx}
@@ -163,8 +167,38 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     return report
 
 
+INDEX_CACHE_TTL_S = 30 * 24 * 3600  # long: the signature self-invalidates when the library changes
+
+
+def _library_index(ctx: EngineContext, section) -> tuple[dict[int, int], dict[int, int]]:
+    """This section's ``(index, episodes)`` — from the cross-run cache when the library is unchanged.
+
+    Keyed on the section + a cheap change signature (item count + last-updated); a signature change
+    (a title added/removed/edited) misses and re-scans. JSON object keys are strings, so tmdb ids
+    round-trip through ``str()``/``int()``. A missing signature or NullCache just always re-scans.
+    """
+    signature = ctx.plex.section_signature(section)
+    cache_key = f"index:{section.key}:{signature}" if signature else None
+    if cache_key and (cached := ctx.index_cache.get(cache_key)):
+        data = json.loads(cached)
+        index = {int(k): v for k, v in data["index"].items()}
+        episodes = {int(k): v for k, v in data["episodes"].items()}
+        _emit(ctx, section.title, "indexed (cached)", {"items": len(index)})
+        return index, episodes
+    _emit(ctx, section.title, "indexing", {})
+    index, episodes = ctx.plex.build_library_index(section)
+    if cache_key:
+        payload = {
+            "index": {str(k): v for k, v in index.items()},
+            "episodes": {str(k): v for k, v in episodes.items()},
+        }
+        ctx.index_cache.set(cache_key, json.dumps(payload), INDEX_CACHE_TTL_S)
+    _emit(ctx, section.title, "indexed", {"items": len(index)})
+    return index, episodes
+
+
 def _build_indexes(
-    ctx: EngineContext, users: list[UserProfile], sections: list, targets: dict
+    ctx: EngineContext, users: list[UserProfile], sections: list
 ) -> tuple[dict[int, int], dict[MediaType, dict[int, int]]]:
     """Build the library indexes a run reads from.
 
@@ -196,11 +230,8 @@ def _build_indexes(
     # must not be preceded by anything that can fail.
     for section in sections if users else []:
         kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
-        # Named by library so a stuck scan shows WHICH library it's on (a slow PMS retries per call).
-        _emit(ctx, section.title, "indexing", {})
-        # Capture episode counts only for show libraries — movies have no leafCount to speak of.
-        index = ctx.plex.build_library_index(section, episode_counts if kind is MediaType.SHOW else None)
-        _emit(ctx, section.title, "indexed", {"items": len(index)})
+        index, episodes = _library_index(ctx, section)
+        episode_counts.update(episodes)
         seed_index.update({rating_key: tmdb_id for tmdb_id, rating_key in index.items()})
         # Every library of a deliverable type is both a recommendation source (union) and a possible
         # delivery target (its own per-section index) — a row picks which ones under library_keys.

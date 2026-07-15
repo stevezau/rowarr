@@ -201,6 +201,8 @@ def load_context(
         history_source=history,
         curator=curator,
         snapshots=FileSnapshotStore(config_dir / "snapshots"),
+        # Same on-disk cache as TMDB — keys are namespaced ("index:" vs "tmdb:"), so they coexist.
+        index_cache=cache,
         recent_picks=recent,
         known_slugs=roster_slugs(
             remote_users,

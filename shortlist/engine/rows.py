@@ -634,7 +634,11 @@ def _shared_row(
     watchers: dict[tuple[int, MediaType], set[int]] = {}
     example: dict[tuple[int, MediaType], WatchedItem] = {}
     for user in audience:
-        for item in ctx.history_source.fetch(user, min_completion=cfg.min_completion):
+        # Reuse the history _run_user already fetched (same min_completion) rather than re-fetching
+        # it per shared row — that was S×A redundant Tautulli/PMS calls. Fall back to a fetch only
+        # when it's empty (a user with genuinely none, or whose per-user pass errored before fetching).
+        user_history = user.history or ctx.history_source.fetch(user, min_completion=cfg.min_completion)
+        for item in user_history:
             tmdb_id = resolve(item)
             if tmdb_id is None:
                 continue

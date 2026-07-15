@@ -81,3 +81,19 @@ class TestWrite:
         calls_500 = _responder(monkeypatch, [httpx.Response(500), httpx.Response(200)])
         assert http_retry.request("PUT", "http://svc/x", attempts=3).status_code == 500
         assert len(calls_500) == 1
+
+
+class TestRedact:
+    def test_strips_a_plex_token_from_error_text(self):
+        from shortlist.engine.clients.http_retry import redact
+
+        raw = 'HTTPError 401 for http://pms:32400/library?X-Plex-Token=abc123SECRETxyz&foo=1'
+        out = redact(raw)
+        assert "abc123SECRETxyz" not in out
+        assert "X-Plex-Token=REDACTED" in out
+        assert "foo=1" in out  # only the token is scrubbed
+
+    def test_leaves_token_free_text_unchanged(self):
+        from shortlist.engine.clients.http_retry import redact
+
+        assert redact("ConnectTimeout: pms unreachable") == "ConnectTimeout: pms unreachable"

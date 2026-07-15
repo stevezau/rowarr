@@ -175,8 +175,9 @@ export function RowCard({
           <DialogHeader>
             <DialogTitle>Delete “{collection.name}”?</DialogTitle>
             <DialogDescription>
-              This removes the row and its Plex collections on the next run. The
-              titles themselves stay in your library. This can’t be undone.
+              This removes the row and its Plex collections now, for everyone
+              who has it. The titles themselves stay in your library. This can’t
+              be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

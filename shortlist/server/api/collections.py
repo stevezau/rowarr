@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from shortlist.engine.candidates import KNOWN_SOURCES
+from shortlist.engine.clients.http_retry import redact
 from shortlist.engine.curator.base import TONE_PRESETS
 from shortlist.engine.delivery import remove_row_collections
 from shortlist.engine.models import SHARED_LABEL_PREFIX, dedupe_slug, slugify
@@ -226,7 +227,8 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
 
 @router.delete("/{collection_id}", status_code=204)
 async def delete_collection(collection_id: int, request: Request) -> None:
-    with request.app.state.sessions() as session:
+    state = request.app.state
+    with state.sessions() as session:
         collection = session.get(Collection, collection_id)
         if collection is None:
             raise HTTPException(404, "collection not found")
@@ -234,9 +236,19 @@ async def delete_collection(collection_id: int, request: Request) -> None:
             # The default per-person row is what makes an upgrade behaviour-neutral; disable it
             # instead of deleting so there's always a home for users with no other row.
             raise HTTPException(422, "the default 'picked' row can't be deleted — disable it instead")
-        session.query(CollectionAudience).filter_by(collection_id=collection.id).delete()
-        session.delete(collection)
-        session.commit()
+        slug, build = collection.slug, collection.build
+
+    # Remove the row's Plex collections FIRST — while we still have the slug + the last run's breakdown
+    # to find them — then drop the DB row. Best-effort: if Plex is down or not yet configured the
+    # cleanup is audited and we still remove the config row (no worse than before, when delete never
+    # cleaned up at all); when Plex is reachable this leaves nothing orphaned.
+    await _run_reconcile(state, slug=slug, build=build, dry_run=False, scope="collection.delete")
+    with state.sessions() as session:
+        collection = session.get(Collection, collection_id)
+        if collection is not None:
+            session.query(CollectionAudience).filter_by(collection_id=collection.id).delete()
+            session.delete(collection)
+            session.commit()
 
 
 class CleanupRequest(BaseModel):
@@ -259,65 +271,65 @@ async def cleanup_collection(collection_id: int, body: CleanupRequest, request: 
             raise HTTPException(404, "collection not found")
         slug, build, name = collection.slug, collection.build, collection.name
 
-    # `removed` lives out here so a mid-loop PMS failure still audits what was already deleted (rule 10).
-    removed: list[str] = []
-
-    def do_cleanup() -> None:
-        ctx = state.run_service.build_context(dry_run=body.dry_run)
-        if build == "shared":
-            # A shared row carries its own label, one membership — no per-user titles needed.
-            removed.extend(
-                remove_row_collections(
-                    ctx.plex, ctx.config, label=f"{SHARED_LABEL_PREFIX}{slug}", displays=None, dry_run=body.dry_run
-                )
-            )
-            return
-        # Per-person rows share each user's label, so pin the exact collection by the title the last
-        # run delivered for THIS row (from that run's persisted breakdown).
-        with state.sessions() as session:
-            latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
-            breakdown_by_user = {ru.user_id: (ru.breakdown or []) for ru in latest.users} if latest else {}
-            users = session.query(User).all()
-        for user in users:
-            displays = {
-                entry["row_title"]
-                for entry in breakdown_by_user.get(user.id, [])
-                if entry.get("row_slug") == slug and entry.get("row_title")
-            }
-            if not displays:
-                continue
-            removed.extend(
-                remove_row_collections(
-                    ctx.plex,
-                    ctx.config,
-                    label=f"{ctx.config.label_prefix}_{user.slug}",
-                    displays=displays,
-                    dry_run=body.dry_run,
-                )
-            )
-
-    error: str | None = None
-    try:
-        await asyncio.get_running_loop().run_in_executor(None, do_cleanup)
-    except Exception as e:  # audit whatever WAS removed before re-raising — a destructive write is never silent
-        error = f"{type(e).__name__}: {e}"
-    with state.sessions() as session:
-        session.add(
-            Event(
-                scope="collection.cleanup",
-                level="warn",
-                message={
-                    "slug": slug,
-                    "removed": removed,
-                    "dry_run": body.dry_run,
-                    "error": error,
-                    "at": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
-        session.commit()
-    logger.warning("cleanup {} for row '{}': {} collection(s){}", "preview" if body.dry_run else "removed", slug, len(removed), f" then FAILED: {error}" if error else "")  # noqa: E501
+    removed, error = await _run_reconcile(state, slug=slug, build=build, dry_run=body.dry_run, scope="collection.cleanup")
     if error:
         raise HTTPException(502, f"Cleanup failed part-way; removed {len(removed)} before: {error}")
     verb = "Would remove" if body.dry_run else "Removed"
     return {"removed": removed, "dry_run": body.dry_run, "message": f"{verb} {len(removed)} collection(s) for “{name}”."}
+
+
+def _reconcile_row_removal(state, *, slug: str, build: str, dry_run: bool, removed: list[str]) -> None:
+    """Remove a row's collections from Plex for everyone. Accumulates the display titles into the
+    ``removed`` out-param (so a mid-loop PMS failure still leaves the partial list for the audit).
+
+    Shared rows go by their own label (one membership); per-person rows are pinned per user by the
+    exact title the last run delivered for THIS row (its persisted breakdown), scoped to that user's
+    own label — so it can never reach another user's row or a foreign (Kometa) collection. Removal
+    only, so gate-exempt. Runs in an executor thread (Plex I/O)."""
+    ctx = state.run_service.build_context(dry_run=dry_run)
+    if build == "shared":
+        removed.extend(
+            remove_row_collections(ctx.plex, ctx.config, label=f"{SHARED_LABEL_PREFIX}{slug}", displays=None, dry_run=dry_run)
+        )
+        return
+    with state.sessions() as session:
+        latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
+        breakdown_by_user = {ru.user_id: (ru.breakdown or []) for ru in latest.users} if latest else {}
+        users = session.query(User).all()
+    for user in users:
+        displays = {
+            entry["row_title"]
+            for entry in breakdown_by_user.get(user.id, [])
+            if entry.get("row_slug") == slug and entry.get("row_title")
+        }
+        if not displays:
+            continue
+        removed.extend(
+            remove_row_collections(
+                ctx.plex, ctx.config, label=f"{ctx.config.label_prefix}_{user.slug}", displays=displays, dry_run=dry_run
+            )
+        )
+
+
+async def _run_reconcile(state, *, slug: str, build: str, dry_run: bool, scope: str) -> tuple[list[str], str | None]:
+    """Run ``_reconcile_row_removal`` in an executor and audit it (rule 10) — even a mid-loop failure
+    records what was already removed. Returns ``(removed, error)``."""
+    removed: list[str] = []
+    error: str | None = None
+    try:
+        await asyncio.get_running_loop().run_in_executor(
+            None, lambda: _reconcile_row_removal(state, slug=slug, build=build, dry_run=dry_run, removed=removed)
+        )
+    except Exception as e:  # a destructive write is never silent: audit the partial removal, then surface it
+        error = redact(f"{type(e).__name__}: {e}")  # a PMS error can carry a tokened URL (rule 9)
+    with state.sessions() as session:
+        session.add(
+            Event(
+                scope=scope,
+                level="warn",
+                message={"slug": slug, "removed": removed, "dry_run": dry_run, "error": error, "at": datetime.now(UTC).isoformat()},
+            )
+        )
+        session.commit()
+    logger.warning("{} '{}': {} collection(s){}", scope, slug, len(removed), f" then FAILED: {error}" if error else "")
+    return removed, error

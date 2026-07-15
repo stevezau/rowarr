@@ -89,6 +89,38 @@ class TestUsersApi:
     def test_patch_unknown_user_404(self, client: TestClient):
         assert client.patch("/api/users/9999", json={"enabled": True}).status_code == 404
 
+    def test_disabling_a_user_removes_their_rows_from_plex(self, client: TestClient, monkeypatch):
+        """Turning a user off deletes every collection under their label — not just stops delivery.
+
+        One user_type suffices: cleanup is by the user's whole label (displays=None), so it's agnostic
+        to shared/managed/owner; enable and no-op transitions are guarded by `user.enabled and False`.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from shortlist.engine.delivery import row_marker
+        from shortlist.engine.models import EngineConfig
+        from shortlist.server.db.models import User
+
+        target = next(u for u in client.get("/api/users").json() if u["username"] == "mike")
+        client.patch(f"/api/users/{target['id']}", json={"enabled": True})  # ensure the transition is off->on->off
+        with client.app.state.sessions() as session:
+            slug = session.get(User, target["id"]).slug
+
+        deleted: list[str] = []
+        plex = MagicMock()
+        plex.sections.return_value = [SimpleNamespace(title="Movies")]
+        plex.find_owned_collections.side_effect = lambda s, label: (
+            [SimpleNamespace(title="✨ Picked for You" + row_marker(0))] if label == f"shortlist_{slug}" else []
+        )
+        plex.delete_owned_collection.side_effect = lambda c, prefix: deleted.append(c.title)
+        ctx = SimpleNamespace(plex=plex, config=EngineConfig())
+        monkeypatch.setattr(client.app.state.run_service, "build_context", lambda **kw: ctx)
+
+        r = client.patch(f"/api/users/{target['id']}", json={"enabled": False})
+        assert r.status_code == 200 and r.json()["enabled"] is False
+        assert len(deleted) == 1  # their collection was removed by their whole label
+
     def test_patch_prompt_prefs_persist(self, client: TestClient):
         users = client.get("/api/users").json()
         target = next(u for u in users if u["username"] == "sarah")
@@ -629,6 +661,24 @@ class TestCollectionsApi:
         assert r.status_code == 200
         assert set(r.json()["removed"]) == {"Gems"}  # marker stripped; both users' collections
         assert len(deleted) == 2  # one per user WITH a breakdown entry for this row
+
+    def test_deleting_a_row_also_removes_its_plex_collection(self, client: TestClient, monkeypatch):
+        """Delete now cleans Plex first (while the slug still exists), THEN drops the DB row.
+
+        Shared build only: delete adds a build-agnostic reconcile STEP; the per-person branch itself
+        is covered by test_cleanup_removes_a_per_person_row_for_each_user_in_the_breakdown.
+        """
+        from shortlist.engine.delivery import row_marker
+
+        created = client.post("/api/collections", json={"name": "Popular", "build": "shared"})
+        cid, slug = created.json()["id"], created.json()["slug"]
+        deleted = self._fake_plex_ctx(
+            monkeypatch, client, collections=[("🔥 Popular" + row_marker(0), f"shortlist__shared_{slug}")]
+        )
+
+        assert client.delete(f"/api/collections/{cid}").status_code == 204
+        assert len(deleted) == 1  # its Plex collection was removed
+        assert slug not in {c["slug"] for c in client.get("/api/collections").json()}  # and the DB row is gone
 
     def test_shared_collection_with_subset_audience(self, client: TestClient):
         users = client.get("/api/users").json()

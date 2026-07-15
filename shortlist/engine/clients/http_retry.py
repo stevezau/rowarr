@@ -19,10 +19,21 @@ A server's ``Retry-After`` header is honoured (capped) over the computed backoff
 from __future__ import annotations
 
 import random
+import re
 import time
 
 import httpx
 from loguru import logger
+
+_TOKEN_RE = re.compile(r"(X-Plex-Token=)[^&\s\"']+", re.IGNORECASE)
+
+
+def redact(text: str) -> str:
+    """Strip a Plex token from a string before it is logged or persisted (plex-safety rule 9).
+
+    plexapi/PMS error text can embed the full request URL, token and all; anything derived from an
+    exception message must pass through here before it reaches a log line or an ``events`` row."""
+    return _TOKEN_RE.sub(r"\1REDACTED", text)
 
 DEFAULT_ATTEMPTS = 3
 BASE_BACKOFF_S = 1.0

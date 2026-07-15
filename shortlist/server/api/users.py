@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func
 
+from shortlist.engine.clients.http_retry import redact
 from shortlist.engine.clients.plextv import PlexTvClient
+from shortlist.engine.delivery import remove_row_collections
 from shortlist.server.auth import require_owner
 from shortlist.server.db.adapters import unique_slug
-from shortlist.server.db.models import DEFAULT_SLUG, PickRow, Run, RunUser, Server, User, iso_utc
+from shortlist.server.db.models import DEFAULT_SLUG, Event, PickRow, Run, RunUser, Server, User, iso_utc
 from shortlist.server.settings_store import SettingsStore
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_owner)])
@@ -115,13 +119,49 @@ async def list_users(request: Request) -> list[dict]:
         return out
 
 
+async def _remove_users_rows(state, user_slug: str) -> None:
+    """Remove ALL of a just-disabled user's Shortlist collections (their whole label). Best-effort +
+    audited; removal only, so gate-exempt (it only makes the server more private). Runs in an executor
+    because it does Plex I/O; a Plex outage/unconfigured server is logged, not fatal."""
+    removed: list[str] = []
+
+    def work() -> None:
+        ctx = state.run_service.build_context(dry_run=False)
+        removed.extend(
+            remove_row_collections(
+                ctx.plex, ctx.config, label=f"{ctx.config.label_prefix}_{user_slug}", displays=None, dry_run=False
+            )
+        )
+
+    error: str | None = None
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, work)
+    except Exception as e:
+        error = redact(f"{type(e).__name__}: {e}")  # a PMS error can carry a tokened URL (rule 9)
+    with state.sessions() as session:
+        session.add(
+            Event(
+                scope="user.disable.cleanup",
+                level="warn",
+                message={"user": user_slug, "removed": removed, "error": error, "at": datetime.now(UTC).isoformat()},
+            )
+        )
+        session.commit()
+    logger.warning("disabled user '{}': removed {} collection(s){}", user_slug, len(removed), f" then FAILED: {error}" if error else "")
+
+
 @router.patch("/{user_id}")
 async def patch_user(user_id: int, patch: UserPatch, request: Request) -> dict:
-    with request.app.state.sessions() as session:
+    state = request.app.state
+    disabled_slug: str | None = None
+    with state.sessions() as session:
         user = session.get(User, user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="user not found")
         if patch.enabled is not None:
+            if user.enabled and patch.enabled is False:
+                # Turned off → remove their rows from Plex now, not just stop delivering to them.
+                disabled_slug = user.slug
             user.enabled = patch.enabled
         if patch.request_tag is not None:
             user.request_tag = patch.request_tag.strip()
@@ -130,7 +170,10 @@ async def patch_user(user_id: int, patch: UserPatch, request: Request) -> dict:
             prefs.update({k: v for k, v in patch.prefs.model_dump().items() if v is not None})
             user.prefs = prefs
         session.commit()
-        return _serialize(user, (user.prefs or {}).get("history_depth", 0), None, None)
+        result = _serialize(user, (user.prefs or {}).get("history_depth", 0), None, None)
+    if disabled_slug is not None:
+        await _remove_users_rows(state, disabled_slug)
+    return result
 
 
 @router.get("/{user_id}/runs")

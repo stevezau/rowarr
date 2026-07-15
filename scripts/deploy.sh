@@ -16,8 +16,11 @@ echo "== pulling ${IMAGE} =="
 docker pull "${IMAGE}"
 
 echo "== recreating ${NAME} =="
-docker rename "${NAME}" "${NAME}_old"
-docker stop "${NAME}_old" >/dev/null
+# First deploy of this name has nothing to rename; guard so it doesn't abort.
+if docker inspect "${NAME}" >/dev/null 2>&1; then
+  docker rename "${NAME}" "${NAME}_old"
+  docker stop "${NAME}_old" >/dev/null
+fi
 docker run -d --name "${NAME}" \
   -p "${PORT}:5959" \
   -e TZ=Australia/Sydney \
@@ -35,7 +38,7 @@ for _ in $(seq 1 25); do
 done
 
 if [ "${ok}" = "1" ]; then
-  docker rm "${NAME}_old" >/dev/null
+  docker rm "${NAME}_old" >/dev/null 2>&1 || true  # absent on a first deploy
   echo "== HEALTHY — deploy ok =="
   echo -n "health: "; curl -fsS "http://localhost:${PORT}/api/system/health"; echo
 else
@@ -43,8 +46,12 @@ else
   docker logs --tail 50 "${NAME}" 2>&1 || true
   docker stop "${NAME}" >/dev/null 2>&1 || true
   docker rm "${NAME}" >/dev/null 2>&1 || true
-  docker rename "${NAME}_old" "${NAME}"
-  docker start "${NAME}" >/dev/null
-  echo "== rolled back to previous image =="
+  if docker inspect "${NAME}_old" >/dev/null 2>&1; then
+    docker rename "${NAME}_old" "${NAME}"
+    docker start "${NAME}" >/dev/null
+    echo "== rolled back to previous image =="
+  else
+    echo "== no previous container to roll back to (first deploy) =="
+  fi
   exit 1
 fi

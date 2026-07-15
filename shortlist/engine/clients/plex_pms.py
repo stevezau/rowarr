@@ -9,6 +9,8 @@ Plex quirks encoded here (all live-verified in Phase 0, 2026-07-12):
 
 from __future__ import annotations
 
+import time
+
 import requests
 from loguru import logger
 from plexapi.collection import Collection
@@ -246,33 +248,66 @@ class PlexClient:
         ``recommended`` pick the surfaces (a per-row placement). ``pin_top`` moves the managed hub to
         the top of the library's Recommended shelf (server-wide order, not per viewing-user).
         """
+        start = time.monotonic()
         collection.modeUpdate(mode="hide")
         hub = collection.visibility()
         hub.updateVisibility(recommended=recommended, home=home, shared=shared)
         if pin_top:
             # after=None -> first position in this library's Managed Recommendations.
             hub.reload().move(after=None)
+        logger.info(
+            "{}: promoted (home={} library={} pin={}) in {:.1f}s",
+            collection.title,
+            home,
+            recommended,
+            pin_top,
+            time.monotonic() - start,
+        )
 
     def set_items(self, collection: Collection, items: list) -> None:
-        """Replace collection items, preserving the given order via custom sort."""
-        current = {i.ratingKey for i in collection.items()}
+        """Replace a collection's items and put them in the given (ranked) order via custom sort.
+
+        Ordering is the expensive part: Plex's ``moveItem`` is one PMS round-trip PER item, so the old
+        "move every item every time" cost N calls per row per library on every run. Here we move ONLY
+        the items that are actually out of place (simulating the live order as we go), so a steady
+        re-run — where most titles keep their rank — costs a handful of calls instead of ~20.
+        """
+        start = time.monotonic()
+        existing = collection.items()  # one fetch; reused for the diff below
+        current_keys = {i.ratingKey for i in existing}
         wanted_keys = [i.ratingKey for i in items]
-        to_remove = [i for i in collection.items() if i.ratingKey not in set(wanted_keys)]
-        to_add = [i for i in items if i.ratingKey not in current]
+        wanted_set = set(wanted_keys)
+        to_remove = [i for i in existing if i.ratingKey not in wanted_set]
+        to_add = [i for i in items if i.ratingKey not in current_keys]
         if to_add:
             collection.addItems(to_add)
         if to_remove:
             collection.removeItems(to_remove)
         collection.sortUpdate(sort="custom")
         collection.reload()
-        ordered = {i.ratingKey: i for i in collection.items()}
-        previous = None
-        for key in wanted_keys:
-            item = ordered.get(key)
-            if item is None:
-                continue
-            collection.moveItem(item, after=previous)
-            previous = item
+        now = collection.items()  # one fetch of the post-add/remove membership
+        by_key = {i.ratingKey: i for i in now}
+        order = [i.ratingKey for i in now]  # our model of the live order, kept in sync as we move
+        target = [k for k in wanted_keys if k in by_key]
+        moves = 0
+        previous: int | None = None  # the ratingKey the current target item must sit right after
+        for key in target:
+            want_idx = 0 if previous is None else order.index(previous) + 1
+            if order.index(key) != want_idx:
+                collection.moveItem(by_key[key], after=(by_key[previous] if previous is not None else None))
+                order.remove(key)
+                order.insert(0 if previous is None else order.index(previous) + 1, key)
+                moves += 1
+            previous = key
+        logger.info(
+            "{}: items +{} -{}, reordered {}/{} in {:.1f}s",
+            collection.title,
+            len(to_add),
+            len(to_remove),
+            moves,
+            len(target),
+            time.monotonic() - start,
+        )
 
     def delete_owned_collection(self, collection: Collection, label_prefix: str) -> None:
         """Delete a collection only if it carries a shortlist label (Kometa coexistence)."""

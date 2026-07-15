@@ -423,31 +423,66 @@ class TestPlexClient:
         assert [(tmdb_id, item.title) for tmdb_id, item in pairs] == [(50, "A"), (60, "B")]
         assert section.search.call_args.kwargs == {"sort": "audienceRating:desc", "limit": 4}
 
-    def test_set_items_replaces_membership_and_reorders_via_move_chain(self, mock_plex: PlexClient):
-        """set_items must push the exact adds/removes AND lay out custom order with a moveItem
-        after= chain — feeding the wrong deltas or order is invisible to a call-count assertion."""
+    @staticmethod
+    def _item(rating_key: int) -> MagicMock:
+        it = MagicMock()
+        it.ratingKey = rating_key
+        return it
 
-        def item(rating_key: int) -> MagicMock:
-            it = MagicMock()
-            it.ratingKey = rating_key
-            return it
-
+    def test_set_items_replaces_membership_and_moves_only_displaced_items(self, mock_plex: PlexClient):
+        """set_items pushes the exact adds/removes, then reorders with the FEWEST moveItem calls: only
+        items out of place move, since Plex's moveItem is one PMS round-trip each (the slow part)."""
+        item = self._item
         existing = [item(1), item(2), item(3)]  # 2 will be removed, 4 added
-        wanted = [item(4), item(1), item(3)]  # desired order 4, 1, 3
-        final = [item(4), item(1), item(3)]  # what the PMS returns after the writes + reload
+        wanted = [item(4), item(1), item(3)]  # desired order: 4, 1, 3
+        # After addItems([4]) + removeItems([2]), Plex APPENDS the new item: live order is 1, 3, 4.
+        final = [item(1), item(3), item(4)]
         collection = MagicMock()
-        collection.items.side_effect = [existing, existing, final]
+        collection.items.side_effect = [existing, final]  # one fetch for the diff, one after reload
 
         mock_plex.set_items(collection, wanted)
 
         assert [i.ratingKey for i in collection.addItems.call_args.args[0]] == [4]
         assert [i.ratingKey for i in collection.removeItems.call_args.args[0]] == [2]
         collection.sortUpdate.assert_called_once_with(sort="custom")
+        # Only 4 is out of place (1 and 3 already keep their relative order) — one move, not three.
         moves = collection.moveItem.call_args_list
-        assert [c.args[0].ratingKey for c in moves] == [4, 1, 3]
-        assert moves[0].kwargs["after"] is None
-        assert moves[1].kwargs["after"].ratingKey == 4
-        assert moves[2].kwargs["after"].ratingKey == 1
+        assert [c.args[0].ratingKey for c in moves] == [4]
+        assert moves[0].kwargs["after"] is None  # 4 goes to the front
+
+    def test_set_items_reverses_order_with_after_previous_chain(self, mock_plex: PlexClient):
+        """A reorder that needs moves AFTER a non-None previous item — the insert-after-previous math
+        the one-move case never exercises. [1,2,3] -> [3,2,1] is two moves: 3 to front, 2 after 3."""
+        item = self._item
+        existing = [item(1), item(2), item(3)]
+        wanted = [item(3), item(2), item(1)]  # same membership, fully reversed order
+        collection = MagicMock()
+        collection.items.side_effect = [existing, existing]  # membership unchanged
+
+        mock_plex.set_items(collection, wanted)
+
+        collection.addItems.assert_not_called()
+        collection.removeItems.assert_not_called()
+        moves = [
+            (c.args[0].ratingKey, c.kwargs["after"].ratingKey if c.kwargs["after"] else None)
+            for c in collection.moveItem.call_args_list
+        ]
+        assert moves == [(3, None), (2, 3)], f"expected 3→front then 2→after 3, got {moves}"
+
+    def test_set_items_makes_no_moves_when_already_in_order(self, mock_plex: PlexClient):
+        """The steady-state win: a re-run whose row is unchanged issues ZERO moveItem calls (the old
+        code moved every item every night)."""
+        item = self._item
+        existing = [item(1), item(2), item(3)]
+        wanted = [item(1), item(2), item(3)]  # same membership, same order
+        collection = MagicMock()
+        collection.items.side_effect = [existing, existing]
+
+        mock_plex.set_items(collection, wanted)
+
+        collection.addItems.assert_not_called()
+        collection.removeItems.assert_not_called()
+        collection.moveItem.assert_not_called()
 
     def test_sections_by_type_maps_each_media_type_to_its_library(self, mock_plex: PlexClient):
         movies, shows = MagicMock(), MagicMock()

@@ -85,6 +85,9 @@ class EngineContext:
 
 
 def _emit(ctx: EngineContext, slug: str, stage: str, counts: dict) -> None:
+    # Mirror every stage to the container log too, so `docker logs` narrates a run in real time —
+    # the same story the UI's activity feed tells, for anyone watching the console.
+    logger.info("run · {} · {}{}", slug, stage, f" {counts}" if counts else "")
     if ctx.progress is not None:
         try:
             ctx.progress(slug, stage, counts)

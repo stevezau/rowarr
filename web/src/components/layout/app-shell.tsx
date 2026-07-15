@@ -11,6 +11,7 @@ import {
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { Wordmark } from "@/components/brand";
+import { ActivityPill } from "@/components/layout/activity-pill";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/queries";
@@ -105,6 +106,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
+        <ActivityPill />
         <SessionFooter />
       </aside>
       <main className="flex-1 px-4 py-6 md:px-8 md:py-8">

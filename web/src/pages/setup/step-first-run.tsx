@@ -1,5 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
-import { Loader2, PartyPopper, Play, TriangleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  CircleSlash,
+  Loader2,
+  PartyPopper,
+  Play,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
 
 import { QueryBoundary } from "@/components/query-boundary";
@@ -9,45 +17,116 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
 import { useUsers } from "@/lib/queries";
+import { RUN_STAGES, STAGE_LABELS } from "@/lib/run-stages";
 import { useSSE } from "@/lib/sse";
 import type { RunUserStageEvent, User } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 import type { StepProps } from "./step-props";
+
+/** What each stage's counts mean, phrased for humans ("113 history · 40 seeds"). */
+function countsLine(counts: Record<string, number>): string {
+  const entries = Object.entries(counts).filter(
+    ([name]) => name !== "position",
+  );
+  if (entries.length === 0) return "";
+  return entries.map(([name, value]) => `${value} ${name}`).join(" · ");
+}
 
 interface UserProgress {
   stage: string;
   counts: Record<string, number>;
 }
 
-function countsLine(counts: Record<string, number>): string {
-  const entries = Object.entries(counts);
-  if (entries.length === 0) return "";
-  return entries.map(([name, value]) => `${value} ${name}`).join(" · ");
+function StageTrail({ stage }: { stage: string }) {
+  const activeIndex = RUN_STAGES.indexOf(stage as (typeof RUN_STAGES)[number]);
+  const done = stage === "done";
+  return (
+    <div className="flex items-center gap-1" aria-hidden="true">
+      {RUN_STAGES.map((name, i) => (
+        <span
+          key={name}
+          title={STAGE_LABELS[name]}
+          className={cn(
+            "h-1.5 w-6 rounded-full transition-colors",
+            done || i < activeIndex
+              ? "bg-success"
+              : i === activeIndex
+                ? "animate-pulse bg-primary"
+                : "bg-muted",
+          )}
+        />
+      ))}
+    </div>
+  );
 }
 
 function ProgressCard({
   user,
   progress,
-  finished,
+  runFinished,
 }: {
   user: User;
   progress: UserProgress | undefined;
-  finished: boolean;
+  runFinished: boolean;
 }) {
+  const stage = progress?.stage;
+  const terminal = stage === "done" || stage === "error" || stage === "skipped";
+  const active = !!progress && stage !== "queued" && !terminal && !runFinished;
+
+  let detail: string;
+  if (!progress || stage === "queued") {
+    const position = progress?.counts.position;
+    detail = runFinished
+      ? "done"
+      : `queued${position ? ` — #${position} in line` : ""} · rows build one user at a time`;
+  } else if (stage === "done") {
+    const picks = progress.counts.picks ?? 0;
+    const seconds = progress.counts.seconds;
+    detail = `row built — ${picks} picks${seconds ? ` in ${seconds}s` : ""}`;
+  } else if (stage === "skipped") {
+    detail = "skipped — not in any enabled row";
+  } else if (stage === "error") {
+    detail =
+      "failed — the rest of the run continues; detail is on the Runs page";
+  } else {
+    const line = countsLine(progress.counts);
+    detail = `${STAGE_LABELS[stage ?? ""] ?? stage}${line ? ` — ${line}` : ""}`;
+  }
+
   return (
     <Card>
       <CardContent className="flex items-center justify-between gap-3 p-4">
-        <div>
-          <p className="font-medium">{user.username}</p>
-          <p className="text-sm text-muted-foreground">
-            {progress
-              ? `${progress.stage}${countsLine(progress.counts) ? ` — ${countsLine(progress.counts)}` : ""}`
-              : finished
-                ? "done"
-                : "waiting…"}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-medium">{user.username}</p>
+            {active && <StageTrail stage={stage ?? ""} />}
+          </div>
+          <p
+            className={cn(
+              "truncate text-sm",
+              stage === "error" ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {detail}
           </p>
         </div>
-        {progress && !finished && (
+        {stage === "done" && (
+          <Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+        )}
+        {stage === "skipped" && (
+          <CircleSlash
+            className="h-4 w-4 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        )}
+        {stage === "error" && (
+          <TriangleAlert
+            className="h-4 w-4 shrink-0 text-destructive"
+            aria-hidden="true"
+          />
+        )}
+        {active && (
           <Loader2
             className="h-4 w-4 shrink-0 animate-spin text-primary"
             aria-hidden="true"
@@ -60,7 +139,9 @@ function ProgressCard({
 
 /**
  * Step 7 — fire the first real run and stream per-user progress via SSE
- * (design doc §3 step 7). On finish: success panel + complete the wizard.
+ * (design doc §3 step 7). Every user card walks the pipeline stages live
+ * (queued → history → candidates → curating → delivering → done), and the
+ * owner can leave at any point — the run keeps going server-side.
  */
 export function StepFirstRun({ complete }: StepProps) {
   const usersQuery = useUsers();
@@ -72,7 +153,10 @@ export function StepFirstRun({ complete }: StepProps) {
     onRunUserStage: (event: RunUserStageEvent) =>
       setProgress((current) => ({
         ...current,
-        [event.user]: { stage: event.stage, counts: event.counts },
+        [event.user]: {
+          stage: event.stage,
+          counts: event.counts,
+        },
       })),
     onRunFinished: (event) => {
       setFinishedStatus(event.status);
@@ -144,6 +228,17 @@ export function StepFirstRun({ complete }: StepProps) {
         >
           {(users) => {
             const enabled = users.filter((user) => user.enabled);
+            const allUsersDone =
+              enabled.length > 0 &&
+              enabled.every((user) => {
+                const p = progress[user.slug] ?? progress[user.username];
+                return (
+                  p &&
+                  (p.stage === "done" ||
+                    p.stage === "error" ||
+                    p.stage === "skipped")
+                );
+              });
             return (
               <div className="space-y-3">
                 {enabled.map((user) => (
@@ -151,7 +246,7 @@ export function StepFirstRun({ complete }: StepProps) {
                     key={user.id}
                     user={user}
                     progress={progress[user.slug] ?? progress[user.username]}
-                    finished={finished}
+                    runFinished={finished}
                   />
                 ))}
                 {enabled.length === 0 && (
@@ -159,6 +254,32 @@ export function StepFirstRun({ complete }: StepProps) {
                     No users are enabled — go back to step 5 and switch someone
                     on.
                   </p>
+                )}
+                {!finished && allUsersDone && (
+                  <p
+                    className="inline-flex items-center gap-2 text-sm text-muted-foreground"
+                    role="status"
+                  >
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
+                    All rows built — finishing up: merging privacy filters
+                    across every account, then promoting the rows onto Home.
+                  </p>
+                )}
+                {!finished && (
+                  <div className="flex items-center gap-3 pt-2">
+                    {/* Nothing after this step needs the run to have finished — it keeps
+                        going server-side, and the Runs page streams the same progress. */}
+                    <Button variant="ghost" onClick={() => void complete()}>
+                      <ArrowRight aria-hidden="true" />
+                      Continue setup — keep building in the background
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      the run keeps going; follow it on the Runs page
+                    </span>
+                  </div>
                 )}
               </div>
             );

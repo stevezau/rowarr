@@ -96,6 +96,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     """
     report = RunReport(started_at=datetime.now(UTC), dry_run=ctx.config.dry_run)
 
+    # Tell the UI the full queue up front — cards can say "queued (3rd in line)"
+    # instead of a bare "waiting…" while the indexes build.
+    for position, user in enumerate(users, start=1):
+        _emit(ctx, user.slug, "queued", {"position": position})
+
     sections = ctx.plex.sections()
     targets = ctx.plex.sections_by_type()
     seed_index, library_index = _build_indexes(ctx, users, sections, targets)
@@ -275,6 +280,19 @@ def _deliver_phase(
                 else:
                     user_report.diff.deleted = list(swept_titles) + user_report.diff.deleted
             user_report.duration_s = round(time.monotonic() - started, 2)
+            # terminal per-user event — without it the UI can only resolve a user
+            # when the whole run ends, so finished users kept spinning for minutes
+            if user_report.status == "error":
+                _emit(ctx, user.slug, "error", {"seconds": int(user_report.duration_s)})
+            elif user_report.status in ("skipped", "pending"):
+                _emit(ctx, user.slug, "skipped", {})
+            else:  # ok | cold_start
+                _emit(
+                    ctx,
+                    user.slug,
+                    "done",
+                    {"picks": len(user_report.picks or []), "seconds": int(user_report.duration_s)},
+                )
 
     # Shared "popular on this server" rows: built once from aggregate history, delivered UNPROMOTED
     # like the per-person rows so promotion still happens only after the filters are merged.

@@ -62,13 +62,24 @@ describe("UsersPage", () => {
     setAllUsersEnabled.mockClear();
   });
 
-  it("enables everyone in one click", async () => {
+  it("only enables everyone after confirming", async () => {
     getUsers.mockResolvedValue([SARAH]);
     renderPage();
 
     await userEvent.click(
       await screen.findByRole("button", { name: /Enable all/i }),
     );
+    // Nothing happens until the confirm — mirrors the "Disable all" flow.
+    expect(setAllUsersEnabled).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Give a Picked-for-You row to all 1 users\?/i),
+    ).toBeTruthy();
+
+    // Confirm inside the dialog.
+    const dialogConfirm = screen
+      .getAllByRole("button", { name: /^Enable all$/i })
+      .at(-1)!;
+    await userEvent.click(dialogConfirm);
 
     await waitFor(() => expect(setAllUsersEnabled).toHaveBeenCalledWith(true));
   });

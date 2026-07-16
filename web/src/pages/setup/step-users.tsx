@@ -173,7 +173,7 @@ export function StepUsers() {
               <TableHeader>
                 <TableRow>
                   <TableHead>User</TableHead>
-                  <TableHead>Badges</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>History</TableHead>
                   <TableHead className="text-right">Gets a row</TableHead>
                 </TableRow>
@@ -195,7 +195,12 @@ export function StepUsers() {
                           </Badge>
                         )}
                         {user.cold_start && (
-                          <Badge variant="warning">cold start</Badge>
+                          <Badge
+                            variant="warning"
+                            title="Not enough watch history yet — starting from popular titles"
+                          >
+                            New viewer
+                          </Badge>
                         )}
                       </div>
                     </TableCell>

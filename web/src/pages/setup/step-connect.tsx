@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, apiErrorMessage } from "@/lib/api";
 import { PlexPinButton } from "@/components/plex-pin-button";
 import { queryKeys, useSession } from "@/lib/queries";
 import type { PlexServer, ProbeCheck, ProbeResult } from "@/lib/types";
@@ -174,10 +174,8 @@ export function StepConnect({ data, update }: StepProps) {
         {servers.isError ? (
           <div className="space-y-3">
             <p className="text-sm text-destructive" role="alert">
-              {servers.error instanceof ApiError
-                ? servers.error.message
-                : "Could not reach plex.tv."}{" "}
-              Sign in with Plex again to list your servers, or type the address
+              {apiErrorMessage(servers.error, "Could not reach plex.tv.")} Sign
+              in with Plex again to list your servers, or type the address
               yourself below.
             </p>
             {/* A setup session can expire (or never existed for a stale login cookie); re-signing
@@ -375,9 +373,7 @@ export function StepConnect({ data, update }: StepProps) {
 
       {link.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          {link.error instanceof ApiError
-            ? link.error.message
-            : "Could not link that server."}
+          {apiErrorMessage(link.error, "Could not link that server.")}
         </p>
       ) : null}
     </div>

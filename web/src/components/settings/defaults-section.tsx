@@ -5,31 +5,25 @@ import { SaveStatus } from "@/components/save-status";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAutosave } from "@/lib/autosave";
+import { useAutosavedSettings } from "@/lib/autosave";
 import { ROW_SIZE_DEFAULT } from "@/lib/constants";
 import { renderRowName, settingNumber, settingString } from "@/lib/format";
-import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
 /** The default row name template and row size applied to the "Picked for You" row. */
 export function DefaultsSection({ settings }: { settings: Settings }) {
-  const saveSettings = useSaveSettings();
   const [rowNameTpl, setRowNameTpl] = useState(
     settingString(settings, "row.name_template", "✨ Picked for You"),
   );
   const [rowSize, setRowSize] = useState(
     settingNumber(settings, "row.size", ROW_SIZE_DEFAULT),
   );
-  const [justSaved, setJustSaved] = useState(false);
   const rowNameId = useId();
 
-  const retry = useAutosave({ rowNameTpl, rowSize }, () => {
-    setJustSaved(false);
-    saveSettings.mutate(
-      { "row.name_template": rowNameTpl, "row.size": rowSize },
-      { onSuccess: () => setJustSaved(true) },
-    );
-  });
+  const save = useAutosavedSettings({ rowNameTpl, rowSize }, () => ({
+    "row.name_template": rowNameTpl,
+    "row.size": rowSize,
+  }));
 
   return (
     <section aria-labelledby="defaults-heading" className="space-y-3">
@@ -63,11 +57,11 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
           </div>
           <RowSizeField value={rowSize} onChange={setRowSize} />
           <SaveStatus
-            isPending={saveSettings.isPending}
-            isError={saveSettings.isError}
-            error={saveSettings.error}
-            saved={justSaved}
-            onRetry={retry}
+            isPending={save.isPending}
+            isError={save.isError}
+            error={save.error}
+            saved={save.saved}
+            onRetry={save.retry}
           />
         </CardContent>
       </Card>

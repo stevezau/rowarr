@@ -9,15 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  isSecretUnchanged,
+  REDACTED,
+  SecretInput,
+} from "@/components/ui/secret-input";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
-import { useAutosave } from "@/lib/autosave";
+import { useAutosavedSettings } from "@/lib/autosave";
 import { settingBool, settingNumber, settingString } from "@/lib/format";
-import { useArrOptions, useSaveSettings } from "@/lib/queries";
+import { useArrOptions } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
 const MAX_PER_RUN = [3, 5, 10];
-const REDACTED = "•••••";
 
 type ArrForm = {
   qualityProfileId: number;
@@ -199,9 +203,7 @@ function ArrCard({
 }
 
 export function RequestsSettings({ settings }: { settings: Settings }) {
-  const saveSettings = useSaveSettings();
   const [form, setForm] = useState<RequestsForm>(() => readForm(settings));
-  const [saved, setSaved] = useState(false);
   const set = (patch: Partial<RequestsForm>) =>
     setForm((prev) => ({ ...prev, ...patch }));
 
@@ -240,8 +242,7 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
 
   // Auto-save: no Save button. Any change persists shortly after you stop (so text fields never
   // save mid-keystroke; toggles feel instant).
-  const retry = useAutosave(form, () => {
-    setSaved(false);
+  const save = useAutosavedSettings(form, () => {
     const values: Settings = {
       "requests.enabled": form.enabled,
       // Address + API key are owned by Settings → Connections now; this form only saves the
@@ -266,10 +267,10 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
     // either would be a write, not a no-op: the sentinel would be stored AS the key (and, with
     // auto-save, "•••••abc" the moment anyone typed without selecting all first), and a blank would
     // wipe the key just for clicking into the box. Same guard as ConnectionCard.commit().
-    if (form.omdbKey !== REDACTED && form.omdbKey !== "") {
+    if (!isSecretUnchanged(form.omdbKey)) {
       values["requests.omdb.apikey"] = form.omdbKey;
     }
-    saveSettings.mutate(values, { onSuccess: () => setSaved(true) });
+    return values;
   });
 
   return (
@@ -377,28 +378,15 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                   <div className="space-y-2 pt-1">
                     <Label htmlFor={omdbId}>OMDb API key</Label>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Input
+                      <SecretInput
                         id={omdbId}
-                        type="password"
                         placeholder="Free key from omdbapi.com"
                         value={form.omdbKey}
-                        onFocus={(e) => {
-                          // Clear the redacted placeholder on focus so a new key is typed clean —
-                          // otherwise the caret lands after the dots and the key becomes "•••••abc".
-                          if (e.target.value === REDACTED) set({ omdbKey: "" });
-                        }}
-                        onBlur={() => {
-                          // Left blank without typing? Put the dots back: the saved key is still
-                          // there, and the save above leaves it untouched.
-                          if (
-                            form.omdbKey === "" &&
-                            settingString(settings, "requests.omdb.apikey") ===
-                              REDACTED
-                          ) {
-                            set({ omdbKey: REDACTED });
-                          }
-                        }}
-                        onChange={(e) => set({ omdbKey: e.target.value })}
+                        saved={
+                          settingString(settings, "requests.omdb.apikey") ===
+                          REDACTED
+                        }
+                        onChange={(omdbKey) => set({ omdbKey })}
                         className="max-w-xs"
                       />
                       <Button
@@ -640,11 +628,11 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
         )}
 
         <SaveStatus
-          isPending={saveSettings.isPending}
-          isError={saveSettings.isError}
-          error={saveSettings.error}
-          saved={saved}
-          onRetry={retry}
+          isPending={save.isPending}
+          isError={save.isError}
+          error={save.error}
+          saved={save.saved}
+          onRetry={save.retry}
         />
       </CardContent>
     </Card>

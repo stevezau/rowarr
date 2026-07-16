@@ -5,12 +5,8 @@ import { SaveStatus } from "@/components/save-status";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAutosave } from "@/lib/autosave";
-import {
-  useLibraries,
-  useLibraryCollections,
-  useSaveSettings,
-} from "@/lib/queries";
+import { useAutosavedSettings } from "@/lib/autosave";
+import { useLibraries, useLibraryCollections } from "@/lib/queries";
 import type { PlexLibrary, Settings } from "@/lib/types";
 
 const selectClass =
@@ -141,11 +137,9 @@ function LibraryPlacement({
  *  you choose, re-applied every run so a co-managing tool (Kometa) can't bury them again. */
 export function RowPlacementSection({ settings }: { settings: Settings }) {
   const librariesQuery = useLibraries();
-  const saveSettings = useSaveSettings();
   const [anchors, setAnchors] = useState<AnchorMap>(() =>
     readAnchors(settings),
   );
-  const [justSaved, setJustSaved] = useState(false);
 
   // Only anchors with a real collection are persisted — a half-set library (mode chosen, no
   // collection yet) is dropped so the engine never tries to anchor to "".
@@ -153,13 +147,9 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
     Object.entries(anchors).filter(([, a]) => a.top || (a.anchor ?? "").trim()),
   );
 
-  const retry = useAutosave({ anchors }, () => {
-    setJustSaved(false);
-    saveSettings.mutate(
-      { "rows.hub_anchor": persistable },
-      { onSuccess: () => setJustSaved(true) },
-    );
-  });
+  const save = useAutosavedSettings({ anchors }, () => ({
+    "rows.hub_anchor": persistable,
+  }));
 
   const update = (key: string, next: Anchor | undefined) =>
     setAnchors((current) => {
@@ -209,11 +199,11 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
           </QueryBoundary>
 
           <SaveStatus
-            isPending={saveSettings.isPending}
-            isError={saveSettings.isError}
-            error={saveSettings.error}
-            saved={justSaved}
-            onRetry={retry}
+            isPending={save.isPending}
+            isError={save.isError}
+            error={save.error}
+            saved={save.saved}
+            onRetry={save.retry}
           />
         </CardContent>
       </Card>

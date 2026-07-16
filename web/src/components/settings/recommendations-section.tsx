@@ -9,9 +9,8 @@ import { WatchedSlider } from "@/components/settings/watched-slider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useAutosave } from "@/lib/autosave";
+import { useAutosavedSettings } from "@/lib/autosave";
 import { FRESHNESS_DEFAULT, WATCHED_PCT_DEFAULT } from "@/lib/constants";
-import { useSaveSettings } from "@/lib/queries";
 import {
   hasCurator,
   hasTrakt,
@@ -76,7 +75,6 @@ function InlineFix({
 }
 
 export function RecommendationsSection({ settings }: { settings: Settings }) {
-  const save = useSaveSettings();
   const [enabled, setEnabled] = useState<string[]>(() => readSources(settings));
   const [watchedPct, setWatchedPct] = useState<number>(() =>
     readPercent(settings, "recommendations.watched_pct", WATCHED_PCT_DEFAULT),
@@ -87,7 +85,6 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
   const [searchBackend, setSearchBackend] = useState<string>(() =>
     webSearchProvider(settings),
   );
-  const [saved, setSaved] = useState(false);
 
   const toggle = (id: string) =>
     setEnabled((current) =>
@@ -96,20 +93,14 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
 
   // Persist the owner's INTENT (the enabled set as chosen). A source whose dependency isn't met yet
   // no-ops safely in the engine and shows an inline "here's what's needed" prompt — never a silent lie.
-  const retry = useAutosave(
+  const save = useAutosavedSettings(
     { enabled, watchedPct, freshness, searchBackend },
-    () => {
-      setSaved(false);
-      save.mutate(
-        {
-          "candidates.sources": enabled,
-          "recommendations.watched_pct": watchedPct / 100,
-          "recommendations.freshness": freshness / 100,
-          "llm_web.search_provider": searchBackend,
-        },
-        { onSuccess: () => setSaved(true) },
-      );
-    },
+    () => ({
+      "candidates.sources": enabled,
+      "recommendations.watched_pct": watchedPct / 100,
+      "recommendations.freshness": freshness / 100,
+      "llm_web.search_provider": searchBackend,
+    }),
   );
 
   return (
@@ -153,8 +144,9 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
           ))}
           {enabled.length === 0 && (
             // Empty isn't "no discovery" — the engine floors it to its defaults, so say so out loud
-            // (the setting must never read as fully off while a run still uses two sources).
-            <p role="alert" className="text-sm text-warning">
+            // (the setting must never read as fully off while a run still uses two sources). It's an
+            // advisory, not an error, so it's role="status".
+            <p role="status" className="text-sm text-warning">
               Nothing enabled — Shortlist falls back to its defaults (TMDB
               similar + discover). Turn on at least one source to choose your
               own.
@@ -202,8 +194,8 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
               isPending={save.isPending}
               isError={save.isError}
               error={save.error}
-              saved={saved}
-              onRetry={retry}
+              saved={save.saved}
+              onRetry={save.retry}
             />
           </div>
         </CardContent>

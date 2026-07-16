@@ -44,6 +44,8 @@ export function UsersPage() {
   const patchUser = usePatchUser();
   const setAll = useSetAllUsersEnabled();
   const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
+  const [confirmEnableOpen, setConfirmEnableOpen] = useState(false);
+  const userCount = usersQuery.data?.length ?? 0;
 
   return (
     <div>
@@ -55,7 +57,7 @@ export function UsersPage() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={() => setAll.mutate(true)}
+              onClick={() => setConfirmEnableOpen(true)}
               loading={setAll.isPending && setAll.variables === true}
             >
               Enable all
@@ -90,6 +92,36 @@ export function UsersPage() {
           fallback="Couldn’t update everyone at once. Try again."
         />
       )}
+
+      <Dialog open={confirmEnableOpen} onOpenChange={setConfirmEnableOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Give a Picked-for-You row to all {userCount} users?
+            </DialogTitle>
+            <DialogDescription>
+              This turns everyone on, so each user gets their own private
+              Picked-for-You row on the next run. Turn anyone back off
+              individually whenever you like.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmEnableOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={setAll.isPending && setAll.variables === true}
+              onClick={() =>
+                setAll.mutate(true, {
+                  onSuccess: () => setConfirmEnableOpen(false),
+                })
+              }
+            >
+              Enable all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmDisableOpen} onOpenChange={setConfirmDisableOpen}>
         <DialogContent>

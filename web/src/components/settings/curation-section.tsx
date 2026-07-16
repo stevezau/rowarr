@@ -6,32 +6,23 @@ import {
 } from "@/components/curation-style";
 import { SaveStatus } from "@/components/save-status";
 import { Card, CardContent } from "@/components/ui/card";
-import { useAutosave } from "@/lib/autosave";
+import { useAutosavedSettings } from "@/lib/autosave";
 import { settingString } from "@/lib/format";
-import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
 /** The global curation recipe — tone, guidance, and an optional hand-written prompt. */
 export function CurationSection({ settings }: { settings: Settings }) {
-  const saveSettings = useSaveSettings();
   const [curation, setCuration] = useState<CurationStyleValue>({
     tone: settingString(settings, "curator.prompt_tone", "balanced"),
     guidance: settingString(settings, "curator.prompt_guidance"),
     template: settingString(settings, "curator.prompt_template"),
   });
-  const [justSaved, setJustSaved] = useState(false);
 
-  const retry = useAutosave(curation, () => {
-    setJustSaved(false);
-    saveSettings.mutate(
-      {
-        "curator.prompt_tone": curation.tone,
-        "curator.prompt_guidance": curation.guidance,
-        "curator.prompt_template": curation.template,
-      },
-      { onSuccess: () => setJustSaved(true) },
-    );
-  });
+  const save = useAutosavedSettings(curation, () => ({
+    "curator.prompt_tone": curation.tone,
+    "curator.prompt_guidance": curation.guidance,
+    "curator.prompt_template": curation.template,
+  }));
 
   return (
     <section aria-labelledby="curation-heading" className="space-y-3">
@@ -47,11 +38,11 @@ export function CurationSection({ settings }: { settings: Settings }) {
           </p>
           <CurationStyleFields value={curation} onChange={setCuration} />
           <SaveStatus
-            isPending={saveSettings.isPending}
-            isError={saveSettings.isError}
-            error={saveSettings.error}
-            saved={justSaved}
-            onRetry={retry}
+            isPending={save.isPending}
+            isError={save.isError}
+            error={save.error}
+            saved={save.saved}
+            onRetry={save.retry}
           />
         </CardContent>
       </Card>

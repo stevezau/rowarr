@@ -4,14 +4,16 @@ import { useId, useState } from "react";
 
 import { TestResult } from "@/components/test-result";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  isSecretUnchanged,
+  REDACTED,
+  SecretInput,
+} from "@/components/ui/secret-input";
 import { api } from "@/lib/api";
 import { settingString } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings, TestableService } from "@/lib/types";
-
-const REDACTED = "•••••";
 
 /**
  * Enter (and test) an API key RIGHT WHERE a feature needs it — so turning something on never dead-ends
@@ -41,7 +43,7 @@ export function InlineKeyField({
   const [value, setValue] = useState(saved ? REDACTED : "");
   const id = useId();
 
-  const untouched = value === REDACTED || value === "";
+  const untouched = isSecretUnchanged(value);
   const commit = () => {
     if (untouched) return; // nothing typed / still the placeholder → no change, never wipe the key
     save.mutate(
@@ -55,19 +57,13 @@ export function InlineKeyField({
       <Label htmlFor={id}>{label}</Label>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
+        <SecretInput
           id={id}
-          type="password"
           placeholder={placeholder}
           className="max-w-xs"
           value={value}
-          onFocus={(e) => {
-            if (e.target.value === REDACTED) setValue("");
-          }}
-          onBlur={() => {
-            if (value === "" && saved) setValue(REDACTED);
-          }}
-          onChange={(e) => setValue(e.target.value)}
+          saved={saved}
+          onChange={setValue}
         />
         <Button
           size="sm"

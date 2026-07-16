@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ApiError } from "./api";
+import { api, apiErrorMessage } from "./api";
 import type { PinStatus } from "./types";
 
 export type AppArea = "login" | "setup" | "app";
@@ -120,9 +120,7 @@ export function usePlexPin(
         if (disposedRef.current) return;
         setPhase("error");
         setError(
-          caught instanceof ApiError
-            ? caught.message
-            : "Could not start the Plex login. Try again.",
+          apiErrorMessage(caught, "Could not start the Plex login. Try again."),
         );
         return;
       }

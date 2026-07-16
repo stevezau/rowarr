@@ -43,7 +43,7 @@ export function AudiencePicker({
             </p>
           )}
           {users.length > 0 && audienceUserIds.length === 0 && (
-            <p role="alert" className="p-2 text-sm text-warning">
+            <p role="status" className="p-2 text-sm text-warning">
               Nobody is chosen, so this row won&rsquo;t reach anyone. Pick at
               least one person.
             </p>

@@ -113,8 +113,9 @@ export function RowSourcesField({
           })}
           {value.length === 0 ? (
             // The row does fall back to the global set — but that must be said out loud, not
-            // inferred from switches the owner just turned all the way off.
-            <p role="alert" className="text-sm text-warning">
+            // inferred from switches the owner just turned all the way off. Advisory, not an error,
+            // so it's role="status".
+            <p role="status" className="text-sm text-warning">
               Nothing ticked, so this row falls back to the global default from
               Settings → Recommendations. Tick at least one source to give it
               its own.

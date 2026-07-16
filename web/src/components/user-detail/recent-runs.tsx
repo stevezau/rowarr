@@ -55,9 +55,15 @@ export function RecentRuns({ userId }: { userId: number }) {
                   </span>
                 </div>
                 {run.error ? (
-                  <p className="mt-1 font-mono text-xs text-destructive">
-                    {run.error}
-                  </p>
+                  <div className="mt-1 space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Something went wrong building this person&rsquo;s row —
+                      copy the details below when reporting it:
+                    </p>
+                    <p className="font-mono text-xs text-destructive">
+                      {run.error}
+                    </p>
+                  </div>
                 ) : (
                   <p className="mt-1 text-xs text-muted-foreground">
                     +{added} added · −{removed} removed · {run.picks.length}{" "}

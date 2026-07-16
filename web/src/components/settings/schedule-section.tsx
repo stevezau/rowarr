@@ -5,14 +5,13 @@ import { Segmented } from "@/components/segmented";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAutosave } from "@/lib/autosave";
+import { useAutosavedSettings } from "@/lib/autosave";
 import {
   cronFromTime,
   isPresetCron,
   settingString,
   timeFromCron,
 } from "@/lib/format";
-import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
 type Mode = "nightly" | "weekly" | "custom";
@@ -31,7 +30,6 @@ function looksLikeCron(value: string): boolean {
 
 /** When rows refresh: a nightly/weekly preset (run time), or a raw cron for anything else. */
 export function ScheduleSection({ settings }: { settings: Settings }) {
-  const saveSettings = useSaveSettings();
   const stored = settingString(settings, "schedule.cron", "30 3 * * *");
   const preset = timeFromCron(stored);
   const [mode, setMode] = useState<Mode>(
@@ -39,7 +37,6 @@ export function ScheduleSection({ settings }: { settings: Settings }) {
   );
   const [scheduleTime, setScheduleTime] = useState(preset.time);
   const [cronText, setCronText] = useState(stored);
-  const [justSaved, setJustSaved] = useState(false);
   const timeId = useId();
   const cronId = useId();
 
@@ -49,14 +46,9 @@ export function ScheduleSection({ settings }: { settings: Settings }) {
       : cronFromTime(scheduleTime, mode === "weekly");
   const canSave = mode !== "custom" || looksLikeCron(cron);
 
-  const retry = useAutosave({ mode, scheduleTime, cronText }, () => {
-    if (!canSave) return;
-    setJustSaved(false);
-    saveSettings.mutate(
-      { "schedule.cron": cron },
-      { onSuccess: () => setJustSaved(true) },
-    );
-  });
+  const save = useAutosavedSettings({ mode, scheduleTime, cronText }, () =>
+    canSave ? { "schedule.cron": cron } : null,
+  );
 
   return (
     <section aria-labelledby="schedule-heading" className="space-y-3">
@@ -85,11 +77,11 @@ export function ScheduleSection({ settings }: { settings: Settings }) {
               </div>
             )}
             <SaveStatus
-              isPending={saveSettings.isPending}
-              isError={saveSettings.isError}
-              error={saveSettings.error}
-              saved={justSaved}
-              onRetry={retry}
+              isPending={save.isPending}
+              isError={save.isError}
+              error={save.error}
+              saved={save.saved}
+              onRetry={save.retry}
             />
           </div>
 

@@ -63,7 +63,7 @@ describe("UserCard", () => {
   it("flags cold-start users and explains the fallback row", () => {
     renderCard({ user: makeUser({ cold_start: true }) });
 
-    expect(screen.getByText("cold start")).toBeInTheDocument();
+    expect(screen.getByText("New viewer")).toBeInTheDocument();
     expect(screen.getByText(/thin history/i)).toBeInTheDocument();
   });
 

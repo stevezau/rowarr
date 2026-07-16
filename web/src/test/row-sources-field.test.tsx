@@ -112,7 +112,7 @@ describe("RowSourcesField", () => {
     );
 
     // It used to snap silently back to the global view, switches and all.
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("status")).toHaveTextContent(
       /falls back to the global default/i,
     );
     expect(

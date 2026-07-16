@@ -14,13 +14,16 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  isSecretUnchanged,
+  REDACTED,
+  SecretInput,
+} from "@/components/ui/secret-input";
 import { api, apiErrorMessage } from "@/lib/api";
 import { settingString } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings, TestableService } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const REDACTED = "•••••";
 
 /** One editable field on a connection card. `showIf` hides it based on the other fields' values. */
 export type ConnectionField =
@@ -73,7 +76,8 @@ export function ConnectionCard({
   const configured = Boolean(summary);
 
   // Status dot on the logo tile: green = last test passed, red = failed, amber = configured but
-  // untested, grey = nothing set. A quick scan across the cards shows what's wired up.
+  // untested, grey = nothing set. A quick scan across the cards shows what's wired up. The dot is
+  // colour-only and aria-hidden, so the same state is spelled out for screen readers alongside it.
   const dot = test.isSuccess
     ? test.data.ok
       ? "bg-success"
@@ -83,6 +87,14 @@ export function ConnectionCard({
       : configured
         ? "bg-warning"
         : "bg-muted-foreground/40";
+  const status =
+    test.isSuccess && test.data.ok
+      ? "Connection OK"
+      : test.isSuccess || test.isError
+        ? "Connection failed"
+        : configured
+          ? "Configured, untested"
+          : "Not set up";
 
   const openEditor = () => {
     setValues(initialValues(settings, fields));
@@ -97,7 +109,7 @@ export function ConnectionCard({
       // A password left as the redacted placeholder OR left blank means "no change" — never wipe a
       // saved secret on Save. (Focusing a field clears its dots; saving without retyping must be a
       // no-op, not a delete.) Clearing a secret is done deliberately via the Clear button.
-      if (field.kind === "password" && (value === REDACTED || value === "")) {
+      if (field.kind === "password" && isSecretUnchanged(value)) {
         continue;
       }
       payload[field.key] = value;
@@ -133,6 +145,7 @@ export function ConnectionCard({
                   dot,
                 )}
               />
+              <span className="sr-only">{status}</span>
             </span>
             {title}
           </span>
@@ -174,35 +187,22 @@ export function ConnectionCard({
                         setValues((prev) => ({ ...prev, [field.key]: v }))
                       }
                     />
+                  ) : field.kind === "password" ? (
+                    <SecretInput
+                      id={id}
+                      placeholder={field.placeholder}
+                      value={values[field.key] ?? ""}
+                      saved={settingString(settings, field.key) === REDACTED}
+                      onChange={(v) =>
+                        setValues((prev) => ({ ...prev, [field.key]: v }))
+                      }
+                    />
                   ) : (
                     <Input
                       id={id}
-                      type={field.kind === "password" ? "password" : "text"}
+                      type="text"
                       placeholder={field.placeholder}
                       value={values[field.key] ?? ""}
-                      onFocus={(e) => {
-                        // Clear the redacted placeholder on focus so the owner types a fresh secret.
-                        if (
-                          field.kind === "password" &&
-                          e.target.value === REDACTED
-                        ) {
-                          setValues((prev) => ({ ...prev, [field.key]: "" }));
-                        }
-                      }}
-                      onBlur={() => {
-                        // Left blank without typing? Put the placeholder back so it's clear the saved
-                        // secret is still there (and Save will leave it untouched).
-                        if (
-                          field.kind === "password" &&
-                          (values[field.key] ?? "") === "" &&
-                          settingString(settings, field.key) === REDACTED
-                        ) {
-                          setValues((prev) => ({
-                            ...prev,
-                            [field.key]: REDACTED,
-                          }));
-                        }
-                      }}
                       onChange={(e) =>
                         setValues((prev) => ({
                           ...prev,

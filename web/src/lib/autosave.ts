@@ -1,4 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { useSaveSettings } from "@/lib/queries";
+import type { Settings } from "@/lib/types";
 
 /** The one debounce every auto-saving control shares, so text never persists mid-keystroke. */
 export const AUTOSAVE_DELAY_MS = 600;
@@ -32,4 +35,48 @@ export function useAutosave(value: unknown, save: () => void): () => void {
   }, [key]);
 
   return () => saveRef.current();
+}
+
+/** What every auto-saving settings section needs to drive its {@link SaveStatus} readout. */
+export interface AutosavedSettings {
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  /** True once a save has succeeded and nothing has changed since. */
+  saved: boolean;
+  /** Re-fires the same save immediately — for a failed auto-save's "Try again". */
+  retry: () => void;
+}
+
+/**
+ * The settings-section auto-save paradigm in one hook: a {@link useSaveSettings} mutation, the
+ * `saved` flag that flips true on success and back to false the moment a new save starts, and the
+ * {@link useAutosave} wiring — so a section only supplies its state and how to map it to a payload.
+ *
+ * @param value - The edited state to watch. Compared by content, so building it inline is fine.
+ * @param toValues - Maps the current state to the settings payload to PUT. Return `null` to skip
+ *   this save entirely (e.g. an invalid cron) — the `saved` flag is left untouched, not reset.
+ * @returns The pending/error/saved flags and a `retry`, ready to spread into {@link SaveStatus}.
+ */
+export function useAutosavedSettings<T>(
+  value: T,
+  toValues: () => Settings | null,
+): AutosavedSettings {
+  const save = useSaveSettings();
+  const [saved, setSaved] = useState(false);
+
+  const retry = useAutosave(value, () => {
+    const values = toValues();
+    if (values === null) return;
+    setSaved(false);
+    save.mutate(values, { onSuccess: () => setSaved(true) });
+  });
+
+  return {
+    isPending: save.isPending,
+    isError: save.isError,
+    error: save.error,
+    saved,
+    retry,
+  };
 }

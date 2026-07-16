@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import type { User } from "@/lib/types";
 
 /**
- * The canonical status badges for a Plex user — managed / owner / cold-start — in one place so the
+ * The canonical status badges for a Plex user — managed / owner / new-viewer — in one place so the
  * wording and tooltips stay identical across the dashboard, the users table, and the user page.
  * Renders `emptyFallback` (e.g. an em dash) when none apply.
  */
@@ -41,7 +41,7 @@ export function UserBadges({
         variant="warning"
         title="Not enough watch history yet — starting from popular titles"
       >
-        cold start
+        New viewer
       </Badge>,
     );
   }

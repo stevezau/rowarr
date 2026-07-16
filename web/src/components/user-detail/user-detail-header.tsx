@@ -11,7 +11,7 @@ import { formatHitRate, timeAgo } from "@/lib/format";
 import { usePatchUser, useStartRun } from "@/lib/queries";
 import type { User } from "@/lib/types";
 
-/** The user page's identity header: avatar, status badges, stats, pause toggle, and Regenerate. */
+/** The user page's identity header: avatar, status badges, stats, pause toggle, and Run now. */
 export function UserDetailHeader({ user }: { user: User }) {
   const patchUser = usePatchUser();
   const startRun = useStartRun();
@@ -77,7 +77,7 @@ export function UserDetailHeader({ user }: { user: User }) {
             loading={startRun.isPending}
           >
             {!startRun.isPending && <RefreshCw aria-hidden="true" />}
-            Regenerate now
+            Run now
           </Button>
         </div>
       </header>

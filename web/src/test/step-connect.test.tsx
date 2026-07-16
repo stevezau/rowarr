@@ -32,6 +32,8 @@ vi.mock("@/lib/api", () => {
   }
   return {
     ApiError,
+    apiErrorMessage: (error: unknown, fallback: string) =>
+      error instanceof ApiError ? error.message : fallback,
     api: {
       getSession: () => getSession(),
       getServers: () => getServers(),

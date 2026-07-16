@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, ApiError } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import { useUsers } from "@/lib/queries";
 import { RUN_STAGES, STAGE_LABELS } from "@/lib/run-stages";
 import { useSSE } from "@/lib/sse";
@@ -213,9 +213,10 @@ export function StepFirstRun({ complete }: StepProps) {
           </div>
           {run.isError && (
             <p role="alert" className="text-sm text-destructive">
-              {run.error instanceof ApiError
-                ? run.error.message
-                : "The run could not start. Check the server log and try again."}
+              {apiErrorMessage(
+                run.error,
+                "The run could not start. Check the server log and try again.",
+              )}
             </p>
           )}
         </div>
@@ -321,9 +322,15 @@ export function StepFirstRun({ complete }: StepProps) {
               : 'Tell your users to look for their new row tonight — something like: "Your Plex now has a private Picked-for-You row, built from what you actually watch. Enjoy."'}
           </p>
           {failed && finishedError && (
-            <p className="rounded-md bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
-              {finishedError}
-            </p>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">
+                Something went wrong on this run — copy the details below when
+                reporting it:
+              </p>
+              <p className="rounded-md bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
+                {finishedError}
+              </p>
+            </div>
           )}
           {!failed && (
             <p className="text-sm text-muted-foreground">

@@ -254,6 +254,10 @@ function UserPanel({ run, result }: { run: RunDetail; result: RunUserResult }) {
   if (result.error !== null) {
     return (
       <div role="alert" className="space-y-3 rounded-md bg-destructive/10 p-3">
+        <p className="text-sm text-foreground">
+          Something went wrong building this person&rsquo;s row — copy the
+          details below when reporting it:
+        </p>
         <p className="font-mono text-sm text-destructive">{result.error}</p>
         <CopyForGitHubButton run={run} result={result} />
       </div>

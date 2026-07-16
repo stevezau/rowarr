@@ -4,12 +4,18 @@
 
 - **Dashboard** — privacy badge (last verified), next scheduled run, per-user cards with
   their current row, hit rate, and a Run now button. Live-updates during runs.
-- **Users** — enable/disable, pause, a request tag, per-row overrides (size, curation style,
-  mute), and each user's restriction status.
+- **Rows** — create, edit, and reorder your rows. Each card shows who sees it and how it
+  differs from the defaults (sources, libraries, curation style, placement). This is where
+  the whole multi-row feature lives — see "Naming a row" and "Row placement" below.
+- **Users** — enable/disable each person or **Enable all / Disable all** at once, pause
+  someone (keeps their row, skips them on runs), set a request tag, add per-row overrides
+  (size, curation style, mute), and see each user's restriction status.
 - **Runs** — a live **Activity** log streams each user through history → candidates → curating →
   delivering as the run happens (seeded from the server so a reload replays it); per-user diffs
   grouped by row then library ("added X to Movies, Y to TV Shows"), each library showing its own
   ranked picks; errors as first-class rows with copy-for-GitHub buttons, LLM token usage.
+- **Requests** — the approval inbox for titles your picks wanted but the library doesn't have
+  yet. Approve to send to Radarr/Sonarr, or reject so they never come back (see "Requests" below).
 - **Settings** — every connection re-testable in place; **Recommendations** (which candidate
   sources to pool); curation style; row defaults; schedule editor (cron for power users); the
   Danger Zone.
@@ -21,21 +27,39 @@ presets (just pick a run time), or switch to **Custom (cron)** to enter any 5-fi
 — e.g. `0 */6 * * *` for every six hours, or `0 4 * * 1` for Mondays at 4am. One schedule covers
 the whole server; to skip someone, pause them on their detail page.
 
+## Naming a row
+
+A row's name can be plain text ("Hidden Gems") or use a placeholder that fills in per person when
+the row is built:
+
+- `{user}` — the person's name. `{user}'s picks` becomes "Sarah's picks".
+- `{top_seed}` — the title that most drove their recommendations. `Because you watched {top_seed}`
+  becomes "Because you watched The Bear".
+
+If a `{top_seed}` row is built for someone with too little history to have a favourite, it falls
+back to a clean default ("✨ Picked for You") rather than a half-finished sentence. You can rename
+any row at any time in the **Row editor** — the collection on Plex is renamed in place, so its
+place in the shelf and its privacy are preserved.
+
 ## Row placement (Recommended shelf)
 
 By default Plex adds new collections at the **end** of a library's _Recommended_ shelf, so if another
 tool (like **Kometa**) manages collections on the same server, Shortlist's rows can end up buried at
-the bottom. Settings → **Row placement** fixes this per library: pick an existing collection and choose
-whether Shortlist's rows sit **right after** or **right before** it. Shortlist re-applies this at the end
-of every run (so a co-managing tool can't re-bury them), only ever moves its own rows, and never touches
-the anchor collection. Leave a library on "Wherever Plex puts them" to keep the default order. The order
-is server-wide, but since each person only sees their own row, moving them up lifts everyone's at once.
+the bottom. Settings → **Row placement** sets a server-wide default; you get three choices per library:
 
-This Settings section is the **default** every row inherits. Any individual row can override it in the
-**Row editor** ("Position in the Recommended shelf") — per library, choose "Use the default" or anchor
-that one row to its own collection. So "Picked for You" can sit right after New Series while another row
-sits somewhere else. It works whether or not you run Kometa: Kometa is only _why_ it matters (it fills
-the shelf), not _how_ it works — the anchor can be any collection, Kometa's or one of Plex's own.
+- **Wherever Plex puts them** — leave the order alone (the default).
+- **Top of the shelf** — put Shortlist's rows at the very top. No anchor needed. (This replaces the
+  old "pin to top" switch.)
+- **Right before / after a collection** — pick an existing collection and sit the rows next to it.
+
+Any individual row can override the default in the **Row editor** ("Position in the Recommended
+shelf"), per library — so "Picked for You" can sit at the top while another row sits right after New
+Series. Since each person only sees their own row, moving rows up lifts everyone's at once.
+
+Behind the scenes Shortlist re-applies your choice at the end of every run (so a co-managing tool
+can't re-bury the rows), only ever moves its own rows, and never touches the collection you anchored
+to. It works with or without Kometa — Kometa is only _why_ this matters (it fills the shelf), not
+_how_ it works; the anchor can be any collection, Kometa's or one of Plex's own.
 
 ## Hit rate
 

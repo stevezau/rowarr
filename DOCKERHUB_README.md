@@ -7,7 +7,8 @@ LLM (or a plain heuristic — no AI required) curate and explain the picks, and 
 each user's Plex Home screen as their own private row — visible only to them.
 
 - **Private by design** — per-user label restrictions (Plex Pass, PMS ≥ 1.43.2), proven by a
-  built-in Privacy Check before anything real is written, re-verified weekly.
+  built-in Privacy Check before anything real is written, re-verified automatically before each
+  run whenever the last check is stale.
 - **Can't hallucinate** — the AI only ranks titles verified to exist in your library.
 - **Reversible** — every share-filter change is snapshotted; uninstall provably restores
   your server.

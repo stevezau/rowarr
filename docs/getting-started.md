@@ -22,18 +22,23 @@ Open `http://your-host:5959`. A fresh install goes straight into the wizard — 
 nothing to sign in to yet. Step 1 connects your Plex account (that's the sign-in, and it's
 what claims the instance for you); from then on Shortlist only opens for that account.
 
-> Don't expose an unconfigured Shortlist to the internet: until you link a server, whoever
-> reaches it first can claim it. Once claimed, it's yours.
+> Set Shortlist up on your own network first. Until you sign in with Plex and link a server,
+> anyone who can open the page could claim it as theirs — so don't put it on the public internet
+> until you've finished the wizard. Once you've claimed it, it's yours.
 
 The wizard then walks:
 
 1. **Connect Plex** — PIN login, pick your server. The capability probe checks your PMS
    version, Plex Pass, and libraries with plain-English results.
-2. **History source** — point at Tautulli if you run it; Plex's own history works without it.
-3. **Choose your curator** — Claude / GPT / Gemini / Ollama / **None**. Keys are yours,
-   stored encrypted, redacted after save.
-4. **Pick your users** — everyone you share with, with history-depth and cold-start badges.
-5. **Make it yours** — row name (static or "Because you watched {top_seed}"), row size, schedule.
+2. **Recommendations & history** — where picks come from (TMDB, Trakt, AI, web search) and
+   where watch history comes from: point at Tautulli if you run it; Plex's own history works
+   without it.
+3. **Choose your curator** — Claude / GPT / Gemini / Ollama / **None** (the built-in picker).
+   Keys are yours, stored encrypted, redacted after save.
+4. **Pick your users** — everyone you share with, with history-depth and new-viewer badges.
+5. **Make it yours** — row name, row size, schedule. The name can be plain text or use a
+   placeholder: `{user}` (the person's name — e.g. "Sarah's picks") or `{top_seed}` (their
+   current favourite — e.g. "Because you watched {top_seed}").
 6. **First run** — live per-user progress; when it finishes, each user has their private row.
 
 There's no manual Privacy Check step: Shortlist verifies privacy automatically as the first phase

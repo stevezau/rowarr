@@ -223,6 +223,28 @@ class PlexClient:
                         row.rating_keys.append(collection.ratingKey)
         return owned
 
+    def list_owned_collections(self, label_prefix: str = "shortlist") -> list[dict]:
+        """Every shortlist-owned collection currently on the server — one entry each (NOT collapsed by
+        slug), for a cleanup audit. Read-only and label-based, so it lists rows even for users or rows
+        no longer in the database (exactly the drift a cleanup needs to catch). Returns one
+        ``{library, title, label, rating_key}`` per collection."""
+        prefix = f"{label_prefix}_".lower()
+        out: list[dict] = []
+        for section in self.sections():
+            for collection in self._section_collections(section):
+                label = next((lbl.tag for lbl in collection.labels if lbl.tag.lower().startswith(prefix)), None)
+                if label is None:
+                    continue
+                out.append(
+                    {
+                        "library": section.title,
+                        "title": collection.title,  # raw (carries the invisible marker); caller strips it
+                        "label": label,
+                        "rating_key": collection.ratingKey,
+                    }
+                )
+        return out
+
     def matches_section(self, collection: Collection, section: LibrarySection) -> bool:
         """Whether this collection's type matches the library it lives in.
 

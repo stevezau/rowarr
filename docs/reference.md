@@ -75,6 +75,7 @@ GET  /api/users/{id}/runs · GET /api/users/{id}/history
 GET/POST /api/collections · PATCH/DELETE /api/collections/{id} (incl. `request_tag`, `candidate_sources`, `library_keys`, `hub_anchor` — per-row shelf-placement override)
 GET  /api/system/libraries -> [{key, title, type}] (the server's Plex libraries, for the row editor)
 GET  /api/system/libraries/{key}/collections -> [{title}] (a library's managed collections — anchor choices for row placement, excludes Shortlist's own)
+GET  /api/system/owned-collections -> {collections:[{library,title,label,rating_key,kind,slug,orphan}], total, orphans} (cleanup audit: every shortlist-labelled collection ON PLEX, drift-flagged, DB-independent)
 GET  /api/runs · GET /api/runs/{id} · GET /api/runs/{id}/log (activity feed) · POST /api/runs {user_ids?, dry_run?}
 GET  /api/requests · POST /api/requests/send {ids, dry_run?} · POST /api/requests/reject {ids}
 GET  /api/events (SSE) · GET /api/events/log (audit feed)

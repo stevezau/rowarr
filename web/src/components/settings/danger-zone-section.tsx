@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { CleanupAuditCard } from "@/components/settings/cleanup-audit-card";
 import { UninstallDialog } from "@/components/uninstall-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,6 +28,7 @@ export function DangerZoneSection({ settings }: { settings: Settings }) {
       >
         Danger zone
       </h2>
+      <CleanupAuditCard />
       <Card className="border-destructive/40">
         <CardContent className="space-y-4 pt-6">
           <div className="flex flex-wrap items-center justify-between gap-3">

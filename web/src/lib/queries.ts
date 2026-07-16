@@ -170,6 +170,15 @@ export function useLibraryCollections(key: string, enabled = true) {
   });
 }
 
+export function useOwnedCollections(enabled = false) {
+  return useQuery({
+    queryKey: ["owned-collections"],
+    queryFn: () => api.getOwnedCollections(),
+    retry: false,
+    enabled, // on demand — this scans every Plex collection, so don't fire it on page load
+  });
+}
+
 export function useUserRows(id: number) {
   return useQuery({
     queryKey: queryKeys.userRows(id),

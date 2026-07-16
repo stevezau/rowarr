@@ -78,6 +78,58 @@ async def library_collections(key: str, request: Request) -> list[dict]:
     return await asyncio.get_running_loop().run_in_executor(None, read)
 
 
+@router.get("/owned-collections", dependencies=[Depends(require_owner)])
+async def owned_collections_audit(request: Request) -> dict:
+    """Read-only cleanup audit: every Shortlist-labelled collection currently on Plex, one per entry.
+    Each is flagged ``orphan`` when the label's owner is gone from the app — the USER for a per-person
+    row (all of a user's rows share their one label, so this is user-level), or the SHARED ROW for a
+    shared collection (1:1 with its slug). Independent of the database — this is exactly what a
+    cleanup/uninstall finds and removes, so the owner can eyeball nothing has drifted (rule 10)."""
+    from shortlist.engine.clients.plex_pms import PlexClient
+    from shortlist.engine.delivery import strip_marker
+    from shortlist.engine.models import SHARED_LABEL_PREFIX
+    from shortlist.server.db.models import Collection as Coll
+    from shortlist.server.db.models import User
+    from shortlist.server.settings_store import SettingsStore
+
+    state = request.app.state
+
+    def read() -> dict:
+        with state.sessions() as session:
+            store = SettingsStore(session, state.secrets)
+            url, token = store.get("plex.url"), store.get("plex.token")
+            user_slugs = {u.slug for u in session.query(User).all()}
+            coll_slugs = {c.slug for c in session.query(Coll).all()}
+        if not url or not token:
+            raise HTTPException(status_code=409, detail="Plex isn't connected yet")
+
+        shared_prefix = SHARED_LABEL_PREFIX.lower()
+        out: list[dict] = []
+        for row in PlexClient(url, token).list_owned_collections("shortlist"):
+            label = row["label"].lower()
+            if label.startswith(shared_prefix):
+                slug, kind, known = label[len(shared_prefix) :], "shared", label[len(shared_prefix) :] in coll_slugs
+            else:
+                slug = label[len("shortlist_") :]
+                kind, known = "user", slug in user_slugs
+            out.append(
+                {
+                    "library": row["library"],
+                    "title": strip_marker(row["title"]),
+                    "label": row["label"],
+                    "rating_key": row["rating_key"],
+                    "kind": kind,
+                    "slug": slug,
+                    "orphan": not known,  # its user (per-person) or shared row is gone from the app — safe to remove
+                }
+            )
+        # Orphans first (the ones worth a look), then by library and title.
+        out.sort(key=lambda x: (not x["orphan"], x["library"], x["title"]))
+        return {"collections": out, "total": len(out), "orphans": sum(1 for x in out if x["orphan"])}
+
+    return await asyncio.get_running_loop().run_in_executor(None, read)
+
+
 class UninstallRequest(BaseModel):
     confirm: str = ""
     dry_run: bool = False  # preview: report what WOULD be restored/deleted (rule 8)

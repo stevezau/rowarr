@@ -196,3 +196,8 @@ that's deliberate.
 - **Everything broke, get me out** — `shortlist uninstall` (or Settings → Danger Zone →
   Uninstall) restores every user's share filters from the pre-Shortlist snapshots and deletes
   every shortlist-labeled collection. Kometa and other tools' collections are never touched.
+- **Did anything drift out of sync?** — Settings → Danger Zone → **What Shortlist has on your
+  Plex** ("Check Plex") lists every shortlist-labeled collection read straight from the server (not
+  the database), flagging any whose user/row no longer exists in the app. Every collection is
+  labeled at creation (atomically — a collection that can't be labeled is deleted rather than left
+  as an orphan), so a cleanup always finds them all; this is how you confirm it.

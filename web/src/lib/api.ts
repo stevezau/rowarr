@@ -1,5 +1,6 @@
 import type {
   ArrOptions,
+  OwnedCollectionsAudit,
   PlexLibrary,
   ConnectionTestResult,
   Health,
@@ -249,6 +250,10 @@ export const api = {
   /** A library's managed collections — the candidate anchors for placing rows in the shelf. */
   getLibraryCollections: (key: string): Promise<{ title: string }[]> =>
     request(`/api/system/libraries/${encodeURIComponent(key)}/collections`),
+
+  /** Cleanup audit: every shortlist-labelled collection on Plex, with drift/orphan flags. */
+  getOwnedCollections: (): Promise<OwnedCollectionsAudit> =>
+    request("/api/system/owned-collections"),
 
   // --- Collections (rows) ---
   listCollections: (): Promise<Collection[]> => request("/api/collections"),

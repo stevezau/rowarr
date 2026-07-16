@@ -68,6 +68,25 @@ export interface PlexLibrary {
   type: "movie" | "show";
 }
 
+/** One shortlist-labelled collection found on Plex by the cleanup audit. */
+export interface OwnedCollection {
+  library: string;
+  title: string;
+  label: string;
+  rating_key: number;
+  kind: "user" | "shared";
+  slug: string;
+  /** Its user (per-person) or shared row is gone from the app — drift a cleanup would remove. */
+  orphan: boolean;
+}
+
+/** GET /api/system/owned-collections — the cleanup audit result. */
+export interface OwnedCollectionsAudit {
+  collections: OwnedCollection[];
+  total: number;
+  orphans: number;
+}
+
 /** Body for POST / PATCH /api/collections. */
 export interface CollectionInput {
   name: string;

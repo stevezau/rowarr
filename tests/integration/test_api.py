@@ -1240,3 +1240,42 @@ class TestUninstall:
     def test_wrong_confirmation_rejected(self, client: TestClient):
         r = client.post("/api/system/uninstall", json={"confirm": "yes"})
         assert r.status_code == 422
+
+    def test_owned_collections_audit_lists_plex_rows_and_flags_orphans(self, client: TestClient, monkeypatch):
+        """The cleanup audit lists every shortlist-labelled collection ON PLEX (not from the DB) and
+        flags any whose user/row no longer exists — the drift a cleanup exists to catch."""
+        from shortlist.server.settings_store import SettingsStore
+
+        with client.app.state.sessions() as session:
+            store = SettingsStore(session, client.app.state.secrets)
+            store.set("plex.url", "http://pms:32400")
+            store.set("plex.token", "tok")
+            session.commit()
+
+        class FakePlex:
+            def __init__(self, *a, **k):
+                pass
+
+            def list_owned_collections(self, prefix="shortlist"):
+                # Plex title-cases labels; users sarah/mike exist, 'ghost' does not.
+                return [
+                    {"library": "Movies", "title": "Picked for You", "label": "Shortlist_sarah", "rating_key": 1},
+                    {"library": "Movies", "title": "Old Row", "label": "Shortlist_ghost", "rating_key": 2},
+                    {"library": "TV", "title": "Everyone", "label": "Shortlist__shared_allpicks", "rating_key": 3},
+                ]
+
+        monkeypatch.setattr("shortlist.engine.clients.plex_pms.PlexClient", FakePlex)
+
+        data = client.get("/api/system/owned-collections").json()
+        assert data["total"] == 3
+        by_slug = {c["slug"]: c for c in data["collections"]}
+        assert by_slug["sarah"]["orphan"] is False and by_slug["sarah"]["kind"] == "user"
+        assert by_slug["ghost"]["orphan"] is True  # no such user -> drift, safe to remove
+        assert by_slug["allpicks"]["kind"] == "shared"
+        # Orphans are surfaced and listed first.
+        assert data["orphans"] == 2
+        assert data["collections"][0]["orphan"] is True
+
+    def test_owned_collections_audit_409_when_plex_not_connected(self, client: TestClient):
+        # No plex.url/token configured on a fresh app -> a clear 409, not a crash.
+        assert client.get("/api/system/owned-collections").status_code == 409

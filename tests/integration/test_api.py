@@ -259,6 +259,11 @@ class TestSettingsValidation:
         assert client.put("/api/settings", json={"values": {"curator.provider": "bogus"}}).status_code == 422
         assert client.put("/api/settings", json={"values": {"curator.provider": "none"}}).status_code == 200
 
+    def test_web_search_provider_is_validated(self, client: TestClient):
+        assert client.put("/api/settings", json={"values": {"llm_web.search_provider": "bogus"}}).status_code == 422
+        for mode in ("auto", "native", "exa"):
+            assert client.put("/api/settings", json={"values": {"llm_web.search_provider": mode}}).status_code == 200
+
     def test_log_level_is_validated_and_applied(self, client: TestClient):
         assert client.put("/api/settings", json={"values": {"log.level": "LOUD"}}).status_code == 422
         assert client.put("/api/settings", json={"values": {"log.level": "DEBUG"}}).status_code == 200
@@ -306,6 +311,27 @@ class TestSettingsApi:
         assert r.status_code == 200
         assert r.json()["curator.prompt_tone"] == "warm"
         assert r.json()["curator.prompt_guidance"] == "house style"
+
+    def test_exa_key_is_encrypted_at_rest_and_redacted_in_the_api(self, client: TestClient):
+        # The Exa web-search key is a secret: stored encrypted, shown as the redacted sentinel, and
+        # a round-tripped sentinel must not overwrite the real value (rule 9).
+        client.put("/api/settings", json={"values": {"exa.apikey": "exa-secret-123"}})
+        assert client.get("/api/settings").json()["exa.apikey"] == "•••••"
+        client.put("/api/settings", json={"values": {"exa.apikey": "•••••"}})  # UI round-trip
+        with client.app.state.sessions() as session:
+            from shortlist.server.settings_store import SettingsStore
+
+            assert SettingsStore(session, client.app.state.secrets).get("exa.apikey") == "exa-secret-123"
+
+    def test_exa_test_connection_probes_the_key(self, client: TestClient, monkeypatch):
+        # No key → a plain-English error, not a crash.
+        no_key = client.post("/api/settings/test/exa").json()
+        assert no_key["ok"] is False and "Exa" in no_key["message"]
+        # With a key, it pings Exa (mocked — no test may touch the network).
+        client.put("/api/settings", json={"values": {"exa.apikey": "exa-secret-123"}})
+        monkeypatch.setattr("shortlist.engine.clients.search.ExaClient.ping", lambda self: "ok — 1 result")
+        ok = client.post("/api/settings/test/exa").json()
+        assert ok["ok"] is True and "ok" in ok["message"]
 
     def test_prompt_preview_reflects_the_recipe(self, client: TestClient):
         r = client.post("/api/settings/prompt-preview", json={"tone": "cinephile", "guidance": "Prefer noir."})
@@ -615,9 +641,7 @@ class TestCollectionsApi:
         assert r.json()["removed"] == ["🔥 Popular"] and r.json()["dry_run"] is True
         assert deleted == []  # nothing actually removed
 
-    def test_cleanup_removes_a_per_person_row_for_each_user_in_the_breakdown(
-        self, client: TestClient, monkeypatch
-    ):
+    def test_cleanup_removes_a_per_person_row_for_each_user_in_the_breakdown(self, client: TestClient, monkeypatch):
         """The complex branch: pin each user's collection by the exact title the last run delivered,
         under that user's own label — and skip a user whose breakdown has no entry for this row."""
         from shortlist.engine.delivery import row_marker
@@ -680,9 +704,7 @@ class TestCollectionsApi:
         assert len(deleted) == 1  # its Plex collection was removed
         assert slug not in {c["slug"] for c in client.get("/api/collections").json()}  # and the DB row is gone
 
-    def test_shrinking_a_rows_audience_removes_only_the_dropped_users_collection(
-        self, client: TestClient, monkeypatch
-    ):
+    def test_shrinking_a_rows_audience_removes_only_the_dropped_users_collection(self, client: TestClient, monkeypatch):
         """Dropping a user from a subset audience removes THAT user's collection; the kept user's is
         left untouched (only_user_ids scopes the sweep). Adding a user is a create → left for a run."""
         from shortlist.engine.delivery import row_marker
@@ -700,7 +722,9 @@ class TestCollectionsApi:
             session.flush()
             for uid in u_ids:
                 session.add(
-                    RunUser(run_id=run.id, user_id=uid, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}])
+                    RunUser(
+                        run_id=run.id, user_id=uid, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}]
+                    )
                 )
             session.commit()
             slugs = {uid: by_id[uid].slug for uid in u_ids}
@@ -741,7 +765,9 @@ class TestCollectionsApi:
             session.flush()
             for uid in u_ids:
                 session.add(
-                    RunUser(run_id=run.id, user_id=uid, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}])
+                    RunUser(
+                        run_id=run.id, user_id=uid, status="ok", breakdown=[{"row_slug": slug, "row_title": "Gems"}]
+                    )
                 )
             session.commit()
             slugs = {uid: by_id[uid].slug for uid in u_ids}

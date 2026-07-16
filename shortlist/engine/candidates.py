@@ -8,7 +8,9 @@ recommendation engine is not locked to TMDB's per-seed similarity. Sources today
 * ``tmdb_discover`` — TMDB /discover in the genres a person's history skews toward (widens recall).
 * ``llm_library`` — the AI curator proposes owned titles from a taste-sliced library catalog.
 * ``trakt`` — Trakt's related-titles graph for each seed.
-* ``llm_web`` — the AI curator's live web search proposes titles, each resolved via TMDB search.
+* ``llm_web`` — a live web search proposes titles to watch next, each resolved via TMDB search.
+  Backed by the curator's own web-search tool (Claude/GPT/Gemini) or an external provider (Exa),
+  chosen by ``web_search_provider`` — Exa is the only path for a local Ollama model.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from loguru import logger
 
 from shortlist.engine.clients.tmdb import TmdbClient
 from shortlist.engine.curator import NullCurator
+from shortlist.engine.curator.base import build_web_query, build_web_rag_prompt, parse_web_titles
 from shortlist.engine.models import Candidate, MediaType, Seed
 
 # Every candidate source the engine knows how to run. The owner can enable any subset globally
@@ -32,6 +35,46 @@ _LLM_LIBRARY_K = 40  # how many owned titles the LLM proposes as candidates
 _LLM_WEB_K = 20  # how many titles the web-search LLM proposes (each resolved to TMDB, then verified)
 
 
+def _web_search_capable(curator, search, mode: str) -> bool:
+    """Whether the ``llm_web`` source can actually run for this curator + search backend under ``mode``.
+
+    Gates ``attempted``: a source that CANNOT run (e.g. Ollama with no Exa key) must not register as
+    attempted, or the "every source failed" check would misread an incapable setup as a failure.
+    """
+    native = getattr(curator, "supports_native_web_search", False)
+    if mode == "native":
+        return native
+    if mode == "exa":
+        return search is not None
+    return native or search is not None  # auto: native tool, else external search
+
+
+def web_recommendations(curator, search, mode: str, profile, seeds: list[Seed], k: int) -> list[dict]:
+    """Titles to watch next from a web search, as ``[{title, year, media}]`` for TMDB resolution.
+
+    ``mode`` chooses the search backend: ``native`` uses the provider's own web-search tool,
+    ``exa`` uses the external search provider, ``auto`` prefers native where the provider supports
+    it and otherwise falls back to the external one (the only path for a local Ollama model).
+    """
+    native = getattr(curator, "supports_native_web_search", False)
+    if mode == "native":
+        return curator.recommend_web(profile, seeds, k) if native else []
+    if mode == "exa":
+        return _web_via_search(curator, search, profile, seeds, k) if search is not None else []
+    if native:
+        return curator.recommend_web(profile, seeds, k)
+    return _web_via_search(curator, search, profile, seeds, k) if search is not None else []
+
+
+def _web_via_search(curator, search, profile, seeds: list[Seed], k: int) -> list[dict]:
+    """External-search path: run a web search from the watchlist, let the curator pick from results."""
+    results = search.search(build_web_query(profile, seeds))
+    if not results:
+        return []
+    system, user = build_web_rag_prompt(profile, results, k)
+    return parse_web_titles(curator.complete(system, user), k)
+
+
 def gather_candidates(
     tmdb: TmdbClient,
     seeds: list[Seed],
@@ -41,11 +84,14 @@ def gather_candidates(
     catalog: dict[MediaType, list[dict]] | None = None,
     profile=None,
     trakt=None,
+    search=None,
+    web_search_mode: str = "auto",
 ) -> list[Candidate]:
     """Pool candidates from every enabled source, deduped by (tmdb_id, media_type).
 
     ``curator``/``catalog``/``profile`` are only needed by the ``llm_library`` source and ``trakt``
-    by the Trakt source; the TMDB sources ignore them.
+    by the Trakt source; the TMDB sources ignore them. ``search``/``web_search_mode`` drive the
+    ``llm_web`` source's external-search backend (Exa) — ``search`` is None when no key is configured.
     """
     enabled = set(sources) if sources else set(DEFAULT_SOURCES)
     pool: dict[tuple[int, MediaType], Candidate] = {}
@@ -133,13 +179,18 @@ def gather_candidates(
             failures["trakt"] = f"{type(e).__name__}: {e}"
             logger.warning("trakt source failed ({}); continuing with the other sources", type(e).__name__)
 
-    if "llm_web" in enabled and llm_ready and profile is not None and hasattr(curator, "recommend_web"):
+    if (
+        "llm_web" in enabled
+        and llm_ready
+        and profile is not None
+        and _web_search_capable(curator, search, web_search_mode)
+    ):
         attempted.add("llm_web")
         try:
-            # The curator uses its provider's live web search to propose titles to watch next; each
-            # is resolved to a real TMDB id and (later) library-verified, so a hallucinated title
-            # simply resolves to nothing rather than reaching a row.
-            for rec in curator.recommend_web(profile, seeds, _LLM_WEB_K):
+            # Web search (the provider's own tool, or an external search provider like Exa) proposes
+            # titles to watch next; each is resolved to a real TMDB id and (later) library-verified,
+            # so a hallucinated title simply resolves to nothing rather than reaching a row.
+            for rec in web_recommendations(curator, search, web_search_mode, profile, seeds, _LLM_WEB_K):
                 media_type = MediaType.SHOW if rec.get("media") == "show" else MediaType.MOVIE
                 found = tmdb.search(rec["title"], media_type, year=rec.get("year"))
                 if found:

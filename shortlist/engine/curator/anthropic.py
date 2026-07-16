@@ -26,6 +26,7 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 class AnthropicCurator:
     name = "anthropic"
+    supports_native_web_search = True  # Claude's web_search server tool (see recommend_web)
     last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
@@ -107,3 +108,20 @@ class AnthropicCurator:
         # The model may emit several text blocks around its searches; the JSON list is in the last one.
         text = "".join(b.text for b in response.content if b.type == "text")
         return parse_web_titles(text, k)
+
+    def complete(self, system: str, user: str) -> str:
+        """Plain completion (no tools) — the external-search ``llm_web`` path (see base.complete)."""
+        import anthropic
+
+        try:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=2048,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+        except anthropic.APIError as e:
+            logger.warning("complete (anthropic): {}", e)
+            return ""
+        self.last_tokens = response.usage.input_tokens + response.usage.output_tokens
+        return "".join(b.text for b in response.content if b.type == "text")

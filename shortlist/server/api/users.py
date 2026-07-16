@@ -147,7 +147,12 @@ async def _remove_users_rows(state, user_slug: str) -> None:
             )
         )
         session.commit()
-    logger.warning("disabled user '{}': removed {} collection(s){}", user_slug, len(removed), f" then FAILED: {error}" if error else "")
+    logger.warning(
+        "disabled user '{}': removed {} collection(s){}",
+        user_slug,
+        len(removed),
+        f" then FAILED: {error}" if error else "",
+    )
 
 
 @router.patch("/{user_id}")

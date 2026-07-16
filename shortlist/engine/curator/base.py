@@ -38,6 +38,7 @@ class ThreadLocalTokens:
     def __set__(self, obj, value):
         self._local.value = value
 
+
 # Tone presets steer the *wording* of the reasons. Each is a clause appended after the reason
 # instruction (leading space included). "balanced" adds nothing — it's the default house voice.
 TONE_PRESETS = {
@@ -101,11 +102,22 @@ class CuratorError(RuntimeError):
 
 class Curator(Protocol):
     name: str
+    # True when this provider can search the web itself (a native web-search tool) and so implements
+    # ``recommend_web``. False for local/offline providers (Ollama) and NullCurator — they can still
+    # power the ``llm_web`` source via an external search provider (Exa) feeding ``complete``.
+    supports_native_web_search: bool
 
     def curate(self, profile: UserProfile, candidates: list[Candidate], k: int) -> list[Pick]:
         """Rank the top k candidates with a one-line reason each.
 
         Implementations must only return tmdb_ids present in `candidates`.
+        """
+        ...
+
+    def complete(self, system: str, user: str) -> str:
+        """Plain text completion — no tools, no schema. Powers the external-search ``llm_web`` path,
+        where the app has already done the web search and just needs the model to pick titles from the
+        results. Degrades to an empty string on a provider error (the source's own guard is the backstop).
         """
         ...
 
@@ -203,6 +215,44 @@ def build_web_prompt(profile: UserProfile, seeds: list, k: int) -> tuple[str, st
     body = "\n".join(f"- {t}" for t in liked) or "- (no history yet — recommend broadly popular titles)"
     system = _WEB_SYSTEM.format(k=k)
     user = f"They recently enjoyed:\n{body}\n\nRecommend up to {k} titles to watch next."
+    return system, user
+
+
+_WEB_RAG_SYSTEM = (
+    "You are a film and TV recommender. Below are excerpts from recent web articles about what to "
+    "watch. Based on what this person recently enjoyed, pick the {k} titles mentioned in these "
+    "articles they'd most likely want to watch next. Prefer real, well-reviewed, findable titles. "
+    'Respond with ONLY a JSON array of up to {k} objects, each {{"title": str, "year": int or null, '
+    '"media": "movie" or "show"}}. No prose.'
+)
+
+
+def build_web_query(profile: UserProfile, seeds: list) -> str:
+    """A natural-language web-search query built from what this person recently enjoyed.
+
+    Used by the EXTERNAL-search ``llm_web`` path (Exa): the app runs this query, then hands the
+    results to any curator. Falls back to recent history titles, then to a generic query when a
+    person has no history yet (cold start).
+    """
+    liked = [getattr(s, "title", "") for s in seeds if getattr(s, "title", "")][:8]
+    if not liked:
+        liked = [w.title for w in sorted(profile.history, key=lambda w: w.watched_at, reverse=True)[:8]]
+    if not liked:
+        return "best new well-reviewed movies and TV shows to watch right now"
+    return "what to watch next if you liked " + ", ".join(liked) + " — recent, well-reviewed movies and TV shows"
+
+
+def build_web_rag_prompt(profile: UserProfile, results: list, k: int) -> tuple[str, str]:
+    """(system, user) prompts for recommending titles from web-search RESULTS the app already fetched.
+
+    Unlike ``build_web_prompt`` (which asks a native-search model to search for itself), this embeds
+    the article snippets we retrieved so an offline/local model can recommend from them. The caller
+    resolves each returned title to TMDB and library-verifies it, so a bad title reaches no row.
+    """
+    system = _WEB_RAG_SYSTEM.format(k=k)
+    blocks = [f"## {getattr(r, 'title', '')}\n{(getattr(r, 'text', '') or '')[:800]}" for r in results]
+    context = "\n\n".join(blocks) or "(no web results found)"
+    user = f"{taste_summary(profile)}\n\nWeb articles:\n{context}\n\nRecommend up to {k} titles to watch next."
     return system, user
 
 

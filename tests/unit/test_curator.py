@@ -238,6 +238,32 @@ class TestAnthropicCurator:
         seeds = [Seed(tmdb_id=1, title="Arrival", media_type=MediaType.MOVIE, weight=1.0)]
         assert AnthropicCurator(api_key="k").recommend_web(make_profile(history=[]), seeds, k=5) == []
 
+    def test_complete_sends_no_tools_and_returns_text(self, monkeypatch):
+        # The external-search (Exa) path: a plain completion, NO web_search tool — the app already searched.
+        mod = _fake_anthropic_module()
+        monkeypatch.setitem(sys.modules, "anthropic", mod)
+        from shortlist.engine.curator.anthropic import AnthropicCurator
+
+        client = MagicMock()
+        mod.Anthropic.return_value = client
+        client.messages.create.return_value = SimpleNamespace(
+            content=[SimpleNamespace(type="text", text='[{"title":"Dune"}]')],
+            usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+        )
+        out = AnthropicCurator(api_key="k").complete("sys", "user")
+        assert out == '[{"title":"Dune"}]'
+        assert "tools" not in client.messages.create.call_args.kwargs  # no web-search tool on the RAG path
+
+    def test_complete_returns_empty_string_on_api_error(self, monkeypatch):
+        mod = _fake_anthropic_module()
+        monkeypatch.setitem(sys.modules, "anthropic", mod)
+        from shortlist.engine.curator.anthropic import AnthropicCurator
+
+        client = MagicMock()
+        mod.Anthropic.return_value = client
+        client.messages.create.side_effect = mod.APIStatusError("down", status_code=500)
+        assert AnthropicCurator(api_key="k").complete("sys", "user") == ""
+
 
 class TestOpenAICurator:
     def test_sends_json_schema_response_format(self, monkeypatch):
@@ -305,6 +331,18 @@ class TestOpenAICurator:
         seeds = [Seed(tmdb_id=1, title="Arrival", media_type=MediaType.MOVIE, weight=1.0)]
         assert curator.recommend_web(make_profile(history=[]), seeds, k=5) == []
 
+    def test_complete_returns_text_and_empty_on_error(self, monkeypatch):
+        # The Exa path uses a plain chat.completions call (no web_search tool) and returns its content.
+        curator, client, mod = self._client(monkeypatch)
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='[{"title":"Sicario"}]'))],
+            usage=SimpleNamespace(total_tokens=12),
+        )
+        assert curator.complete("sys", "user") == '[{"title":"Sicario"}]'
+
+        client.chat.completions.create.side_effect = mod.OpenAIError("down")
+        assert curator.complete("sys", "user") == ""
+
 
 class TestGoogleCurator:
     def test_sends_response_schema(self, monkeypatch):
@@ -345,9 +383,17 @@ class TestGoogleCurator:
         google_pkg = ModuleType("google")
         genai = ModuleType("google.genai")
         genai.Client = MagicMock()
+        # `from google.genai import types` (used by recommend_web for the grounding tool) resolves to
+        # this fake submodule; its factories just capture kwargs so a test can inspect the tool sent.
+        types = ModuleType("google.genai.types")
+        types.GenerateContentConfig = lambda **kw: SimpleNamespace(**kw)
+        types.Tool = lambda **kw: SimpleNamespace(**kw)
+        types.GoogleSearch = lambda **kw: SimpleNamespace(kind="google_search", **kw)
+        genai.types = types
         google_pkg.genai = genai
         monkeypatch.setitem(sys.modules, "google", google_pkg)
         monkeypatch.setitem(sys.modules, "google.genai", genai)
+        monkeypatch.setitem(sys.modules, "google.genai.types", types)
         from shortlist.engine.curator.google import GoogleCurator
 
         client = MagicMock()
@@ -367,6 +413,40 @@ class TestGoogleCurator:
         )
         with pytest.raises(CuratorError, match="unparseable"):
             curator.curate(make_profile(history=[]), candidates(), k=1)
+
+    def test_recommend_web_sends_the_google_search_grounding_tool_and_parses_titles(self, monkeypatch):
+        curator, client = self._client(monkeypatch)
+        client.models.generate_content.return_value = SimpleNamespace(
+            text='[{"title": "Shogun", "year": 2024, "media": "show"}]',
+            usage_metadata=SimpleNamespace(total_token_count=30),
+        )
+        seeds = [Seed(tmdb_id=1, title="Arrival", media_type=MediaType.MOVIE, weight=1.0)]
+        out = curator.recommend_web(make_profile(history=[]), seeds, k=5)
+
+        assert out == [{"title": "Shogun", "year": 2024, "media": "show"}]
+        # SUT-controlled contract: the Google Search grounding tool is on the request (that IS the
+        # native web search — without it Gemini can't search, and the source silently returns nothing).
+        config = client.models.generate_content.call_args.kwargs["config"]
+        assert config.tools[0].google_search.kind == "google_search"
+
+    def test_recommend_web_returns_empty_on_provider_error(self, monkeypatch):
+        curator, client = self._client(monkeypatch)
+        client.models.generate_content.side_effect = RuntimeError("gemini grounding down")
+        seeds = [Seed(tmdb_id=1, title="Arrival", media_type=MediaType.MOVIE, weight=1.0)]
+        assert curator.recommend_web(make_profile(history=[]), seeds, k=5) == []
+
+    def test_complete_sends_no_grounding_tool_and_returns_text(self, monkeypatch):
+        # The Exa path: a plain generate_content (no google_search tool, no schema) — the app searched.
+        curator, client = self._client(monkeypatch)
+        client.models.generate_content.return_value = SimpleNamespace(
+            text='[{"title":"Shogun"}]', usage_metadata=SimpleNamespace(total_token_count=9)
+        )
+        assert curator.complete("sys", "user") == '[{"title":"Shogun"}]'
+        config = client.models.generate_content.call_args.kwargs["config"]
+        assert "tools" not in config and "response_json_schema" not in config
+
+        client.models.generate_content.side_effect = RuntimeError("down")
+        assert curator.complete("sys", "user") == ""
 
 
 class TestOllamaCurator:
@@ -403,6 +483,24 @@ class TestOllamaCurator:
         )
         with pytest.raises(CuratorError, match="unparseable"):
             OllamaCurator(base_url="http://ollama.test").curate(make_profile(history=[]), candidates(), k=1)
+
+    @respx.mock
+    def test_complete_returns_content_without_a_format_field(self):
+        # The Exa path for a LOCAL model: a plain /api/chat (no `format` schema) — this is how Ollama,
+        # which can't web-search itself, still gets web-grounded picks from Exa's results.
+        route = respx.post("http://ollama.test/api/chat").mock(
+            return_value=httpx.Response(
+                200, json={"message": {"content": '[{"title":"Dune"}]'}, "prompt_eval_count": 3, "eval_count": 4}
+            )
+        )
+        out = OllamaCurator(base_url="http://ollama.test").complete("sys", "user")
+        assert out == '[{"title":"Dune"}]'
+        assert "format" not in json.loads(route.calls.last.request.content)  # no schema on the RAG path
+
+    @respx.mock
+    def test_complete_returns_empty_string_on_http_error(self):
+        respx.post("http://ollama.test/api/chat").mock(return_value=httpx.Response(500))
+        assert OllamaCurator(base_url="http://ollama.test").complete("sys", "user") == ""
 
 
 class TestThreadLocalTokens:

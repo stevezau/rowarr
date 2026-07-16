@@ -6,6 +6,7 @@ import json
 import time
 
 import httpx
+from loguru import logger
 
 from shortlist.engine.curator.base import (
     CuratorError,
@@ -23,6 +24,9 @@ DEFAULT_MODEL = "llama3.1"
 
 class OllamaCurator:
     name = "ollama"
+    # Local models have no internet, so no native web search — but they CAN power the llm_web source
+    # via an external search provider (Exa) that feeds results into ``complete``.
+    supports_native_web_search = False
     last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, base_url: str = "http://localhost:11434", model: str = DEFAULT_MODEL, timeout: float = 300.0):
@@ -66,3 +70,26 @@ class OllamaCurator:
         picks = validate_picks(data.get("picks", []), candidates, k, self.name)
         log_curate_response(self.name, self._model, len(picks), self.last_tokens, time.monotonic() - started, text)
         return picks
+
+    def complete(self, system: str, user: str) -> str:
+        """Plain completion (no schema) — the external-search ``llm_web`` path (see base.complete).
+
+        This is how a local model gets web-grounded picks: Exa searches, we hand it the results.
+        """
+        try:
+            r = httpx.post(
+                f"{self._base_url}/api/chat",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    "stream": False,
+                },
+                timeout=self._timeout,
+            )
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.warning("complete (ollama): {}", e)
+            return ""
+        body = r.json()
+        self.last_tokens = (body.get("prompt_eval_count") or 0) + (body.get("eval_count") or 0)
+        return body.get("message", {}).get("content") or ""

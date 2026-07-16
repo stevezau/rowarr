@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
+from shortlist.engine.clients.search import ExaClient
 from shortlist.engine.clients.tautulli import TautulliClient
 from shortlist.engine.clients.tmdb import TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
@@ -81,6 +82,10 @@ class ContextBuilder:
                 if store.get("trakt.client_id")
                 else None
             )
+            # External web-search backend for the llm_web source; None when no Exa key is set (the
+            # native provider tools still work without it — only Ollama depends on it).
+            exa_key = store.get("exa.apikey")
+            search = ExaClient(exa_key) if exa_key else None
             history = self._history_source(store, plex)
             provider = store.get("curator.provider")
             curator_kwargs = {}
@@ -99,6 +104,7 @@ class ContextBuilder:
                 # Fallback matches the seeded default and the UI's, so a never-saved setting behaves
                 # the same everywhere (gather_candidates still floors an explicit [] at tmdb_similar).
                 candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
+                web_search_provider=store.get("llm_web.search_provider") or "auto",
                 watched_pct=float(store.get("recommendations.watched_pct") or 0.0),
                 freshness=float(store.get("recommendations.freshness") or 0.0),
                 dry_run=dry_run,
@@ -133,6 +139,7 @@ class ContextBuilder:
             plextv=plextv,
             tmdb=tmdb,
             trakt=trakt,
+            search=search,
             history_source=history,
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),

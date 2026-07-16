@@ -13,8 +13,11 @@ export interface SourceInfo {
   /** Compact name for summaries where the full label won't fit (e.g. a row card). */
   short?: string;
   /** A dependency this source needs before it can run; the toggle is disabled until it's satisfied. */
-  requires?: "curator" | "trakt";
+  requires?: "curator" | "trakt" | "web_search";
 }
+
+/** Curator providers that can search the web themselves (a native web-search tool). Ollama can't. */
+const NATIVE_WEB_SEARCH_PROVIDERS = ["anthropic", "openai", "google"];
 
 export const SOURCES: readonly SourceInfo[] = [
   {
@@ -47,8 +50,8 @@ export const SOURCES: readonly SourceInfo[] = [
     id: "llm_web",
     label: "AI — web search for what to watch next",
     short: "AI web search",
-    desc: "Your AI curator searches the live web for current, well-reviewed titles to watch next, then resolves them against your library. Needs a curator with web search (Claude or GPT).",
-    requires: "curator",
+    desc: "Searches the live web for current, well-reviewed titles to watch next, then resolves them against your library. Uses your curator's own web search (Claude, GPT, or Gemini) or an Exa key — pick which under Search backend below.",
+    requires: "web_search",
   },
 ];
 
@@ -68,6 +71,39 @@ export function hasTrakt(settings: Settings): boolean {
   return Boolean(settingString(settings, "trakt.client_id"));
 }
 
+/** How the llm_web source searches: 'native' | 'exa' | 'auto' (owner-chosen). */
+export function webSearchProvider(settings: Settings): string {
+  return settingString(settings, "llm_web.search_provider") || "auto";
+}
+
+/** Whether the current curator provider can search the web with its OWN tool (Claude/GPT/Gemini). */
+export function hasNativeWebSearch(settings: Settings): boolean {
+  return NATIVE_WEB_SEARCH_PROVIDERS.includes(
+    settingString(settings, "curator.provider"),
+  );
+}
+
+/** Whether an Exa web-search key is on file (the universal search backend; the only path for Ollama). */
+export function hasExa(settings: Settings): boolean {
+  return Boolean(settingString(settings, "exa.apikey"));
+}
+
+/**
+ * Whether the llm_web source can actually search under the chosen backend — the mode decides which
+ * capability is required, so the toggle can never claim "on" where it would silently do nothing.
+ *
+ * EVERY backend needs a real AI curator: even the Exa path only SEARCHES externally, then hands the
+ * results to the curator to pick titles from. With no curator (heuristic mode) the engine's own
+ * `llm_ready` gate skips the source entirely — so an Exa key alone must NOT un-block the toggle.
+ */
+export function hasWebSearch(settings: Settings): boolean {
+  if (!hasCurator(settings)) return false;
+  const mode = webSearchProvider(settings);
+  if (mode === "native") return hasNativeWebSearch(settings);
+  if (mode === "exa") return hasExa(settings);
+  return hasNativeWebSearch(settings) || hasExa(settings); // auto
+}
+
 /** The reason a source can't be enabled yet, or null when its dependency is satisfied. */
 export function sourceBlockedReason(
   source: SourceInfo,
@@ -77,6 +113,18 @@ export function sourceBlockedReason(
     return "Needs an AI curator — set one up in Connections first.";
   if (source.requires === "trakt" && !hasTrakt(settings))
     return "Needs a Trakt API key — add it in Connections first.";
+  if (source.requires === "web_search" && !hasWebSearch(settings)) {
+    // A curator is needed in every mode — it picks the titles from the search results. Report that
+    // first, since without it no search backend can help.
+    if (!hasCurator(settings))
+      return "Needs an AI curator to choose titles from the results — set one up in Connections first.";
+    const mode = webSearchProvider(settings);
+    if (mode === "exa")
+      return "Needs an Exa API key — add it in Connections, or switch the search backend to Auto.";
+    if (mode === "native")
+      return "Needs Claude, GPT, or Gemini — Ollama can’t web-search. Change your curator, or use the Exa backend.";
+    return "Needs Claude, GPT, or Gemini — or an Exa API key in Connections (required for Ollama).";
+  }
   return null;
 }
 

@@ -25,6 +25,10 @@ Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on tha
 - 🧠 **AI that can't hallucinate** — the LLM (Claude / GPT / Gemini / local Ollama) only
   re-ranks titles verified to exist in your library. **Works with zero AI** too (heuristic
   mode) — no keys required.
+- 🌐 **Finds what to watch next** — pool candidates from TMDB, Trakt, your own library, and a
+  **live web search** for current, well-reviewed picks. Web search runs on every provider: the
+  curator's own tool (Claude/GPT/Gemini) or an **Exa** key — the latter also gives a local Ollama
+  model real web search.
 - 💬 **Explainable** — every pick carries "Because you watched X"; every Plex write lands in
   an audit feed you can read.
 - 📥 **Fills its own gaps (optional)** — when a great pick isn't in your library yet, Shortlist can

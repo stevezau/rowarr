@@ -31,7 +31,9 @@
 | `recommendations.watched_pct`                         | `0.0`                              | max share of a row that may be already-finished titles (0 = all fresh, 1 = no filtering); per-row overridable                                                                                                                                                                 |
 | `recommendations.freshness`                           | `0.0`                              | day-to-day variability (0 = stable/best quality, 1 = fresh/most variety); rotates a row's picks by run day; per-row overridable                                                                                                                                               |
 | `candidates.sources`                                  | `["tmdb_similar","tmdb_discover"]` | sources to pool: `tmdb_similar`, `tmdb_discover`, `llm_library`, `trakt`, `llm_web`. Each enabled source gets a fair share of the candidates the AI sees — a wide source can't crowd out a narrow one                                                                         |
+| `llm_web.search_provider`                             | `auto`                             | how the `llm_web` source searches: `native` (the curator's own web-search tool — Claude/GPT/Gemini), `exa` (the Exa search API, works for every provider incl. Ollama), or `auto` (native where supported, else Exa)                                                          |
 | `trakt.client_id`                                     | —                                  | Trakt API key; required for the `trakt` source; encrypted                                                                                                                                                                                                                     |
+| `exa.apikey`                                          | —                                  | Exa web-search API key; powers the `llm_web` source for any provider (the only web-search path for a local Ollama curator); encrypted                                                                                                                                         |
 | `plextv.throttle_s`                                   | `1.0`                              | plex.tv write spacing (rule: ≤1 write/s; values below 1.0 are refused)                                                                                                                                                                                                        |
 | `log.level`                                           | `DEBUG`                            | container log verbosity: `ERROR`\|`WARNING`\|`INFO`\|`DEBUG`\|`TRACE`. DEBUG (default) narrates a run in full — per-source candidate counts, AI calls with timing/tokens, cache hits, throttle waits; TRACE adds full AI prompts; INFO trims to stage narration. Applied live |
 | `run.concurrency`                                     | `4`                                | how many users a run processes at once (1–16). Only history/candidate/AI reads overlap; every Plex + plex.tv write stays serial. 1 = fully sequential                                                                                                                         |
@@ -74,7 +76,7 @@ GET  /api/runs · GET /api/runs/{id} · POST /api/runs {user_ids?, dry_run?}
 GET  /api/requests · POST /api/requests/send {ids, dry_run?} · POST /api/requests/reject {ids}
 GET  /api/events (SSE) · GET /api/events/log (audit feed)
 GET  /api/privacy/status · POST /api/privacy/check {probe?} · GET /api/privacy/snapshots
-GET/PUT /api/settings · POST /api/settings/test/{plex|tautulli|tmdb|llm|radarr|sonarr|omdb|trakt}
+GET/PUT /api/settings · POST /api/settings/test/{plex|tautulli|tmdb|llm|radarr|sonarr|omdb|trakt|exa}
 GET  /api/settings/arr/{radarr|sonarr}/options -> {quality_profiles, root_folders}
 POST /api/settings/prompt-preview {tone?, guidance?, template?, shared?} -> {system, user}
 GET  /api/system/health · POST /api/system/uninstall {confirm: "UNINSTALL"}
@@ -104,8 +106,13 @@ would remove the plex.tv write throttle), `row.size` must be 5–30, `paused_all
 
 Candidate sources are set globally (`candidates.sources`) and can be overridden per row
 (`collections.candidate_sources`, `[]` = inherit the global set; valid values: `tmdb_similar`,
-`tmdb_discover`, `llm_library`, `trakt`, `llm_web`). `llm_web` uses the AI curator's live web
-search (Anthropic/OpenAI) to propose titles, each resolved via TMDB search then library-verified.
+`tmdb_discover`, `llm_library`, `trakt`, `llm_web`). `llm_web` proposes titles to watch next from a
+live web search, each resolved via TMDB search then library-verified. It works on **every** curator
+provider via `llm_web.search_provider`: `native` uses the provider's own web-search tool (Claude,
+GPT, or Gemini), `exa` uses the Exa search API (`exa.apikey`) — the only path for a local Ollama
+model — and `auto` picks native where the provider supports it, else Exa. The Settings UI disables
+the toggle when neither a web-capable provider nor an Exa key is present, so it can never read as on
+while doing nothing.
 
 A row builds a Plex collection in each library it targets (`collections.library_keys`, a list of
 Plex section keys; `[]` = every library of the row's media type — the default). A row's `media` is

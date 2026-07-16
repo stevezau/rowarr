@@ -7,6 +7,11 @@ from shortlist.engine.models import Candidate, Pick, UserProfile
 
 class NullCurator:
     name = "none"
+    supports_native_web_search = False  # not an LLM at all — the llm_web source no-ops for it
+
+    def complete(self, system: str, user: str) -> str:
+        """No model to call — heuristic mode contributes nothing to the external-search llm_web path."""
+        return ""
 
     def curate(self, profile: UserProfile, candidates: list[Candidate], k: int) -> list[Pick]:
         """Keep the heuristic pre-rank order; template reasons from each pick's top seed."""

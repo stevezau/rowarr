@@ -362,6 +362,9 @@ class EngineConfig:
     # Which candidate sources to pool (see engine/candidates.py). Empty/default = TMDB similar only,
     # preserving legacy behaviour; owners widen recall by enabling more.
     candidate_sources: list[str] = field(default_factory=lambda: ["tmdb_similar"])
+    # How the llm_web source searches: 'native' (the provider's own web-search tool), 'exa' (the
+    # external search provider — the only path for Ollama), or 'auto' (native where supported, else Exa).
+    web_search_provider: str = "auto"
     dry_run: bool = False
     # The curated rows to deliver. Empty -> a single default per-person row synthesized from
     # row_name_template/row_size, so the CLI and existing callers behave exactly as before.

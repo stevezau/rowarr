@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { SaveStatus } from "@/components/save-status";
+import { Segmented } from "@/components/segmented";
 import { FreshnessSlider } from "@/components/settings/freshness-slider";
 import { WatchedSlider } from "@/components/settings/watched-slider";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,9 +10,36 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAutosave } from "@/lib/autosave";
 import { FRESHNESS_DEFAULT, WATCHED_PCT_DEFAULT } from "@/lib/constants";
-import { cleanSources, SOURCES, sourceBlockedReason } from "@/lib/sources";
+import {
+  cleanSources,
+  hasExa,
+  hasNativeWebSearch,
+  SOURCES,
+  sourceBlockedReason,
+  webSearchProvider,
+} from "@/lib/sources";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
+
+const SEARCH_BACKENDS = [
+  { value: "auto", label: "Auto" },
+  { value: "native", label: "Curator’s own" },
+  { value: "exa", label: "Exa" },
+] as const;
+
+/** Plain-English note on what the chosen web-search backend does, given the current setup. */
+function backendNote(mode: string, settings: Settings): string {
+  if (mode === "native")
+    return "Uses your AI curator’s own web search (Claude, GPT, or Gemini). Local Ollama models can’t do this.";
+  if (mode === "exa")
+    return "Uses the Exa search API for every provider — the only option for a local Ollama curator. Needs an Exa key in Connections.";
+  const via = hasNativeWebSearch(settings)
+    ? "your curator’s own web search"
+    : hasExa(settings)
+      ? "your Exa key"
+      : "your curator’s web search, or an Exa key";
+  return `Uses ${via} automatically — the curator’s own tool where it has one (Claude/GPT/Gemini), otherwise Exa.`;
+}
 
 function readSources(settings: Settings): string[] {
   const value = settings["candidates.sources"];
@@ -40,6 +68,9 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
   const [freshness, setFreshness] = useState<number>(() =>
     readPercent(settings, "recommendations.freshness", FRESHNESS_DEFAULT),
   );
+  const [searchBackend, setSearchBackend] = useState<string>(() =>
+    webSearchProvider(settings),
+  );
   const [saved, setSaved] = useState(false);
 
   const toggle = (id: string) =>
@@ -47,17 +78,21 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
       current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
     );
 
-  const retry = useAutosave({ enabled, watchedPct, freshness }, () => {
-    setSaved(false);
-    save.mutate(
-      {
-        "candidates.sources": cleanSources(enabled, settings),
-        "recommendations.watched_pct": watchedPct / 100,
-        "recommendations.freshness": freshness / 100,
-      },
-      { onSuccess: () => setSaved(true) },
-    );
-  });
+  const retry = useAutosave(
+    { enabled, watchedPct, freshness, searchBackend },
+    () => {
+      setSaved(false);
+      save.mutate(
+        {
+          "candidates.sources": cleanSources(enabled, settings),
+          "recommendations.watched_pct": watchedPct / 100,
+          "recommendations.freshness": freshness / 100,
+          "llm_web.search_provider": searchBackend,
+        },
+        { onSuccess: () => setSaved(true) },
+      );
+    },
+  );
 
   return (
     <section aria-labelledby="recs-heading" className="space-y-3">
@@ -104,6 +139,30 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
               </div>
             );
           })}
+          {enabled.includes("llm_web") && (
+            <div className="space-y-2 border-t pt-4">
+              <Label>Search backend</Label>
+              <p className="text-sm text-muted-foreground">
+                How the &ldquo;AI — web search&rdquo; source searches the web.{" "}
+                <a href="#connections" className="font-medium underline">
+                  Connections
+                </a>{" "}
+                is where the Exa key lives.
+              </p>
+              <Segmented<string>
+                value={searchBackend}
+                ariaLabel="Web search backend"
+                options={SEARCH_BACKENDS.map((b) => ({
+                  value: b.value,
+                  label: b.label,
+                }))}
+                onChange={setSearchBackend}
+              />
+              <p className="text-xs text-muted-foreground">
+                {backendNote(searchBackend, settings)}
+              </p>
+            </div>
+          )}
           <div className="space-y-2 border-t pt-4">
             <Label htmlFor="watched-pct">Already-watched titles</Label>
             <p className="text-sm text-muted-foreground">

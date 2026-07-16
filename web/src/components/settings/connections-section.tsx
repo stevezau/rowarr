@@ -1,4 +1,4 @@
-import { Compass, Film, Sparkles, Tv } from "lucide-react";
+import { Compass, Film, Globe, Sparkles, Tv } from "lucide-react";
 
 import {
   PlexGlyph,
@@ -179,6 +179,15 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
               kind: "password",
             },
           ]}
+        />
+        <ConnectionCard
+          service="exa"
+          title="Exa (AI web search)"
+          purpose="Optional. Powers the “AI — web search” source for any curator — and is the only way a local Ollama model can search the web."
+          settings={settings}
+          summary={settingString(settings, "exa.apikey") ? "API key saved" : ""}
+          glyph={<Globe aria-hidden className="text-primary" />}
+          fields={[{ key: "exa.apikey", label: "API key", kind: "password" }]}
         />
       </div>
       {/* Required by the TMDB API terms of use whenever their data is displayed. */}

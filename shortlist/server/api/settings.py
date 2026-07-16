@@ -76,6 +76,7 @@ VALIDATORS = {
     "requests.enabled": _is_bool,
     "requests.auto_send": _is_bool,
     "candidates.sources": _known_sources,
+    "llm_web.search_provider": _one_of("auto", "native", "exa"),
     "recommendations.watched_pct": _bounded_float(0.0, 1.0),
     "recommendations.freshness": _bounded_float(0.0, 1.0),
     "log.level": _one_of("TRACE", "DEBUG", "INFO", "WARNING", "ERROR"),
@@ -217,6 +218,13 @@ async def test_connection(service: str, request: Request) -> dict:
             if not client_id:
                 raise RuntimeError("A Trakt API key (client id) is required")
             return TraktClient(client_id).ping()
+        if service == "exa":
+            from shortlist.engine.clients.search import ExaClient
+
+            api_key = config["exa.apikey"] or ""
+            if not api_key:
+                raise RuntimeError("An Exa API key is required for AI web search")
+            return ExaClient(api_key).ping()
         if service == "llm":
             from shortlist.engine.curator import make_curator
 

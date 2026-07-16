@@ -35,6 +35,7 @@ def redact(text: str) -> str:
     exception message must pass through here before it reaches a log line or an ``events`` row."""
     return _TOKEN_RE.sub(r"\1REDACTED", text)
 
+
 DEFAULT_ATTEMPTS = 3
 BASE_BACKOFF_S = 1.0
 MAX_BACKOFF_S = 20.0

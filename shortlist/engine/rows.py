@@ -233,6 +233,8 @@ def _candidate_pool(
         catalog=ctx.library_catalog if catalog is None else catalog,
         profile=profile,
         trakt=ctx.trakt,
+        search=ctx.search,
+        web_search_mode=ctx.config.web_search_provider,
     )
     valid = candidates_mod.filter_candidates(
         pool,

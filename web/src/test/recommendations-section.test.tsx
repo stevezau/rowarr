@@ -36,10 +36,9 @@ describe("RecommendationsSection", () => {
   it("blocks the AI-from-library source until a curator is configured", () => {
     renderSection({});
     expect(screen.getByLabelText(/suggests from your library/i)).toBeDisabled();
-    // Both AI sources (library + web search) show the curator-needed hint.
-    expect(screen.getAllByText(/Needs an AI curator/i).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      screen.getByText(/Needs an AI curator — set one up/i),
+    ).toBeInTheDocument();
   });
 
   it("allows the AI-from-library source once a curator is set", () => {
@@ -48,6 +47,47 @@ describe("RecommendationsSection", () => {
       screen.getByLabelText(/suggests from your library/i),
     ).not.toBeDisabled();
     expect(screen.queryByText(/Needs an AI curator/i)).toBeNull();
+  });
+
+  it("blocks AI web search when neither a web-capable curator nor an Exa key exists", () => {
+    // Ollama has no native web search and there's no Exa key → the toggle must NOT read as usable.
+    renderSection({ "curator.provider": "ollama" });
+    expect(screen.getByLabelText(/web search/i)).toBeDisabled();
+    expect(
+      screen.getByText(/Needs Claude, GPT, or Gemini.*Exa API key/i),
+    ).toBeInTheDocument();
+  });
+
+  it("allows AI web search on a native-capable curator (no Exa key needed)", () => {
+    renderSection({ "curator.provider": "anthropic" });
+    expect(screen.getByLabelText(/web search/i)).not.toBeDisabled();
+  });
+
+  it("allows AI web search for Ollama once an Exa key is on file", () => {
+    // The universal path: a local model can't search itself, but Exa can search for it.
+    renderSection({ "curator.provider": "ollama", "exa.apikey": "•••••" });
+    expect(screen.getByLabelText(/web search/i)).not.toBeDisabled();
+  });
+
+  it("blocks AI web search with an Exa key but NO curator (heuristic mode)", () => {
+    // Regression: an Exa key alone must not un-block it — every backend still needs an AI curator to
+    // pick titles from the results, and the engine skips the source entirely in heuristic mode.
+    renderSection({ "curator.provider": "none", "exa.apikey": "•••••" });
+    expect(screen.getByLabelText(/web search/i)).toBeDisabled();
+    expect(
+      screen.getByText(/Needs an AI curator to choose titles/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the search-backend selector only when AI web search is enabled, and saves the choice", async () => {
+    renderSection({
+      "curator.provider": "anthropic",
+      "candidates.sources": ["tmdb_similar", "llm_web"],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Exa$/i }));
+    await waitFor(() => expect(putSettings).toHaveBeenCalled());
+    const body = putSettings.mock.calls.at(-1)?.[0];
+    expect(body?.["llm_web.search_provider"]).toBe("exa");
   });
 
   it("defaults the watched cap to 0% (all fresh) when the setting is unset", () => {

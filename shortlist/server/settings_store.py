@@ -52,6 +52,10 @@ DEFAULTS: dict[str, Any] = {
     "staleness_runs": 3,
     # Which candidate sources feed recommendations (engine/candidates.py). More = wider recall.
     "candidates.sources": ["tmdb_similar", "tmdb_discover"],
+    # How the "AI — web search" (llm_web) source searches the web: 'native' (the curator provider's
+    # own web-search tool — Claude/GPT/Gemini), 'exa' (the Exa search API — works for every provider,
+    # the only path for local Ollama), or 'auto' (native where the provider supports it, else Exa).
+    "llm_web.search_provider": "auto",
     # Cap on already-finished titles in a row, as a fraction: 0.0 = all fresh (default), 1.0 = no
     # filtering, in between = at most that share of the row may be things already watched. Per-row.
     "recommendations.watched_pct": 0.0,
@@ -83,6 +87,7 @@ SECRET_KEYS = {
     "requests.sonarr.apikey",
     "requests.omdb.apikey",
     "trakt.client_id",
+    "exa.apikey",  # Exa web-search API key for the llm_web source
 }
 
 ENV_SEEDS = {

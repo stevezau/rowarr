@@ -25,6 +25,7 @@ DEFAULT_MODEL = "gpt-4o-mini"
 
 class OpenAICurator:
     name = "openai"
+    supports_native_web_search = True  # Responses API web_search tool (see recommend_web)
     last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
@@ -95,3 +96,20 @@ class OpenAICurator:
         if usage is not None:
             self.last_tokens = getattr(usage, "total_tokens", 0) or 0
         return parse_web_titles(getattr(r, "output_text", "") or "", k)
+
+    def complete(self, system: str, user: str) -> str:
+        """Plain completion (no tools) — the external-search ``llm_web`` path (see base.complete)."""
+        import openai
+
+        try:
+            r = self._client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            )
+        except openai.OpenAIError as e:
+            logger.warning("complete (openai): {}", e)
+            return ""
+        usage = getattr(r, "usage", None)
+        if usage is not None:
+            self.last_tokens = getattr(usage, "total_tokens", 0) or 0
+        return r.choices[0].message.content or ""

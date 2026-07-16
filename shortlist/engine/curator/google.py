@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 import time
 
+from loguru import logger
+
 from shortlist.engine.curator.base import (
     CuratorError,
     ThreadLocalTokens,
     build_prompts,
+    build_web_prompt,
     log_curate_request,
     log_curate_response,
+    parse_web_titles,
     picks_schema,
     validate_picks,
 )
@@ -21,6 +25,7 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 
 class GoogleCurator:
     name = "google"
+    supports_native_web_search = True  # Gemini's Google Search grounding tool (see recommend_web)
     last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
@@ -63,3 +68,42 @@ class GoogleCurator:
         picks = validate_picks(data.get("picks", []), candidates, k, self.name)
         log_curate_response(self.name, self._model, len(picks), self.last_tokens, time.monotonic() - started, text)
         return picks
+
+    def recommend_web(self, profile: UserProfile, seeds: list, k: int) -> list[dict]:
+        """Propose up to k titles via Gemini's Google Search grounding tool (the ``llm_web`` source).
+
+        Grounding is incompatible with a response schema in the Gemini API, so this asks for plain
+        JSON text and leans on the tolerant ``parse_web_titles`` — same shape as the other native
+        providers. Degrades to an empty list on any provider error (the source's guard is the backstop).
+        """
+        from google.genai import types
+
+        system, user = build_web_prompt(profile, seeds, k)
+        try:
+            r = self._client.models.generate_content(
+                model=self._model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
+            )
+        except Exception as e:  # google-genai raises provider-specific exceptions
+            logger.warning("llm_web (google): {}", e)
+            return []
+        usage = getattr(r, "usage_metadata", None)
+        self.last_tokens = getattr(usage, "total_token_count", 0) or 0
+        return parse_web_titles(r.text or "", k)
+
+    def complete(self, system: str, user: str) -> str:
+        """Plain completion (no tools) — the external-search ``llm_web`` path (see base.complete)."""
+        try:
+            r = self._client.models.generate_content(
+                model=self._model, contents=user, config={"system_instruction": system}
+            )
+        except Exception as e:
+            logger.warning("complete (google): {}", e)
+            return ""
+        usage = getattr(r, "usage_metadata", None)
+        self.last_tokens = getattr(usage, "total_token_count", 0) or 0
+        return r.text or ""

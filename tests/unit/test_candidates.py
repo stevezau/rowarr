@@ -1,8 +1,20 @@
+from types import SimpleNamespace
+
 from shortlist.engine.candidates import _slice_for_llm, filter_candidates, gather_candidates
+from shortlist.engine.clients.search import SearchResult
 from shortlist.engine.curator import NullCurator
-from shortlist.engine.curator.base import parse_web_titles
+from shortlist.engine.curator.base import build_web_query, parse_web_titles
 from shortlist.engine.models import MediaType, Pick, Seed
 from tests.conftest import make_candidate
+
+
+def make_result(title: str, text: str = "") -> SearchResult:
+    return SearchResult(title=title, url="https://example.com", text=text)
+
+
+def web_profile():
+    """A minimal profile for the llm_web path — only `.history` is read (by taste_summary)."""
+    return SimpleNamespace(history=[])
 
 
 class _PickFirstCurator:
@@ -207,6 +219,8 @@ class TestGatherCandidates:
         mock_tmdb.search.side_effect = lambda title, mt, year=None: resolved.get(title)
 
         class _WebCurator:
+            supports_native_web_search = True
+
             def recommend_web(self, profile, seeds, k):
                 return [
                     {"title": "Real Film", "year": 2022, "media": "movie"},
@@ -238,6 +252,8 @@ class TestGatherCandidates:
         ]
 
         class _Boom:
+            supports_native_web_search = True
+
             def recommend_web(self, *a):
                 raise RuntimeError("web search down")
 
@@ -245,6 +261,180 @@ class TestGatherCandidates:
             mock_tmdb, [seed(1)], sources=["tmdb_similar", "llm_web"], curator=_Boom(), profile=object()
         )
         assert {c.tmdb_id for c in pool} == {1}
+
+
+class _FakeSearch:
+    """A stub external search backend (Exa) that returns canned results and records queries."""
+
+    name = "exa"
+
+    def __init__(self, results):
+        self._results = results
+        self.queries: list[str] = []
+
+    def search(self, query, *, num_results=8):
+        self.queries.append(query)
+        return self._results
+
+
+class _NonNativeCurator:
+    """A curator with NO native web search (like Ollama): only `complete` powers llm_web."""
+
+    supports_native_web_search = False
+
+    def __init__(self, reply):
+        self._reply = reply
+        self.complete_calls = 0
+
+    def complete(self, system, user):
+        self.complete_calls += 1
+        return self._reply
+
+
+class _NativeCurator:
+    """A curator WITH a native web-search tool (like Claude). `recommend_web` is preferred by auto/native."""
+
+    supports_native_web_search = True
+
+    def __init__(self):
+        self.recommend_calls = 0
+        self.complete_calls = 0
+
+    def recommend_web(self, profile, seeds, k):
+        self.recommend_calls += 1
+        return [{"title": "Native Pick", "year": 2020, "media": "movie"}]
+
+    def complete(self, system, user):
+        self.complete_calls += 1
+        return '[{"title": "Exa Pick", "year": 2021, "media": "movie"}]'
+
+
+class TestLlmWebBackends:
+    """The auto|native|exa backend matrix for the llm_web source (public-app: works on every provider)."""
+
+    def _tmdb(self, mock_tmdb, resolved):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        mock_tmdb.genre_names.return_value = {}
+        mock_tmdb.search.side_effect = lambda title, mt, year=None: resolved.get(title)
+        return mock_tmdb
+
+    def test_exa_path_lets_a_non_native_provider_do_web_search(self, mock_tmdb):
+        """Ollama's path: no native tool, but Exa searches and the model picks from the results."""
+        self._tmdb(mock_tmdb, {"Exa Pick": {"id": 55, "title": "Exa Pick", "genre_ids": [], "vote_average": 7.0}})
+        search = _FakeSearch([make_result("Best of 2021", "Exa Pick is great")])
+        curator = _NonNativeCurator('[{"title": "Exa Pick", "year": 2021, "media": "movie"}]')
+
+        pool = gather_candidates(
+            mock_tmdb, [seed(1, "Arrival")], sources=["llm_web"], curator=curator, profile=web_profile(), search=search
+        )
+        assert {c.tmdb_id for c in pool} == {55}
+        assert curator.complete_calls == 1 and len(search.queries) == 1  # searched, then the model picked
+        assert "Arrival" in search.queries[0]  # the query is built from what they watched, not a constant
+
+    def test_auto_prefers_the_native_tool_and_never_touches_exa(self, mock_tmdb):
+        self._tmdb(mock_tmdb, {"Native Pick": {"id": 77, "title": "Native Pick", "genre_ids": [], "vote_average": 8.0}})
+        search = _FakeSearch([make_result("unused", "unused")])
+        curator = _NativeCurator()
+
+        pool = gather_candidates(
+            mock_tmdb, [seed(1)], sources=["llm_web"], curator=curator, profile=web_profile(), search=search
+        )
+        assert {c.tmdb_id for c in pool} == {77}
+        assert curator.recommend_calls == 1 and curator.complete_calls == 0
+        assert search.queries == []  # auto used the native tool; the external search was never run
+
+    def test_exa_mode_forces_external_search_even_for_a_native_provider(self, mock_tmdb):
+        self._tmdb(mock_tmdb, {"Exa Pick": {"id": 88, "title": "Exa Pick", "genre_ids": [], "vote_average": 7.0}})
+        search = _FakeSearch([make_result("2021", "Exa Pick")])
+        curator = _NativeCurator()
+
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["llm_web"],
+            curator=curator,
+            profile=web_profile(),
+            search=search,
+            web_search_mode="exa",
+        )
+        assert {c.tmdb_id for c in pool} == {88}
+        assert curator.recommend_calls == 0 and curator.complete_calls == 1  # forced onto the Exa path
+
+    def test_native_mode_without_a_native_provider_is_a_noop_not_a_failure(self, mock_tmdb):
+        """web_search_mode=native + Ollama: the source can't run, so it's skipped — the OTHER source
+        still contributes and no phantom 'source failed' is raised (attempted must not include it)."""
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 1, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        search = _FakeSearch([make_result("x", "y")])
+        curator = _NonNativeCurator("[]")
+
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["tmdb_similar", "llm_web"],
+            curator=curator,
+            profile=object(),
+            search=search,
+            web_search_mode="native",
+        )
+        assert {c.tmdb_id for c in pool} == {1}
+        assert curator.complete_calls == 0 and search.queries == []  # llm_web never ran under native mode
+
+    def test_blocked_when_no_native_and_no_search(self, mock_tmdb):
+        """auto + non-native provider + NO Exa key: llm_web simply can't run; tmdb_similar carries it."""
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 2, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        curator = _NonNativeCurator("[]")
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["tmdb_similar", "llm_web"],
+            curator=curator,
+            profile=web_profile(),
+            search=None,
+        )
+        assert {c.tmdb_id for c in pool} == {2}
+        assert curator.complete_calls == 0
+
+    def test_exa_mode_without_a_search_key_is_a_noop_not_a_failure(self, mock_tmdb):
+        """web_search_mode=exa but no Exa client configured: llm_web can't run, so it's skipped and
+        never registers as attempted — tmdb_similar still carries the pool, no phantom failure."""
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 3, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        curator = _NativeCurator()  # native-capable, but exa mode forces the (absent) Exa backend
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["tmdb_similar", "llm_web"],
+            curator=curator,
+            profile=web_profile(),
+            search=None,
+            web_search_mode="exa",
+        )
+        assert {c.tmdb_id for c in pool} == {3}
+        assert curator.recommend_calls == 0 and curator.complete_calls == 0
+
+    def test_heuristic_curator_never_runs_llm_web_even_with_a_search_key(self, mock_tmdb):
+        """The engine mirror of the frontend gate: NullCurator (heuristic mode) has no model to pick
+        titles, so llm_web contributes nothing even with an Exa key — and doesn't false-fail the run."""
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 4, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        search = _FakeSearch([make_result("2024 picks", "Dune")])
+        pool = gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["tmdb_similar", "llm_web"],
+            curator=NullCurator(),
+            profile=web_profile(),
+            search=search,
+            web_search_mode="exa",
+        )
+        assert {c.tmdb_id for c in pool} == {4}
+        assert search.queries == []  # heuristic mode never even searches
 
 
 class TestParseWebTitles:
@@ -277,6 +467,25 @@ class TestParseWebTitles:
         # A string/float year from a chatty model must not leak a bad type downstream.
         out = parse_web_titles('[{"title": "A", "year": "2021", "media": "movie"}]', 5)
         assert out == [{"title": "A", "year": None, "media": "movie"}]
+
+
+class TestBuildWebQuery:
+    """The external-search query must be built from what the person actually watched, with sane
+    fallbacks — a constant or empty query would make Exa search return generic junk."""
+
+    def test_uses_the_seed_titles(self):
+        query = build_web_query(SimpleNamespace(history=[]), [seed(1, "Arrival"), seed(2, "Dune")])
+        assert "Arrival" in query and "Dune" in query
+
+    def test_falls_back_to_recent_history_when_there_are_no_seeds(self):
+        watch = SimpleNamespace(title="Blade Runner 2049", watched_at=2)
+        older = SimpleNamespace(title="Sicario", watched_at=1)
+        query = build_web_query(SimpleNamespace(history=[older, watch]), [])
+        assert "Blade Runner 2049" in query  # most-recent history title, newest first
+
+    def test_cold_start_with_no_seeds_and_no_history_is_a_generic_query(self):
+        query = build_web_query(SimpleNamespace(history=[]), [])
+        assert query and "watch" in query.lower()  # a real, non-empty generic query
 
 
 class TestSliceForLlm:

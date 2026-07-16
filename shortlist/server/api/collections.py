@@ -299,11 +299,17 @@ async def cleanup_collection(collection_id: int, body: CleanupRequest, request: 
             raise HTTPException(404, "collection not found")
         slug, build, name = collection.slug, collection.build, collection.name
 
-    removed, error = await _run_reconcile(state, slug=slug, build=build, dry_run=body.dry_run, scope="collection.cleanup")
+    removed, error = await _run_reconcile(
+        state, slug=slug, build=build, dry_run=body.dry_run, scope="collection.cleanup"
+    )
     if error:
         raise HTTPException(502, f"Cleanup failed part-way; removed {len(removed)} before: {error}")
     verb = "Would remove" if body.dry_run else "Removed"
-    return {"removed": removed, "dry_run": body.dry_run, "message": f"{verb} {len(removed)} collection(s) for “{name}”."}
+    return {
+        "removed": removed,
+        "dry_run": body.dry_run,
+        "message": f"{verb} {len(removed)} collection(s) for “{name}”.",
+    }
 
 
 def _reconcile_row_removal(
@@ -370,7 +376,13 @@ async def _run_reconcile(
             Event(
                 scope=scope,
                 level="warn",
-                message={"slug": slug, "removed": removed, "dry_run": dry_run, "error": error, "at": datetime.now(UTC).isoformat()},
+                message={
+                    "slug": slug,
+                    "removed": removed,
+                    "dry_run": dry_run,
+                    "error": error,
+                    "at": datetime.now(UTC).isoformat(),
+                },
             )
         )
         session.commit()

@@ -87,7 +87,7 @@ class TestRedact:
     def test_strips_a_plex_token_from_error_text(self):
         from shortlist.engine.clients.http_retry import redact
 
-        raw = 'HTTPError 401 for http://pms:32400/library?X-Plex-Token=abc123SECRETxyz&foo=1'
+        raw = "HTTPError 401 for http://pms:32400/library?X-Plex-Token=abc123SECRETxyz&foo=1"
         out = redact(raw)
         assert "abc123SECRETxyz" not in out
         assert "X-Plex-Token=REDACTED" in out

@@ -5,11 +5,13 @@ set -eu
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
-# Trust X-Forwarded-Proto so the session cookie gets `Secure` behind a TLS-terminating proxy
-# (Traefik/nginx/Caddy). Default `*` because the proxy's source IP inside a Docker network isn't
-# knowable ahead of time; it only ever adds `Secure` to a cookie (fail-safe — no IP-based security
-# decision reads these headers). Set FORWARDED_ALLOW_IPS to your proxy's subnet if you publish the
-# container port outside the proxy network and want to lock the trust boundary down.
+# Trust X-Forwarded-Proto/-For so the session cookie gets `Secure` and the PIN rate limiter keys on
+# the real client behind a TLS-terminating proxy (Traefik/nginx/Caddy). Default `*` because the
+# proxy's source IP inside a Docker network isn't knowable ahead of time. Trade-off: with `*`, a
+# client that can reach the container directly can spoof X-Forwarded-For — the cookie flag is still
+# fail-safe (only ever ADDS Secure), and the PIN limiter keeps an unspoofable GLOBAL ceiling, but
+# set FORWARDED_ALLOW_IPS to your proxy's subnet if you publish the container port outside the proxy
+# network and want the per-IP limit and forwarded headers fully trustworthy.
 FORWARDED_ALLOW_IPS="${FORWARDED_ALLOW_IPS:-*}"
 PORT="${PORT:-5959}"
 

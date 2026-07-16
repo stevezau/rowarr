@@ -8,6 +8,9 @@ stored encrypted; it is never logged.
 
 from __future__ import annotations
 
+import time
+from collections import deque
+
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -20,6 +23,42 @@ SESSION_MAX_AGE_S = 14 * 24 * 3600
 CSRF_HEADER = "x-shortlist-csrf"
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Sliding-window limiter for the unauthenticated PIN endpoint, so it can't be spammed to hammer
+# plex.tv. In-memory is fine: a single self-hosted process, and a restart resetting the window is
+# harmless. Two ceilings, because behind `--proxy-headers` with FORWARDED_ALLOW_IPS=* the per-IP key
+# (`request.client.host`, from X-Forwarded-For) is client-spoofable — so a GLOBAL cap across all IPs
+# is the real backstop that bounds total plex.tv load even if an attacker rotates the header; the
+# per-IP cap is the finer-grained control for the honest-proxy case.
+_PIN_HITS: dict[str, deque[float]] = {}
+_PIN_ALL: deque[float] = deque()
+_PIN_MAX_PER_WINDOW = 10
+_PIN_MAX_GLOBAL = 60
+_PIN_WINDOW_S = 60.0
+_PIN_BUSY = "Too many sign-in attempts — wait a minute and try again."
+
+
+def _rate_limit_pin(request: Request) -> None:
+    now = time.monotonic()
+    while _PIN_ALL and now - _PIN_ALL[0] > _PIN_WINDOW_S:
+        _PIN_ALL.popleft()
+    if len(_PIN_ALL) >= _PIN_MAX_GLOBAL:  # global ceiling: unspoofable, bounds total plex.tv load
+        raise HTTPException(status_code=429, detail=_PIN_BUSY)
+
+    ip = (request.client.host if request.client else None) or "unknown"
+    hits = _PIN_HITS.setdefault(ip, deque())
+    while hits and now - hits[0] > _PIN_WINDOW_S:
+        hits.popleft()
+    if len(hits) >= _PIN_MAX_PER_WINDOW:
+        raise HTTPException(status_code=429, detail=_PIN_BUSY)
+
+    hits.append(now)
+    _PIN_ALL.append(now)
+    # Bound memory: when the table grows large, drop other IPs whose window has fully expired.
+    # Mutated in place (no reassignment), so it stays the module-level dict; only runs when big.
+    if len(_PIN_HITS) > 4096:
+        for stale in [k for k, v in _PIN_HITS.items() if k != ip and (not v or now - v[-1] > _PIN_WINDOW_S)]:
+            del _PIN_HITS[stale]
 
 
 def _client_headers(client_id: str) -> dict[str, str]:
@@ -103,6 +142,7 @@ def require_setup_access(request: Request) -> dict:
 
 @router.post("/pin")
 async def create_pin(request: Request) -> dict:
+    _rate_limit_pin(request)
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{PLEXTV}/api/v2/pins",

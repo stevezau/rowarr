@@ -133,12 +133,16 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
         finally:
             scheduler.shutdown(wait=False)
 
+    # The interactive API docs + schema disclose the whole API surface unauthenticated. They're off
+    # by default (nothing sensitive, but no reason to advertise); set SHORTLIST_ENABLE_DOCS=1 to
+    # re-enable them for local development.
+    docs_enabled = os.environ.get("SHORTLIST_ENABLE_DOCS") == "1"
     app = FastAPI(
         title="Shortlist",
         version=shortlist.__version__,
         lifespan=lifespan,
-        docs_url="/api/docs",
-        openapi_url="/api/openapi.json",
+        docs_url="/api/docs" if docs_enabled else None,
+        openapi_url="/api/openapi.json" if docs_enabled else None,
     )
 
     app.include_router(auth.router, prefix="/api")

@@ -59,7 +59,10 @@
 
 ## API
 
-Interactive docs at `/api/docs` (OpenAPI at `/api/openapi.json`). Highlights:
+The interactive API docs are off by default (they'd disclose the whole surface unauthenticated);
+set `SHORTLIST_ENABLE_DOCS=1` to expose `/api/docs` and `/api/openapi.json` for local development
+(also required if you regenerate the frontend API types with `pnpm -C web gen:api` against a live
+server). Highlights:
 
 ```
 POST /api/auth/pin · GET /api/auth/pin/{id} · GET /api/auth/session · POST /api/auth/logout

@@ -362,6 +362,29 @@ async def cleanup_collection(collection_id: int, body: CleanupRequest, request: 
     }
 
 
+def _delivered_titles_by_user(session, slug: str) -> dict[int, set[str]]:
+    """{user_id → the Plex titles the last run delivered for THIS row}, from the persisted breakdown.
+
+    Both reconcile paths (remove/rename) find a user's collection by the exact title the last run
+    wrote for the row, scoped to that user — never by a foreign (Kometa) or another user's row.
+    """
+    latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
+    result: dict[int, set[str]] = {}
+    for ru in latest.users if latest else []:
+        titles = {e["row_title"] for e in (ru.breakdown or []) if e.get("row_slug") == slug and e.get("row_title")}
+        if titles:
+            result[ru.user_id] = titles
+    return result
+
+
+def _write_audit(state, scope: str, level: str, **message) -> None:
+    """Write one reconcile audit Event with a UTC timestamp and commit (plex-safety rule 10). The
+    caller passes its distinctive message fields; this owns the shared timestamp + persistence."""
+    with state.sessions() as session:
+        session.add(Event(scope=scope, level=level, message={**message, "at": datetime.now(UTC).isoformat()}))
+        session.commit()
+
+
 def _reconcile_row_removal(
     state, *, slug: str, build: str, dry_run: bool, removed: list[str], only_user_ids: set[int] | None = None
 ) -> None:
@@ -385,17 +408,12 @@ def _reconcile_row_removal(
             )
         return
     with state.sessions() as session:
-        latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
-        breakdown_by_user = {ru.user_id: (ru.breakdown or []) for ru in latest.users} if latest else {}
+        titles_by_user = _delivered_titles_by_user(session, slug)
         users = session.query(User).all()
     for user in users:
         if only_user_ids is not None and user.id not in only_user_ids:
             continue
-        displays = {
-            entry["row_title"]
-            for entry in breakdown_by_user.get(user.id, [])
-            if entry.get("row_slug") == slug and entry.get("row_title")
-        }
+        displays = titles_by_user.get(user.id, set())
         if not displays:
             continue
         removed.extend(
@@ -421,21 +439,7 @@ async def _run_reconcile(
         )
     except Exception as e:  # a destructive write is never silent: audit the partial removal, then surface it
         error = redact(f"{type(e).__name__}: {e}")  # a PMS error can carry a tokened URL (rule 9)
-    with state.sessions() as session:
-        session.add(
-            Event(
-                scope=scope,
-                level="warn",
-                message={
-                    "slug": slug,
-                    "removed": removed,
-                    "dry_run": dry_run,
-                    "error": error,
-                    "at": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
-        session.commit()
+    _write_audit(state, scope, "warn", slug=slug, removed=removed, dry_run=dry_run, error=error)
     logger.warning("{} '{}': {} collection(s){}", scope, slug, len(removed), f" then FAILED: {error}" if error else "")
     return removed, error
 
@@ -454,16 +458,11 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
     Accumulates one ``{user, old, new, libraries}`` entry per user actually renamed into ``entries``,
     so the audit can answer "whose row went from what to what, in which libraries" (rule 10)."""
     with state.sessions() as session:
-        latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
-        breakdown_by_user = {ru.user_id: (ru.breakdown or []) for ru in latest.users} if latest else {}
+        titles_by_user = _delivered_titles_by_user(session, slug)
         users = session.query(User).all()
     ctx = state.run_service.build_context(dry_run=False)
     for user in users:
-        old_titles = {
-            entry["row_title"]
-            for entry in breakdown_by_user.get(user.id, [])
-            if entry.get("row_slug") == slug and entry.get("row_title")
-        }
+        old_titles = titles_by_user.get(user.id, set())
         if not old_titles:
             continue
         profile = UserProfile(
@@ -504,21 +503,8 @@ async def _run_row_rename(state, *, slug: str, new_template: str, scope: str) ->
         )
     except Exception as e:
         error = redact(f"{type(e).__name__}: {e}")  # a PMS error can carry a tokened URL (rule 9)
-    with state.sessions() as session:
-        session.add(
-            Event(
-                scope=scope,
-                level="info",
-                message={
-                    "slug": slug,
-                    "renames": entries,  # per user: {user, old, new, libraries} — answers rule 10's "whose, what→what"
-                    "new_template": new_template,
-                    "error": error,
-                    "at": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
-        session.commit()
+    # renames: per user {user, old, new, libraries} — answers rule 10's "whose row, what→what".
+    _write_audit(state, scope, "info", slug=slug, renames=entries, new_template=new_template, error=error)
     total = sum(len(e["libraries"]) for e in entries)
     logger.info(
         "{} '{}': renamed {} collection(s) for {} user(s){}",

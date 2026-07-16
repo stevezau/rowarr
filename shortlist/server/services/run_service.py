@@ -201,22 +201,32 @@ class RunService:
         """
         return engine_run(self.build_context(dry_run=False), [])
 
+    async def _open_gate_if_needed(self, run_id: int, dry_run: bool, loop: asyncio.AbstractEventLoop) -> str | None:
+        """For a real run with a closed privacy gate, try to open it with an automatic check, then run
+        the remedy pass if it's STILL closed. Returns the gate error when the run must not proceed to
+        writes (the remedy has already run), else None. Dry runs skip the gate entirely."""
+        if dry_run:
+            return None
+        if self._privacy_gate_error():
+            # Automatic, invisible Privacy Check: try to open the gate ourselves before falling back
+            # to the remedy pass — the owner never runs it by hand. The gate re-check below is
+            # deliberately unchanged, so a check that genuinely fails (or a Plex too old to fix) still
+            # refuses every real write. Automating the check cannot loosen the gate. Wrapped so NOTHING
+            # here (even its own bookkeeping) can strand the run: any failure falls through to the gate
+            # re-check, which can only keep the gate shut, never open it.
+            try:
+                await self._auto_privacy_check(run_id, loop)
+            except Exception:
+                logger.exception("automatic privacy check bookkeeping failed for run {}", run_id)
+        if gate := self._privacy_gate_error():
+            await self._run_remedy_pass(run_id, gate, loop)
+            return gate
+        return None
+
     async def _execute(self, run_id: int, dry_run: bool, user_ids: list[int] | None) -> None:
         loop = asyncio.get_running_loop()
         async with self._lock:
-            if not dry_run and self._privacy_gate_error():
-                # Automatic, invisible Privacy Check: try to open the gate ourselves before falling
-                # back to the remedy pass — the owner never runs it by hand. The gate re-check below
-                # is deliberately unchanged, so a check that genuinely fails (or a Plex too old to
-                # fix) still refuses every real write. Automating the check cannot loosen the gate.
-                # Wrapped so NOTHING here (even its own bookkeeping) can strand the run: any failure
-                # falls through to the gate re-check, which can only keep the gate shut, never open it.
-                try:
-                    await self._auto_privacy_check(run_id, loop)
-                except Exception:
-                    logger.exception("automatic privacy check bookkeeping failed for run {}", run_id)
-            if not dry_run and (gate := self._privacy_gate_error()):
-                await self._run_remedy_pass(run_id, gate, loop)
+            if await self._open_gate_if_needed(run_id, dry_run, loop):
                 return
             self._bus.publish("run.progress", {"run_id": run_id, "status": "running"})
             with self._sessions() as session:

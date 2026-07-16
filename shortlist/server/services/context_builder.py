@@ -309,6 +309,27 @@ class ContextBuilder:
             out.setdefault(row.user_id, {})[slug] = RowOverride(muted=row.muted, size=row.row_size, prompt=prompt)
         return out
 
+    @staticmethod
+    def _audience_maps(session: Session) -> tuple[dict[int, int], dict[int, set[int]]]:
+        """(user_id → plex_account_id, collection_id → {user_id}) — the two lookups both the build and
+        retire passes need to resolve a 'subset' row's audience to the plex account ids the engine matches on."""
+        account_by_user = {u.id: u.plex_account_id for u in session.query(User).all()}
+        audience_by_collection: dict[int, set[int]] = {}
+        for row in session.query(CollectionAudience).all():
+            audience_by_collection.setdefault(row.collection_id, set()).add(row.user_id)
+        return account_by_user, audience_by_collection
+
+    @staticmethod
+    def _subset_audience(collection, account_by_user: dict, audience_by_collection: dict) -> set[int] | None:
+        """The plex account ids a 'subset' row is limited to; None for any other audience (= everyone)."""
+        if collection.audience != "subset":
+            return None
+        return {
+            account_by_user[uid]
+            for uid in audience_by_collection.get(collection.id, set())
+            if uid in account_by_user
+        }
+
     def _build_rows(self, session: Session, store: SettingsStore) -> list[RowSpec]:
         """Build the engine's row specs from the enabled collections.
 
@@ -317,10 +338,7 @@ class ContextBuilder:
         name and recipe. A subset audience is resolved from user ids to plex account ids (what the
         engine matches on).
         """
-        account_by_user = {u.id: u.plex_account_id for u in session.query(User).all()}
-        audience_by_collection: dict[int, set[int]] = {}
-        for row in session.query(CollectionAudience).all():
-            audience_by_collection.setdefault(row.collection_id, set()).add(row.user_id)
+        account_by_user, audience_by_collection = self._audience_maps(session)
 
         specs: list[RowSpec] = []
         collections = (
@@ -328,13 +346,7 @@ class ContextBuilder:
         )
         for collection in collections:
             shared = collection.build == "shared"
-            audience: set[int] | None = None
-            if collection.audience == "subset":
-                audience = {
-                    account_by_user[uid]
-                    for uid in audience_by_collection.get(collection.id, set())
-                    if uid in account_by_user
-                }
+            audience = self._subset_audience(collection, account_by_user, audience_by_collection)
             is_default = collection.slug == DEFAULT_SLUG
             prompt: PromptConfig | None = None
             if not is_default:
@@ -395,10 +407,7 @@ class ContextBuilder:
         such a row would match and DELETE the user's live default row. Those are skipped (left for a
         full rebuild), exactly as the mute path leaves them.
         """
-        account_by_user = {u.id: u.plex_account_id for u in session.query(User).all()}
-        audience_by_collection: dict[int, set[int]] = {}
-        for row in session.query(CollectionAudience).all():
-            audience_by_collection.setdefault(row.collection_id, set()).add(row.user_id)
+        account_by_user, audience_by_collection = self._audience_maps(session)
 
         global_name = store.get("row.name_template") or ""
         # A stub whose only job is to let render_row_name resolve {user}; a non-empty username keeps a
@@ -418,13 +427,7 @@ class ContextBuilder:
             if render_row_name(effective_template, probe, []) == DEFAULT_ROW_NAME:
                 logger.debug("retired row '{}' would render to the default title — left for a rebuild", collection.slug)
                 continue
-            audience: set[int] | None = None
-            if collection.audience == "subset":
-                audience = {
-                    account_by_user[uid]
-                    for uid in audience_by_collection.get(collection.id, set())
-                    if uid in account_by_user
-                }
+            audience = self._subset_audience(collection, account_by_user, audience_by_collection)
             retired.append(
                 RowSpec(
                     slug=collection.slug,

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RowShelfPlacement } from "@/components/rows/row-shelf-placement";
+import type * as ApiModule from "@/lib/api";
 import type { HubAnchorMap } from "@/lib/types";
 
 const { getLibraries, getLibraryCollections } = vi.hoisted(() => ({
@@ -12,12 +13,19 @@ const { getLibraries, getLibraryCollections } = vi.hoisted(() => ({
   getLibraryCollections: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({
-  api: {
-    getLibraries: () => getLibraries(),
-    getLibraryCollections: (key: string) => getLibraryCollections(key),
-  },
-}));
+// Preserve the real module (notably the `ApiError` export QueryBoundary's ErrorState relies on for
+// `error instanceof ApiError`); override only the `api` client. A bare `{ api }` mock drops ApiError
+// and the error-state render throws.
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof ApiModule>();
+  return {
+    ...actual,
+    api: {
+      getLibraries: () => getLibraries(),
+      getLibraryCollections: (key: string) => getLibraryCollections(key),
+    },
+  };
+});
 
 /** Controlled harness that records the latest hub_anchor the control emits. */
 function Harness({

@@ -207,9 +207,9 @@ class PlexClient:
         """Map slug -> OwnedRow for every shortlist-owned collection, across every library.
 
         The PMS is the source of truth for label casing (Plex title-cases new labels) and for
-        the collection ids the T2 privacy check compares hubs against. A user has one collection
-        per library they get picks in, so ids accumulate — collapsing them to a single id once
-        hid a real leak: T2 only compared the last collection it saw and passed while two other
+        the collection ids behind a user's rows. A user has one collection per library they get
+        picks in, so ids accumulate — collapsing them to a single id once
+        hid a real leak: only the last collection was seen while two other
         rows were visible to everyone.
         """
         prefix = f"{label_prefix}_".lower()
@@ -474,7 +474,7 @@ class PlexClient:
         return self._server.fetchItems(rating_keys)
 
     def user_hubs(self, canary_token: str, path: str = "/hubs") -> list[dict]:
-        """Fetch hubs AS another user (T2). Uses the canary's server token, not the owner's."""
+        """Fetch hubs AS another user (for visibility checks). Uses that user's server token, not the owner's."""
         r = http_retry.get(
             self._server.url(path, includeToken=False),
             headers={"X-Plex-Token": canary_token, "Accept": "application/json"},

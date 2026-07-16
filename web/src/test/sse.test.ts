@@ -86,22 +86,6 @@ describe("useSSE", () => {
     expect(onRunFinished).not.toHaveBeenCalled();
   });
 
-  it("dispatches privacy.probe.step log lines during the Privacy Check", () => {
-    const onPrivacyProbeStep = vi.fn();
-    renderHook(() => useSSE({ onPrivacyProbeStep }));
-
-    act(() =>
-      latestSource().emit(
-        "privacy.probe.step",
-        JSON.stringify({ message: "Creating probe collection…" }),
-      ),
-    );
-
-    expect(onPrivacyProbeStep).toHaveBeenCalledExactlyOnceWith({
-      message: "Creating probe collection…",
-    });
-  });
-
   it("ignores malformed event payloads instead of crashing", () => {
     const onRunUserStage = vi.fn();
     renderHook(() => useSSE({ onRunUserStage }));

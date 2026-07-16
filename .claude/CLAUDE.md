@@ -5,7 +5,7 @@ FastAPI backend + React SPA + SQLite, with a pure-Python engine (Tautulli/Plex h
 similar-titles → LLM curate/explain → per-user Plex collection + label-restriction privacy).
 
 **Status: beta.** In production on the maintainer's server: the FastAPI server runs the engine on
-its own nightly schedule (APScheduler), with the React SPA, automated Privacy Probe and Docker
+its own nightly schedule (APScheduler), with the React SPA and Docker
 packaging. Read these
 before any feature work:
 
@@ -37,14 +37,16 @@ SHORTLIST_CONFIG=./devconfig uvicorn --factory shortlist.server.main:create_app 
 docker build -t shortlist:dev .   # multi-stage: node web build → python runtime
 ```
 
-## The write gate
+## Row privacy (leak-safe ordering)
 
-Real (non-dry-run) writes are refused unless a passing Privacy Check is on record (≤7 days)
-and the PMS is ≥ 1.43.2.10687. The check is recorded as `privacy_checks` rows and enforced by
-`RunService._privacy_gate_error()`, which shares its latest-per-tier definition with the dashboard
-badge (`server/services/privacy_state.py`).
-Rows are delivered UNPROMOTED, all filters merged, and only then promoted — a new row is
-never visible before the exclusions that hide it exist.
+Rows are made private by share-filter excludes: each account's `filterMovies`/`filterTelevision`
+gets `label!=shortlist_<otheruser>` for every row that isn't theirs. The ordering is what keeps it
+leak-safe — rows are delivered UNPROMOTED, all filters merged, and only then promoted, so a new row
+is never visible before the exclusions that hide it exist.
+
+The old automatic Privacy Check + write gate that _verified_ this before each write was **removed at
+the owner's request** (2026-07-16). Writes are no longer gated on a recorded check; the hiding still
+happens, but nothing verifies it after the fact — see `.claude/rules/plex-safety.md`.
 
 ## Architecture (the one contract that matters)
 

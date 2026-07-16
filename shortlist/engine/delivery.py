@@ -300,8 +300,8 @@ def remove_row_collections(
     by title. With ``None``, every collection under the label — a shared row's own label, or a user's
     whole label when the user is removed.
 
-    Removal only — it never creates or promotes, so (like the remedy pass and uninstall) it needs no
-    passing Privacy Check: deleting a row can only make the server more private. Scans EVERY library,
+    Removal only — it never creates or promotes, so it can never leak: deleting a row can only make
+    the server more private. Scans EVERY library,
     so a copy left in a library the row no longer targets is still removed. ``delete_owned_collection``
     refuses anything without a ``shortlist_`` label, so a foreign (Kometa) collection is never touched.
     Returns the display titles removed (or, in a dry run, that would be).
@@ -336,9 +336,9 @@ def rename_row_collections(
     run (the owner renamed a row): a multi-row user's renamed row is updated rather than orphaned with
     a new copy (single-row users are already renamed seamlessly by the next run's delivery).
 
-    Privacy-neutral, so — like the removal reconciles — it needs no passing Privacy Check: the filter
-    that hides a row is keyed on its LABEL, which is untouched here, so changing only the human title
-    can never make the server less private (it neither creates, promotes, nor alters a share filter).
+    Privacy-neutral: the filter that hides a row is keyed on its LABEL, which is untouched here, so
+    changing only the human title can never make the server less private (it neither creates,
+    promotes, nor alters a share filter).
     Matches only collections under ``label`` whose marker-stripped title equals ``old_display``; a
     foreign (Kometa) collection never carries our label and ``find_owned_collections`` only returns
     ours. Returns the library titles renamed (or, in a dry run, that would be).

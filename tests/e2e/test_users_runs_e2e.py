@@ -114,8 +114,6 @@ class TestRuns:
         self, page: Page, app: ShortlistApp, reset_fake_plex
     ):
         state = reset_fake_plex
-        # The gate is real: without a passing check the server refuses to write (rule 1).
-        assert app.api("POST", "/api/privacy/check", json={}).json()["passed"]
 
         page.goto("/runs")
         expect(page.get_by_text("No runs yet")).to_be_visible(timeout=LOAD)

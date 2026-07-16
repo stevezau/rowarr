@@ -16,8 +16,8 @@ from shortlist.server.services import collection_reconcile as reconcile
 
 router = APIRouter(prefix="/collections", tags=["collections"], dependencies=[Depends(require_owner)])
 
-# Slugs reserved by the engine: `probe` is the throwaway Privacy Check row; `shared` prefixes every
-# shared collection's label. A user-defined collection may not claim either.
+# Slugs reserved by the engine: `shared` prefixes every shared collection's label, and `probe` is
+# kept reserved for backward compatibility. A user-defined collection may not claim either.
 RESERVED_SLUGS = {"probe", "shared"}
 
 BUILDS = {"per_person", "shared"}
@@ -326,8 +326,8 @@ class CleanupRequest(BaseModel):
 async def cleanup_collection(collection_id: int, body: CleanupRequest, request: Request) -> dict:
     """Remove this row's collections from Plex, for everyone who has it, without waiting for a run.
 
-    Removal only — it never creates or promotes, so it is gate-exempt (deleting a row can only make
-    the server more private, the same reasoning as the remedy pass and uninstall). A per-person row's
+    Removal only — it never creates or promotes, so it can never leak: deleting a row can only make
+    the server more private. A per-person row's
     collection for each user is pinned by the exact title the last run delivered (recorded in that
     run's breakdown); a shared row is addressed by its own label. dry_run previews the plan.
     """

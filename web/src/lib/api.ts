@@ -13,8 +13,6 @@ import type {
   PlexServer,
   PromptPreview,
   PromptPreviewRequest,
-  PrivacyCheckResult,
-  PrivacyStatus,
   ProbeRequest,
   ProbeResult,
   RequestCandidate,
@@ -218,23 +216,6 @@ export const api = {
 
   startRun: (body: RunRequest = {}): Promise<RunCreated> =>
     request("/api/runs", { method: "POST", body: JSON.stringify(body) }),
-
-  // --- Privacy ---
-  getPrivacyStatus: (): Promise<PrivacyStatus> =>
-    request("/api/privacy/status"),
-
-  /**
-   * Run a Privacy Check. Default is the fast read-only pass (T1 filter read-back + T2 canary
-   * view). `probe: true` runs the full ~90s probe, which creates and removes a throwaway
-   * labelled collection to prove the whole mechanism end to end.
-   */
-  runPrivacyCheck: (
-    opts: { probe?: boolean } = {},
-  ): Promise<PrivacyCheckResult> =>
-    request("/api/privacy/check", {
-      method: "POST",
-      body: JSON.stringify({ probe: opts.probe ?? false }),
-    }),
 
   // --- Settings ---
   getSettings: (): Promise<Settings> => request("/api/settings"),

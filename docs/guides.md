@@ -194,10 +194,10 @@ Requires Radarr v3+ / Sonarr v4+ reachable from the Shortlist container.
 
 ## Troubleshooting
 
-- **A user says they can see someone else's row** — open Settings → Privacy and **Run
-  Privacy Check**; if it fails it names the user and the missing exclusion. A normal run
-  re-merges the share filters. Check whether the share was edited by hand in plex.tv
-  (Shortlist re-merges but never deletes filter conditions it didn't add).
+- **A user says they can see someone else's row** — run Shortlist again (Run now): every run
+  re-merges the `label!=` exclusions into each account's share filters. Check whether the share
+  was edited by hand in plex.tv (Shortlist re-merges but never deletes filter conditions it
+  didn't add), and confirm the PMS is ≥ 1.43.2.10687 (older builds ignore the exclusion).
 - **Rows not appearing for anyone** — promoted rows land in Plex's hub order; users may
   need to scroll, or pin the row via "Manage Home Screen" on their client.
 - **Tautulli shows fewer watches than expected** — Tautulli only knows sessions it observed

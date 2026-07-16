@@ -3,8 +3,9 @@
 **How is this private? Plex doesn't have per-user collections.**
 Since PMS 1.43.2, label-based share restrictions are enforced on Home, Recommended and
 Related hubs. Shortlist gives each user's collections a unique label and excludes that label on
-every _other_ user's share. The built-in Privacy Check proves this works on your server —
-with a canary account's own eyes — before anything real is written.
+every _other_ user's share, so only its owner ever sees it. Rows are delivered hidden and only
+promoted once those exclusions are in place, and your share filters are snapshotted first so
+Uninstall restores them exactly.
 
 **Why do I get two rows — one under Movies and one under TV Shows?**
 A Plex collection lives in exactly one library, and Plex applies share filters per library

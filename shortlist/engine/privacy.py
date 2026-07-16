@@ -126,10 +126,9 @@ _UNSHARED = object()  # sentinel: a label the CONFIG does not declare as a share
 def shared_label_audiences(config) -> dict[str, set[int] | None]:
     """Lowercased label -> audience account ids (None = public) for every CONFIGURED shared row.
 
-    The one definition of "what is a shared row, and who is allowed to see it". The WRITER and the
-    VERIFIER must both use it: when only the writer knew shared rows existed, the verifier demanded
-    an exclude the writer deliberately never wrote, so a correctly-configured public shared row
-    failed T1 forever — closing the write gate and stopping the server building any row at all.
+    The one definition of "what is a shared row, and who is allowed to see it" — used by the writer
+    to decide which `label!=` excludes each account's share needs (a shared row is public, so its own
+    label is NOT excluded on anyone).
     """
     return {spec.label.lower(): spec.audience for spec in config.shared_rows() if spec.label}
 

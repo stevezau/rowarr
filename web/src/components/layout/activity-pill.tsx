@@ -52,16 +52,6 @@ export function ActivityPill() {
         },
         true,
       ),
-    onPrivacyProbeStep: (event) =>
-      show({ text: `privacy check — ${event.message}`, tone: "active" }),
-    onPrivacyStatus: (event) =>
-      show(
-        {
-          text: event.passed ? "privacy check passed" : "privacy check failed",
-          tone: event.passed ? "ok" : "error",
-        },
-        true,
-      ),
   });
 
   if (!activity) return null;

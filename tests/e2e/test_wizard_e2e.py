@@ -1,9 +1,9 @@
 """E2E: the setup wizard, driven end to end in a real browser against the fake Plex.
 
 This is the highest-value test in the suite: the wizard is the only path a new owner takes,
-it crosses every boundary (plex.tv PIN, PMS probe, plex.tv user sync, SSE, the privacy probe,
-the engine), and every one of those crossings is a contract two unit suites can each pass
-while disagreeing with the other.
+it crosses every boundary (plex.tv PIN, PMS probe, plex.tv user sync, SSE, the engine), and
+every one of those crossings is a contract two unit suites can each pass while disagreeing
+with the other.
 
 Everything except the plex.tv PIN handshake is real: the SPA calls the real API, which drives
 the real engine against the fake PMS/plex.tv/TMDB.
@@ -18,13 +18,12 @@ from playwright.sync_api import Page, expect
 
 from shortlist.engine.delivery import row_marker
 from tests.e2e.conftest import ShortlistApp, stub_plex_pin
-from tests.fakes.fake_plex import FakePlexState
 
 pytestmark = pytest.mark.e2e
 
-# The probe writes to plex.tv with a 1s throttle and polls the canary's hubs; the engine run
-# then does history -> TMDB -> curate -> deliver -> filter-merge for every user. Seconds, not
-# milliseconds — so every wait here is an expect() with a generous ceiling, never a sleep.
+# The engine run does history -> TMDB -> curate -> deliver -> filter-merge for every user, and the
+# share-filter writes hit plex.tv with a 1s throttle. Seconds, not milliseconds — so every wait
+# here is an expect() with a generous ceiling, never a sleep.
 SLOW = 90_000
 LOAD = 20_000
 
@@ -143,12 +142,12 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: ShortlistApp,
     _connect_plex(page, pms_url)
     _skip_history(page)
     _choose_no_curator(page)
-    # The canary must be enabled too: the automatic Privacy Probe (now run server-side at first-run
-    # time, not as a wizard step) needs an enabled Home user as its canary.
+    # Enable the canary too: with no watch history they exercise the cold-start path, where the row
+    # falls back to the default "✨ Picked for You" title (asserted below).
     _pick_users(page, "sarah", "mike", "canary")
 
-    # --- Privacy is verified automatically now — no wizard step. Users -> Make it yours directly;
-    # the probe runs (and cleans up) server-side when the first run writes, asserted below. ---------
+    # --- No privacy step: rows are made private by the share-filter excludes the run writes, so the
+    # wizard goes Users -> Make it yours directly. --------------------------------------------------
     page.get_by_role("button", name="Next").click()
     expect(page.get_by_role("heading", name="Make it yours")).to_be_visible()
 
@@ -300,38 +299,3 @@ def test_wizard_resumes_on_the_same_step_after_a_reload(fresh_page: Page, fresh_
     page.get_by_role("button", name="Back").click()
     page.get_by_role("button", name="Back").click()
     expect(page.get_by_text("Linked to FakePlex")).to_be_visible()
-
-
-def test_a_canary_less_server_refuses_real_writes(
-    fresh_page: Page,
-    fresh_app: ShortlistApp,
-    fake_plex,
-    reset_fake_plex: FakePlexState,
-):
-    """Fail-closed, server-side: with no Home canary the automatic probe can't verify privacy, so a
-    real run must build nothing (plex-safety rule 1). There is no skip affordance anymore — the
-    guarantee is the gate, not the UI. Setup completes via the First-run "Skip for now".
-    """
-    page, app, state = fresh_page, fresh_app, reset_fake_plex
-    pms_url, _, _ = fake_plex
-    stub_plex_pin(page, app)
-
-    page.goto("/")
-    _connect_plex(page, pms_url)
-    _skip_history(page)
-    _choose_no_curator(page)
-    _pick_users(page, "sarah", "mike")  # no canary -> the probe has nobody to check against
-
-    page.get_by_role("button", name="Next").click()
-    expect(page.get_by_role("heading", name="Make it yours")).to_be_visible()
-    page.get_by_role("button", name="Save & continue").click()
-    expect(page.get_by_role("heading", name="First run")).to_be_visible(timeout=LOAD)
-
-    # A real run is refused: the auto-probe records a failed PROBE (no canary), the gate stays shut,
-    # and nothing is written — no UI courtesy required, this is the hard guarantee.
-    created = app.api("POST", "/api/runs", json={"dry_run": False}).json()
-    refused = app.wait_for_run(created["run_id"])
-    assert refused["status"] == "error"
-    assert "privacy gate" in refused["stats"]["error"]
-    assert state.collections == {}, "a canary-less server must write no collections"
-    assert state.users[201].filters["filterMovies"] == "", "a canary-less server must not rewrite share filters"

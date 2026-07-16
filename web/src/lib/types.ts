@@ -289,19 +289,6 @@ export interface RunCreated {
   run_id: number;
 }
 
-/** GET /api/privacy/status. */
-export interface PrivacyStatus {
-  last_check: string | null;
-  passed: boolean | null;
-  tiers: Record<string, boolean>;
-}
-
-/** POST /api/privacy/check {probe:true} response. */
-export interface PrivacyCheckResult {
-  passed: boolean;
-  tiers: Record<string, boolean>;
-}
-
 /** GET /api/settings — free-form until the schema is generated. */
 export type Settings = Record<string, unknown>;
 
@@ -460,13 +447,8 @@ export interface RunLogEntry {
 export interface RunFinishedEvent {
   run_id: number;
   status: string;
-  /** On failure, the reason (e.g. the privacy-gate message) so the UI can show it inline. */
+  /** On failure, the reason so the UI can show it inline. */
   error?: string | null;
-}
-
-/** Event `privacy.probe.step` — one live log line during the Privacy Check. */
-export interface PrivacyProbeStepEvent {
-  message: string;
 }
 
 /**

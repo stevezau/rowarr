@@ -133,14 +133,15 @@ class PlexTvClient:
         return data.get("users", data if isinstance(data, list) else [])
 
     def canary_server_token(self, plex_account_id: int) -> str:
-        """Mint a server-scoped access token for a (non-PIN) Home user — the T2 mechanism.
+        """Mint a server-scoped access token for a (non-PIN) Home user — lets a test view the server
+        as that user to confirm each account's Home shows only its own rows.
 
         Switch to the Home user, then exchange the plex.tv token for this server's
         ``accessToken`` via the resources listing (the switch token alone 401s on the PMS).
         """
         me = next((u for u in self.home_users() if int(u.get("id", 0)) == plex_account_id), None)
         if me is None:
-            raise LookupError(f"account {plex_account_id} is not a Home user — T2 needs a Home canary")
+            raise LookupError(f"account {plex_account_id} is not a Home user — cannot borrow their server token")
         if me.get("protected"):
             raise PermissionError(f"Home user {me.get('title')} is PIN-protected — cannot switch automatically")
         r = http_retry.request(

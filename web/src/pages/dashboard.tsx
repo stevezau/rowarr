@@ -4,9 +4,6 @@ import {
   Clock,
   Gauge,
   Search,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
   Target,
   Users as UsersIcon,
 } from "lucide-react";
@@ -16,55 +13,22 @@ import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { StatTile } from "@/components/stat-tile";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserCard } from "@/components/user-card";
-import { apiErrorMessage } from "@/lib/api";
 import { dashboardStats } from "@/lib/dashboard-stats";
 import { settingString, timeFromCron } from "@/lib/format";
 import {
   queryKeys,
   usePatchUser,
-  usePrivacyStatus,
-  useRunPrivacyCheck,
   useRuns,
   useSettings,
   useStartRun,
   useUsers,
 } from "@/lib/queries";
 import { useSSE } from "@/lib/sse";
-import type { PrivacyStatus, User } from "@/lib/types";
-
-function PrivacyBadge({ status }: { status: PrivacyStatus | undefined }) {
-  if (!status || status.passed === null) {
-    return (
-      <Badge variant="warning">
-        <ShieldQuestion className="h-3 w-3" aria-hidden="true" />
-        Not checked yet
-      </Badge>
-    );
-  }
-  if (status.passed) {
-    return (
-      <Badge variant="success">
-        <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-        Private
-        {status.last_check
-          ? ` · ${new Date(status.last_check).toLocaleDateString()}`
-          : ""}
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="destructive">
-      <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-      Check failed
-    </Badge>
-  );
-}
+import type { User } from "@/lib/types";
 
 function DashboardSkeleton() {
   return (
@@ -88,11 +52,9 @@ function DashboardSkeleton() {
 export function DashboardPage() {
   const usersQuery = useUsers();
   const runsQuery = useRuns();
-  const privacyQuery = usePrivacyStatus();
   const settingsQuery = useSettings();
   const startRun = useStartRun();
   const patchUser = usePatchUser();
-  const privacyCheck = useRunPrivacyCheck();
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
@@ -111,9 +73,6 @@ export function DashboardPage() {
       setPendingRunUserIds(new Set());
       void queryClient.invalidateQueries({ queryKey: queryKeys.users });
       void queryClient.invalidateQueries({ queryKey: queryKeys.runs });
-    },
-    onPrivacyStatus: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.privacy });
     },
   });
 
@@ -161,34 +120,7 @@ export function DashboardPage() {
 
   return (
     <div>
-      <PageHeader
-        icon={Gauge}
-        title="Dashboard"
-        subtitle={scheduleSubtitle}
-        actions={
-          <>
-            <PrivacyBadge status={privacyQuery.data} />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => privacyCheck.mutate({ probe: false })}
-              loading={privacyCheck.isPending}
-            >
-              <ShieldCheck aria-hidden="true" />
-              Check now
-            </Button>
-          </>
-        }
-      />
-
-      {privacyCheck.isError && (
-        <p role="alert" className="mb-4 text-sm text-destructive">
-          {apiErrorMessage(
-            privacyCheck.error,
-            "The Privacy Check could not run. Try again from Settings.",
-          )}
-        </p>
-      )}
+      <PageHeader icon={Gauge} title="Dashboard" subtitle={scheduleSubtitle} />
 
       {/* A refused run (the write gate says why) must be readable, not just a card that stops
           spinning. Same for a rejected enable/disable — the Switch snaps back to the server's

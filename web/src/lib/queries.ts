@@ -13,7 +13,6 @@ export const queryKeys = {
   users: ["users"] as const,
   runs: ["runs"] as const,
   run: (id: number) => ["runs", id] as const,
-  privacy: ["privacy"] as const,
   settings: ["settings"] as const,
   collections: ["collections"] as const,
   requests: ["requests"] as const,
@@ -60,13 +59,6 @@ export function useRun(id: number, enabled = true) {
   });
 }
 
-export function usePrivacyStatus() {
-  return useQuery({
-    queryKey: queryKeys.privacy,
-    queryFn: api.getPrivacyStatus,
-  });
-}
-
 export function useSettings() {
   return useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
 }
@@ -109,17 +101,6 @@ export function useSaveSettings() {
     mutationFn: (settings: Settings) => api.putSettings(settings),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
-  });
-}
-
-export function useRunPrivacyCheck() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    // probe:false (default) = fast read-only T1/T2; probe:true = full ~90s
-    // probe with a throwaway collection (the wizard's step 5).
-    mutationFn: (opts?: { probe?: boolean }) => api.runPrivacyCheck(opts ?? {}),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.privacy }),
   });
 }
 

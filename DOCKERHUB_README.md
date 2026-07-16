@@ -6,9 +6,9 @@ Shortlist watches what each of your users watches, finds similar titles you alre
 LLM (or a plain heuristic — no AI required) curate and explain the picks, and puts them on
 each user's Plex Home screen as their own private row — visible only to them.
 
-- **Private by design** — per-user label restrictions (Plex Pass, PMS ≥ 1.43.2), proven by a
-  built-in Privacy Check before anything real is written, re-verified automatically before each
-  run whenever the last check is stale.
+- **Private by design** — per-user label restrictions (Plex Pass, PMS ≥ 1.43.2): each row is
+  excluded on every other account's share, delivered hidden and promoted only once the exclusions
+  are in place. Share filters are snapshotted first and restored on uninstall.
 - **Can't hallucinate** — the AI only ranks titles verified to exist in your library.
 - **Reversible** — every share-filter change is snapshotted; uninstall provably restores
   your server.

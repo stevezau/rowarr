@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { eventsUrl } from "./api";
-import type {
-  PrivacyProbeStepEvent,
-  PrivacyStatus,
-  RunFinishedEvent,
-  RunUserStageEvent,
-} from "./types";
+import type { RunFinishedEvent, RunUserStageEvent } from "./types";
 
 export interface SSEHandlers {
   onRunUserStage?: (event: RunUserStageEvent) => void;
   onRunFinished?: (event: RunFinishedEvent) => void;
-  onPrivacyStatus?: (event: PrivacyStatus) => void;
-  onPrivacyProbeStep?: (event: PrivacyProbeStepEvent) => void;
 }
 
 const INITIAL_RETRY_MS = 1_000;
@@ -68,22 +61,6 @@ export function useSSE(handlers: SSEHandlers): { connected: boolean } {
         const data = parseData<RunFinishedEvent>(event.data);
         if (data) handlersRef.current.onRunFinished?.(data);
       });
-
-      source.addEventListener(
-        "privacy.status",
-        (event: MessageEvent<string>) => {
-          const data = parseData<PrivacyStatus>(event.data);
-          if (data) handlersRef.current.onPrivacyStatus?.(data);
-        },
-      );
-
-      source.addEventListener(
-        "privacy.probe.step",
-        (event: MessageEvent<string>) => {
-          const data = parseData<PrivacyProbeStepEvent>(event.data);
-          if (data) handlersRef.current.onPrivacyProbeStep?.(data);
-        },
-      );
 
       source.onerror = () => {
         setConnected(false);

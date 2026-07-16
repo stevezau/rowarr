@@ -212,16 +212,6 @@ class RestrictionSnapshotRow(Base):
     filters_after: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
-class PrivacyCheck(Base):
-    __tablename__ = "privacy_checks"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ran_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    tier: Mapped[str] = mapped_column(String(8))
-    passed: Mapped[bool] = mapped_column(Boolean)
-    detail: Mapped[dict] = mapped_column(JSON, default=dict)
-
-
 class CacheRow(Base):
     __tablename__ = "caches"
 

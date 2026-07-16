@@ -1,4 +1,4 @@
-import { RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
+import { RotateCcw, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,11 +12,6 @@ const PROMISES = [
     body: "Every user gets a “✨ Picked for You” row on their Plex Home, built from what they actually watched — and visible only to them.",
   },
   {
-    icon: ShieldCheck,
-    title: "Proven before it writes",
-    body: "Nothing is written to Plex until the built-in Privacy Check passes on your server: it creates a throwaway row, proves it stays hidden from the people it should, and cleans up after itself.",
-  },
-  {
     icon: RotateCcw,
     title: "Reversible",
     body: "Every share setting Shortlist touches is snapshotted first. Uninstall puts your server back exactly as Shortlist found it.",
@@ -27,7 +22,7 @@ const PROMISES = [
 export function StepWelcome({ next }: StepProps) {
   return (
     <div className="space-y-8">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {PROMISES.map(({ icon: Icon, title, body }) => (
           <Card key={title}>
             <CardContent className="space-y-2 pt-6">

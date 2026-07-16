@@ -53,7 +53,7 @@ describe("canLeaveStep", () => {
     ).toBe(false);
   });
 
-  it("leaves the ungated steps open (privacy is verified automatically, not a wizard gate)", () => {
+  it("leaves the ungated steps open", () => {
     for (const step of [0, 4, 5, 6]) {
       expect(canLeaveStep(step, {})).toBe(true);
     }

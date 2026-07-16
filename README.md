@@ -14,14 +14,14 @@ automatically, every night. Netflix's killer feature, on Plex, without Plex's in
 ## Why this couldn't exist before 2026
 
 Per-user private collections were impossible until Plex fixed label restrictions on
-Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on that fix — and
-**proves it works on your server** with a built-in Privacy Check before writing anything real.
+Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on that fix: each row
+is a labeled collection excluded on every other account's share, so only its owner ever sees it.
 
 ## Features
 
 - 🔒 **Private by design** — each user's row is a labeled collection excluded on the share of
   every other account on your server (one row per library, since Plex filters per library).
-  Verified by probe before the first write and re-verified by every run that finds the check stale, snapshotted and reversible.
+  Share filters are snapshotted before the first change and fully restored on uninstall.
 - 🧠 **AI that can't hallucinate** — the LLM (Claude / GPT / Gemini / local Ollama) only
   re-ranks titles verified to exist in your library. **Works with zero AI** too (heuristic
   mode) — no keys required.

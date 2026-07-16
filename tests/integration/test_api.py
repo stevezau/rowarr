@@ -1262,15 +1262,6 @@ class TestCollectionsApi:
         assert client.post("/api/collections", json={"name": "Movie Night"}).status_code == 422
 
 
-class TestPrivacyApi:
-    def test_status_empty(self, client: TestClient):
-        r = client.get("/api/privacy/status").json()
-        assert r == {"last_check": None, "passed": None, "tiers": {}}
-
-    def test_snapshots_empty(self, client: TestClient):
-        assert client.get("/api/privacy/snapshots").json() == []
-
-
 class TestEventsApi:
     def test_audit_log_empty(self, client: TestClient):
         assert client.get("/api/events/log").json() == []

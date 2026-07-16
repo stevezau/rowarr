@@ -1,11 +1,13 @@
-"""Full engine pipeline + privacy probe against the in-process fake PMS/plex.tv/TMDB.
+"""Full engine pipeline against the in-process fake PMS/plex.tv/TMDB.
 
 Real plexapi and real httpx over real (loopback) HTTP — the only stand-ins are the servers
 themselves (tests/fakes/fake_plex.py plus a tiny TMDB app below). No mocks on the engine side.
+The per-user row hiding is asserted directly (each account's own Home shows only its own rows).
 """
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from dataclasses import replace
@@ -24,8 +26,6 @@ from shortlist.engine.history import PlexHistorySource
 from shortlist.engine.models import EngineConfig, MediaType, RowSpec, UserProfile, UserType
 from shortlist.engine.pipeline import EngineContext
 from shortlist.engine.pipeline import run as engine_run
-from shortlist.engine.probe import run_privacy_probe
-from shortlist.engine.verify import check_t1, check_t2, collection_id_from_hub
 from tests.fakes.fake_plex import (
     FakeCollection,
     FakeHistoryEntry,
@@ -38,6 +38,15 @@ from tests.fakes.fake_plex import (
 from tests.fakes.file_stores import FileSnapshotStore
 
 pytestmark = pytest.mark.integration
+
+_COLLECTION_KEY = re.compile(r"/library/collections/(\d+)")
+
+
+def collection_id_from_hub(hub: dict) -> int | None:
+    """Collection id behind a Home hub, or None for non-collection hubs — so a test can assert which
+    of a user's rows are (in)visible on their own Home."""
+    match = _COLLECTION_KEY.search(str(hub.get("key") or hub.get("hubKey") or ""))
+    return int(match.group(1)) if match else None
 
 
 def _make_fake_tmdb(state: FakePlexState) -> FastAPI:
@@ -135,7 +144,7 @@ def fakes(monkeypatch):
         server.stop()
 
 
-def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
+def test_engine_run_end_to_end(fakes, tmp_path):
     state, pms_url, _tmdb_app = fakes
     plex = PlexClient(pms_url, state.owner_token)
     assert plex.machine_id == state.machine_id
@@ -225,11 +234,6 @@ def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
     foreign = set(owned["sarah"].rating_keys) | set(owned["mike"].rating_keys)
     assert not (foreign & canary_hub_ids), "another user's row is visible to the canary"
 
-    canary = next(u for u in users if u.slug == "canary")
-    known = {u.plex_account_id: u.slug for u in users}
-    assert check_t1(plextv, known, {slug: row.label for slug, row in owned.items()}).passed
-    assert check_t2(plex, plextv, canary, owned).passed
-
     # Second run is a steady-state no-op: same rows, zero filter writes, update path exercised
     # (sortUpdate + moveItem run against the existing collections instead of createCollection).
     report2 = engine_run(ctx, users)
@@ -238,25 +242,6 @@ def test_engine_run_and_privacy_probe_end_to_end(fakes, tmp_path):
     assert len(state.collections) == len(all_ids)  # no duplicate rows created on a re-run
     for account_id, merged in expected.items():
         assert state.users[account_id].filters["filterMovies"] == merged
-
-    # Privacy probe passes end to end and cleans up after itself.
-    filters_before_probe = dict(state.users[203].filters)
-    result = run_privacy_probe(
-        plex,
-        plextv,
-        canary,
-        ctx.snapshots,
-        visible_timeout_s=2,
-        hidden_timeout_s=2,
-        poll_interval_s=0.01,
-        sleep=lambda s: None,
-    )
-    assert result.passed, result.detail
-    assert result.detail["baseline_visible"] is True
-    assert result.detail["t1_filter_persisted"] is True
-    assert result.detail["hidden_after_exclusion"] is True
-    assert "probe" not in plex.owned_collections()  # probe collection deleted in finally
-    assert state.users[203].filters == filters_before_probe  # canary filters restored byte-identical
 
 
 def _add_4k_movie_library(state: FakePlexState) -> FakeSection:
@@ -612,9 +597,6 @@ def test_a_run_heals_the_leaking_rows_a_previous_version_left_behind(fakes, tmp_
         visible = {collection_id_from_hub(h) for h in plex.user_hubs(f"server-{account_id}")}
         foreign = {key for other, row in owned.items() if other != slug for key in row.rating_keys}
         assert not (foreign & visible), f"{slug} can still see another user's row"
-
-    canary = next(u for u in users if u.slug == "canary")
-    assert check_t2(plex, plextv, canary, owned).passed
 
 
 def test_a_bad_night_upstream_does_not_destroy_an_established_row(fakes, tmp_path):
@@ -1044,10 +1026,6 @@ def test_every_account_that_shares_the_server_gets_the_excludes_not_just_the_man
     for account_id in (202, 203):
         visible = {collection_id_from_hub(h) for h in plex.user_hubs(f"server-{account_id}")}
         assert not (set(sarah_rows) & visible), f"account {account_id} sees sarah's row on their Home"
-
-    # T1 agrees — and would have failed before, because it only ever checked managed users.
-    known = {u.plex_account_id: u.slug for u in [sarah]}
-    assert check_t1(plextv, known, {slug: row.label for slug, row in plex.owned_collections().items()}).passed
 
 
 def test_a_user_who_is_no_longer_shared_with_does_not_block_everyone_elses_rows(fakes, tmp_path):

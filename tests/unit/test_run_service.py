@@ -125,7 +125,6 @@ class TestRunExecution:
     def test_run_persists_report_picks_and_events(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)  # gate has its own matrix tests
         monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
         monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: fake_report())
 
@@ -161,7 +160,6 @@ class TestRunExecution:
         shared row produced an errored run with nothing to show for it."""
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
         monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
 
         shared = UserRunReport(
@@ -193,7 +191,6 @@ class TestRunExecution:
     def test_a_failed_shared_row_makes_the_run_an_error(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
         monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
 
         shared = UserRunReport(
@@ -229,7 +226,6 @@ class TestRunExecution:
 
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
         monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
 
         # The `sessions` fixture already seeds sarah.
@@ -287,7 +283,6 @@ class TestRunExecution:
 
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
         monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
 
         sent = MissingTitle(42, "Dune", MediaType.MOVIE, 2021, rating=8.5, vote_count=900, demand=4)
@@ -332,7 +327,6 @@ class TestRunExecution:
 
     def test_context_build_failure_marks_run_error(self, sessions, tmp_path, monkeypatch):
         service = RunService(sessions, EventBus(), tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "_privacy_gate_error", lambda: None)
 
         def boom(**kw):
             raise RuntimeError("Plex connection is not configured yet")

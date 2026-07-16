@@ -150,38 +150,26 @@ tags round-trip through `GET /api/requests` (`tags[]`) and are applied on `send`
 All endpoints except `/api/system/health` require the owner session; mutations require the
 `x-shortlist-csrf: 1` header.
 
-## The write gate
+## How rows stay private
 
-Shortlist refuses real (non-dry-run) writes unless **both** hold:
+Each row is a Plex collection labelled `shortlist_<userslug>`. Every _other_ account's share filter
+gets a `label!=shortlist_<userslug>` exclusion (merged into their existing `filterMovies` /
+`filterTelevision`, never rebuilt), so only its owner ever sees it. The write ordering is what keeps
+this leak-safe: a run delivers rows **unpromoted**, merges all the exclusions, and only **then**
+promotes rows onto Home — a new row is never visible before the exclusion that hides it exists. Rows
+Plex cannot hide (wrong media type for their library) are swept away first, before anything else.
 
-1. A **passing Privacy Check** is on record and is at most **7 days old** (every tier's most
-   recent result must pass — a stale T2 failure can't be masked by a newer T1-only pass).
-2. The linked PMS is **≥ 1.43.2.10687**.
+Before Shortlist first edits an account's filters it snapshots them (`restriction_snapshots`), so
+**Uninstall** restores every share exactly as it found it. The one hard requirement is a PMS
+**≥ 1.43.2.10687** (older builds ignore the label exclusion).
 
-Checks are recorded in the `privacy_checks` table. **Every real run runs the check itself as its
-first phase** — if the gate isn't already open, the run performs the check, records the result, and
-only then decides whether to write; the owner never runs it by hand. A manual re-check is available
-any time (Settings → Privacy → Run Privacy Check). A refused run is recorded as an errored run with
-a plain-English reason — it never half-applies.
-
-## Privacy Check tiers
-
-| Tier      | What it does                                                                                                                                                                                           | Cost                   |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
-| **T1**    | Reads back the share filters of EVERY account the server is shared with and asserts the expected exclusions are present                                                                                | seconds, read-only     |
-| **T2**    | Fetches a canary Home user's own Home hubs and asserts no other user's collection id appears                                                                                                           | seconds, read-only     |
-| **PROBE** | Creates a throwaway labeled collection, promotes it, confirms the canary can see it, excludes it, confirms it disappears — then restores filters byte-identically and deletes the probe (in `finally`) | ~90s, fully reversible |
-
-Each real run auto-runs PROBE (when a canary Home user exists, else T1/T2) before it writes. The
-same full check is available on demand from Settings → Privacy → **Run full check**.
-
-**Every check refreshes every tier.** The gate reads the latest result of EACH tier across all
-history, so a tier nothing re-runs would latch it: a T1 failure would outlive the remedy pass that
-fixed it, and a T1 that _passed_ would simply age past 7 days and stop the server building rows. So
-a probe run records T1 and T2 alongside PROBE.
+> Earlier versions ran an automatic _Privacy Check_ that verified the hiding before each write and
+> refused to write if it couldn't confirm it. That check + its write gate were removed at the
+> maintainer's request; the hiding above still happens on every run, but it is no longer verified
+> after the fact.
 
 ## Files under /config
 
-`shortlist.db` (SQLite — settings, users, runs, privacy checks, restriction snapshots, and the
+`shortlist.db` (SQLite — settings, users, runs, restriction snapshots, and the
 durable plex-account-id → slug map a row's label is built from) · `secret.key` (Fernet, 600) ·
 `session.secret` · `logs/`.

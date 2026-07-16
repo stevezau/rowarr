@@ -104,7 +104,7 @@ export function RunsPage() {
         }
       />
 
-      {/* The write gate refuses a run in plain English (no passing Privacy Check, PMS too old).
+      {/* A refused or failed run says why in plain English (e.g. PMS too old, Plex unreachable).
           Swallowing that left the button looking like it had done nothing at all. */}
       {startRun.isError && (
         <MutationAlert

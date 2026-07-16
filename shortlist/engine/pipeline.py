@@ -646,8 +646,8 @@ def _request_phase(ctx: EngineContext, requests_on: bool, demand: requests_mod.D
 
     It touches no Plex object, and running it here (not before the privacy sync) keeps its "never
     affects visibility" guarantee literally true: a slow or hung download app cannot delay the
-    share-filter merge that hides freshly-delivered rows. It runs only on real user runs — the
-    gated remedy pass (no users) gathered no demand — and respects dry_run itself.
+    share-filter merge that hides freshly-delivered rows. It runs only on real user runs — a
+    no-users run gathers no demand — and respects dry_run itself.
     """
     if requests_on and demand:
         try:

@@ -41,9 +41,10 @@ The wizard then walks:
    current favourite — e.g. "Because you watched {top_seed}").
 6. **First run** — live per-user progress; when it finishes, each user has their private row.
 
-There's no manual Privacy Check step: Shortlist verifies privacy automatically as the first phase
-of every real run (and refuses to write if it can't confirm rows stay hidden), so **nothing real is
-written until that check passes**. You can re-run it any time under Settings → Privacy.
+Every row is kept private automatically: it's a labeled collection excluded on every other
+account's share, delivered hidden and only promoted once those exclusions are in place. Your share
+filters are snapshotted before the first change, so **Uninstall** (Settings → Danger Zone) puts them
+back exactly as they were. This needs a PMS ≥ 1.43.2.10687 — the wizard checks your version up front.
 
 ## The one honest caveat
 

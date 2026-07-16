@@ -1,7 +1,7 @@
 """The Sonarr/Radarr approval inbox: list wanted-but-missing titles, send the chosen ones, reject the rest.
 
-A request asks a download app for a file — it touches no Plex object — so nothing here sits behind the
-privacy gate. It is gated only on the owner session and on requests being configured. Sending runs in a
+A request asks a download app for a file — it touches no Plex object. It is gated only on the owner
+session and on requests being configured. Sending runs in a
 worker thread (the Arr/TMDB clients are sync) and respects ``dry_run``.
 """
 

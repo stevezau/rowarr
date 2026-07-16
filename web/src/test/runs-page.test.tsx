@@ -27,7 +27,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 const REFUSAL =
-  "Refused: no passing Privacy Check in the last 7 days. Run a Privacy Check from Settings, then try again.";
+  "Refused: this Plex server is too old. Update to 1.43.2 or newer, then try again.";
 
 function renderPage() {
   const client = new QueryClient({
@@ -60,7 +60,7 @@ describe("RunsPage", () => {
 
     // The refusal used to be swallowed: the button just stopped, as if nothing had happened.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /no passing Privacy Check/i,
+      /this Plex server is too old/i,
     );
   });
 

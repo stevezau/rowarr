@@ -184,9 +184,8 @@ export function StepFirstRun({ complete }: StepProps) {
           <p className="text-sm text-muted-foreground">
             This builds a real row for every enabled user — history → candidates
             → curating → collection → privacy sync — and you get to watch every
-            stage live. Shortlist verifies privacy on your server before it
-            writes anything; if a row can&rsquo;t be kept private, the run stops
-            itself rather than expose it.
+            stage live. Each row is delivered hidden and only shown to the
+            person it&rsquo;s for.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Button

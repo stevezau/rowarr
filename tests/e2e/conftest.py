@@ -373,13 +373,11 @@ def fresh_page(browser: Browser, fresh_app: ShortlistApp) -> Iterator[Page]:
 
 
 def build_real_rows(app: ShortlistApp) -> dict:
-    """Get an app that has actually written rows to Plex: pass the privacy gate, then run for real.
+    """Get an app that has actually written rows to Plex: run for real.
 
     Uses the API rather than the UI on purpose — tests that assert on Runs/Users/uninstall need
     rows to EXIST, and driving the wizard again to get them would test the wizard twice.
     """
-    check = app.api("POST", "/api/privacy/check", json={}).json()
-    assert check["passed"], f"the read-only privacy check must pass against the fake: {check}"
     created = app.api("POST", "/api/runs", json={"dry_run": False}).json()
     run = app.wait_for_run(created["run_id"])
     assert run["status"] == "ok", run

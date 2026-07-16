@@ -113,25 +113,6 @@ describe("api", () => {
     });
   });
 
-  it("defaults the privacy check to the fast read-only pass", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ passed: true, tiers: {} }));
-
-    await api.runPrivacyCheck();
-
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/api/privacy/check");
-    expect(JSON.parse(init.body as string)).toEqual({ probe: false });
-  });
-
-  it("runs the full probe when asked for it (the wizard's step 5)", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ passed: true, tiers: {} }));
-
-    await api.runPrivacyCheck({ probe: true });
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ probe: true });
-  });
-
   it("normalizes FastAPI error bodies into ApiError with the detail message", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ detail: "Plex token is invalid" }, { status: 401 }),

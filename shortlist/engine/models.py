@@ -535,12 +535,3 @@ class FilterSnapshot:
     username: str
     taken_at: datetime
     filters: dict[str, str]  # filterAll/filterMovies/filterTelevision/filterMusic/filterPhotos
-
-
-@dataclass
-class PrivacyCheckResult:
-    """Outcome of a T1/T2 verification pass."""
-
-    tier: str
-    passed: bool
-    detail: dict[str, object] = field(default_factory=dict)

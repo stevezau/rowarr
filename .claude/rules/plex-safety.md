@@ -1,5 +1,5 @@
 ---
-globs: "shortlist/engine/{privacy,delivery,verify}*.py,shortlist/engine/clients/plex*.py"
+globs: "shortlist/engine/{privacy,delivery}*.py,shortlist/engine/clients/plex*.py"
 ---
 
 # Plex Safety Rules (non-negotiable)
@@ -8,25 +8,19 @@ Shortlist modifies other people's Plex views and share permissions. These rules 
 path that WRITES to a Plex server or plex.tv. The Architecture Review agent blocks commits that
 violate them.
 
-1. **Privacy gate.** No real collection/label/visibility/filter write happens unless the instance
-   has a passing Privacy Check recorded (`privacy_checks` row). Three bounded exceptions, and only
-   three:
-   - **Probes** — the Privacy Check itself.
-   - **The remedy pass** (`engine_run(ctx, [])` — the unhidable-row sweep plus merge-only exclude
-     writes). The remedy runs precisely BECAUSE the gate is closed: a missing exclude, or a row Plex
-     cannot hide, is what fails the check — so a gate that blocked the fix would block the only thing
-     that can reopen it, and the leak would be permanent. The remedy may never create a collection,
-     promote one, or remove an exclude; it may only make the server more private.
-   - **Privacy-neutral reconciles** — an on-demand config-change cleanup that only ever makes the
-     server _more_ private (deleting a stale collection when a row/user/audience is removed) or is
-     _visibility-invariant_ (retitling a collection in place with `editTitle`, preserving its label).
-     These cannot leak: a removal can only reduce what's visible, and a rename changes only the human
-     title while the `label!=shortlist_<userslug>` exclusion that hides the row — keyed on the LABEL —
-     is untouched. Such a reconcile may **never** create a collection, promote one, remove/alter an
-     exclude or share filter, or change a collection's label; it may only delete an owned collection
-     or retitle one in place. Anything else stays behind the gate.
+> **Note (2026-07-16, owner decision):** the automatic _Privacy Check_ + write gate that used to
+> verify hiding before each write was **removed** at the owner's request. Rows are still made private
+> the same way — the share-filter excludes below — but nothing verifies it after the fact anymore.
+> That makes the leak-safe **write ordering** (rule 1) the load-bearing guarantee: get it wrong and a
+> row can be briefly visible to the wrong person with no check to catch it.
 
-   Anything not covered by these three stays behind the gate.
+1. **Leak-safe write ordering.** A per-person row must never be visible to another user before the
+   exclusion that hides it exists. Every run therefore: (a) sweeps rows Plex cannot hide (wrong type
+   for their library) BEFORE anything else, (b) delivers all rows UNPROMOTED, (c) merges the
+   `label!=shortlist_<userslug>` excludes into every account's share filter, and only THEN (d)
+   promotes rows onto shared Home. Never promote a row before its excludes are merged. A run with no
+   users (`engine_run(ctx, [])`) still does the sweep + merge — it only ever makes the server more
+   private, never creates or promotes.
 
 2. **Snapshot first.** Before the first restriction mutation for a user, persist a
    `restriction_snapshots` row with their current filters. Uninstall restores from these.

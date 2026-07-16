@@ -30,7 +30,8 @@ function collection(patch: Partial<Collection> = {}): Collection {
     freshness: null,
     placement: "both",
     pin_top: false,
-    hub_anchor: {},    prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style
+    hub_anchor: {},
+    prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style
     ...patch,
   } as Collection;
 }
@@ -69,7 +70,26 @@ describe("rowOverrides", () => {
     expect(parts).toContain("Libraries: Library 9");
   });
 
-  it("reports a non-default tone, guidance notes, and a custom prompt distinctly", () => {
+  it("badges a row with its own curation instructions as a custom style", () => {
+    // The style UI is now one Instructions box (stored as guidance) — any instructions = custom style.
+    expect(
+      rowOverrides(
+        collection({
+          prompt: { tone: "", guidance: "keep it short", template: "" },
+        }),
+        LIBRARIES,
+      ),
+    ).toContain("Custom style");
+
+    // Rows saved by the old three-field UI (a lingering tone/template) still read as custom.
+    expect(
+      rowOverrides(
+        collection({
+          prompt: { tone: "", guidance: "", template: "You are..." },
+        }),
+        LIBRARIES,
+      ),
+    ).toContain("Custom style");
     expect(
       rowOverrides(
         collection({
@@ -78,25 +98,6 @@ describe("rowOverrides", () => {
         LIBRARIES,
       ),
     ).toContain("Style: Cinephile");
-
-    expect(
-      rowOverrides(
-        collection({
-          prompt: { tone: "warm", guidance: "keep it short", template: "" },
-        }),
-        LIBRARIES,
-      ),
-    ).toContain("Style: Warm + notes");
-
-    // A full custom template supersedes tone/guidance — the row's prompt is wholly its own.
-    expect(
-      rowOverrides(
-        collection({
-          prompt: { tone: "warm", guidance: "notes", template: "You are..." },
-        }),
-        LIBRARIES,
-      ),
-    ).toContain("Style: custom prompt");
   });
 
   it("never claims a style override on the default row — the engine curates it with the global recipe", () => {

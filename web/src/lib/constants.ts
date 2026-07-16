@@ -34,6 +34,20 @@ export const PRIVACY_TIER_LABELS: Record<string, string> = {
   PROBE: "Live probe",
 };
 
+/**
+ * Editable starter text each tone drops into the single Curation "Instructions" box. Picking a tone
+ * is now a quick-fill you tune, not a hidden setting — so the AI's style is always visible in plain
+ * English. "Balanced" is the house default, so it clears the box.
+ */
+export const TONE_STARTERS: Record<string, string> = {
+  balanced: "",
+  warm: "Write the reasons warmly, like a friend who can’t wait for them to watch it.",
+  concise: "Keep the reasons short and punchy — just the hook, no filler.",
+  cinephile:
+    "Write for a film buff — nod to directors, genre lineage, or craft where it fits.",
+  playful: "Give the reasons a light, playful wink — fun, never cheesy.",
+};
+
 /** Display names for the curation tones (`PROMPT_TONES`), shared by the editor and the row list. */
 export const TONE_LABELS: Record<string, string> = {
   balanced: "Balanced",

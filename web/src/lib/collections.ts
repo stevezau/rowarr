@@ -150,11 +150,10 @@ export function rowOverrides(
   // badging one here would advertise a setting no run will ever apply.
   if (collection.slug !== DEFAULT_ROW_SLUG) {
     const { tone, guidance, template } = collection.prompt ?? {};
-    // A blank tone means the row inherits Settings → Curation style, so there's nothing to badge.
-    const toneLabel = tone ? (TONE_LABELS[tone] ?? tone) : "";
-    if (template) parts.push("Style: custom prompt");
-    else if (guidance) parts.push(`Style: ${toneLabel || "Inherited"} + notes`);
-    else if (tone) parts.push(`Style: ${toneLabel}`);
+    // Curation style is now one "Instructions" box (stored as guidance); tone/template linger only on
+    // rows saved by the old three-field UI. Any of them means this row has its own style.
+    if (guidance || template) parts.push("Custom style");
+    else if (tone) parts.push(`Style: ${TONE_LABELS[tone] ?? tone}`);
   }
 
   return parts;

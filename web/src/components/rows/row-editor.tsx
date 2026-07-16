@@ -89,10 +89,17 @@ export function RowEditor({
               disabled={isDefault}
               onChange={(event) => set({ name: event.target.value })}
             />
-            {isDefault && (
+            {isDefault ? (
               <p className="text-sm text-muted-foreground">
                 The default row’s name and size follow Settings → Defaults, so
                 they stay in sync everywhere. Change them there.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Use <span className="font-mono">{"{user}"}</span> for each
+                person’s name or{" "}
+                <span className="font-mono">{"{top_seed}"}</span> for their top
+                watched title.
               </p>
             )}
           </div>

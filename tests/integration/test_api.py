@@ -121,6 +121,33 @@ class TestUsersApi:
         assert r.status_code == 200 and r.json()["enabled"] is False
         assert len(deleted) == 1  # their collection was removed by their whole label
 
+    def test_set_all_users_enabled_toggles_everyone_and_cleans_up_on_disable(self, client: TestClient, monkeypatch):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from shortlist.engine.models import EngineConfig
+
+        # Record the actual Plex removals, keyed by the shortlist label they came in on.
+        removed_labels: list[str] = []
+        plex = MagicMock()
+        plex.sections.return_value = [SimpleNamespace(title="Movies")]
+        plex.find_owned_collections.side_effect = lambda section, label: [SimpleNamespace(title=label, _label=label)]
+        plex.delete_owned_collection.side_effect = lambda collection, prefix: removed_labels.append(collection._label)
+        ctx = SimpleNamespace(plex=plex, config=EngineConfig())
+        monkeypatch.setattr(client.app.state.run_service, "build_context", lambda **kw: ctx)
+
+        # Enable all -> everyone on, and NOTHING removed from Plex.
+        r = client.post("/api/users/set-enabled", json={"enabled": True})
+        assert r.status_code == 200 and r.json()["enabled"] is True
+        assert all(u["enabled"] for u in client.get("/api/users").json())
+        assert removed_labels == []  # enabling never triggers a Plex write
+
+        # Disable all -> everyone off, and BOTH users' rows actually removed (by their own label).
+        r = client.post("/api/users/set-enabled", json={"enabled": False})
+        assert r.status_code == 200 and r.json()["cleaned"] == 2
+        assert set(removed_labels) == {"shortlist_sarah", "shortlist_mike"}
+        assert not any(u["enabled"] for u in client.get("/api/users").json())
+
     def test_patch_prompt_prefs_persist(self, client: TestClient):
         users = client.get("/api/users").json()
         target = next(u for u in users if u["username"] == "sarah")

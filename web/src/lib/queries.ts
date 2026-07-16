@@ -85,6 +85,15 @@ export function usePatchUser() {
   });
 }
 
+export function useSetAllUsersEnabled() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.setAllUsersEnabled(enabled),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.users }),
+  });
+}
+
 export function useStartRun() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -126,9 +126,10 @@ export function RowCard({
               preview.mutate();
             }}
             aria-label={`Remove ${collection.name} from Plex`}
-            title="Remove from Plex"
+            title="Take the row off Plex now, but keep it here to rebuild next run"
           >
             <Eraser aria-hidden="true" />
+            Remove from Plex
           </Button>
           {!isDefault && (
             <Button
@@ -137,8 +138,11 @@ export function RowCard({
               loading={remove.isPending}
               onClick={() => setConfirmOpen(true)}
               aria-label={`Delete ${collection.name}`}
+              title="Delete this row for good"
+              className="text-destructive hover:text-destructive"
             >
               {!remove.isPending && <Trash2 aria-hidden="true" />}
+              Delete
             </Button>
           )}
         </div>

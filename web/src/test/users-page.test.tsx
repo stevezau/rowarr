@@ -9,9 +9,12 @@ import { ApiError } from "@/lib/api";
 import type { User, UserPatch } from "@/lib/types";
 import { UsersPage } from "@/pages/users";
 
-const { getUsers, patchUser } = vi.hoisted(() => ({
+const { getUsers, patchUser, setAllUsersEnabled } = vi.hoisted(() => ({
   getUsers: vi.fn(),
   patchUser: vi.fn(),
+  setAllUsersEnabled: vi.fn(() =>
+    Promise.resolve({ updated: 1, cleaned: 0, enabled: true }),
+  ),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -21,6 +24,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: {
       getUsers: () => getUsers(),
       patchUser: (id: number, patch: UserPatch) => patchUser(id, patch),
+      setAllUsersEnabled: (enabled: boolean) => setAllUsersEnabled(enabled),
     },
   };
 });
@@ -55,6 +59,38 @@ describe("UsersPage", () => {
   beforeEach(() => {
     getUsers.mockReset();
     patchUser.mockReset();
+    setAllUsersEnabled.mockClear();
+  });
+
+  it("enables everyone in one click", async () => {
+    getUsers.mockResolvedValue([SARAH]);
+    renderPage();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Enable all/i }),
+    );
+
+    await waitFor(() => expect(setAllUsersEnabled).toHaveBeenCalledWith(true));
+  });
+
+  it("only disables everyone after confirming (it removes rows)", async () => {
+    getUsers.mockResolvedValue([SARAH]);
+    renderPage();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Disable all/i }),
+    );
+    // Nothing happens until the confirm — this wipes rows from Plex.
+    expect(setAllUsersEnabled).not.toHaveBeenCalled();
+    expect(screen.getByText(/Turn off every user\?/i)).toBeTruthy();
+
+    // Confirm inside the dialog.
+    const dialogConfirm = screen
+      .getAllByRole("button", { name: /^Disable all$/i })
+      .at(-1)!;
+    await userEvent.click(dialogConfirm);
+
+    await waitFor(() => expect(setAllUsersEnabled).toHaveBeenCalledWith(false));
   });
 
   it("says why when turning a user off is rejected, rather than just snapping the switch back", async () => {

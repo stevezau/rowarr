@@ -177,6 +177,15 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  /** Enable or disable every user at once. Disabling also removes their rows from Plex. */
+  setAllUsersEnabled: (
+    enabled: boolean,
+  ): Promise<{ updated: number; cleaned: number; enabled: boolean }> =>
+    request("/api/users/set-enabled", {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
   syncUsers: (): Promise<unknown> =>
     request("/api/users/sync", { method: "POST" }),
 

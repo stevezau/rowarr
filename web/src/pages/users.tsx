@@ -1,4 +1,5 @@
 import { Users as UsersIcon } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { MutationAlert } from "@/components/mutation-alert";
@@ -6,6 +7,15 @@ import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { UserAvatar } from "@/components/user-avatar";
 import { UserBadges } from "@/components/user-badges";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -17,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatHitRate, timeAgo } from "@/lib/format";
-import { usePatchUser, useUsers } from "@/lib/queries";
+import { useSetAllUsersEnabled, usePatchUser, useUsers } from "@/lib/queries";
 
 function UsersSkeleton() {
   return (
@@ -32,6 +42,8 @@ function UsersSkeleton() {
 export function UsersPage() {
   const usersQuery = useUsers();
   const patchUser = usePatchUser();
+  const setAll = useSetAllUsersEnabled();
+  const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
 
   return (
     <div>
@@ -39,6 +51,23 @@ export function UsersPage() {
         icon={UsersIcon}
         title="Users"
         subtitle="Everyone on your Plex server. Turn a user on to give them a nightly Picked-for-You row."
+        actions={
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setAll.mutate(true)}
+              loading={setAll.isPending && setAll.variables === true}
+            >
+              Enable all
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDisableOpen(true)}
+            >
+              Disable all
+            </Button>
+          </div>
+        }
       />
 
       {/* The Switch reads the server's answer, so a rejected PATCH just snaps it back — which is
@@ -54,6 +83,45 @@ export function UsersPage() {
           }}
         />
       )}
+      {setAll.isError && (
+        <MutationAlert
+          className="mb-4"
+          error={setAll.error}
+          fallback="Couldn’t update everyone at once. Try again."
+        />
+      )}
+
+      <Dialog open={confirmDisableOpen} onOpenChange={setConfirmDisableOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Turn off every user?</DialogTitle>
+            <DialogDescription>
+              This disables all users and removes every Picked-for-You row from
+              Plex right away. Share filters and snapshots are left untouched —
+              turn anyone back on to rebuild their row on the next run.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmDisableOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              loading={setAll.isPending && setAll.variables === false}
+              onClick={() =>
+                setAll.mutate(false, {
+                  onSuccess: () => setConfirmDisableOpen(false),
+                })
+              }
+            >
+              Disable all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <QueryBoundary
         query={usersQuery}

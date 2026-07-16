@@ -46,8 +46,11 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
               onChange={(event) => setRowNameTpl(event.target.value)}
             />
             <p className="text-sm text-muted-foreground">
-              Use <span className="font-mono">{"{top_seed}"}</span> for each
-              user's top watched title.
+              Use <span className="font-mono">{"{user}"}</span> for each
+              person's name (e.g.{" "}
+              <span className="font-mono">✨ Picked for {"{user}"}</span>) or{" "}
+              <span className="font-mono">{"{top_seed}"}</span> for their top
+              watched title.
             </p>
             <div className="rounded-md border bg-card p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">

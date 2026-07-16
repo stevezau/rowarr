@@ -122,8 +122,9 @@ export function StepCustomize({ update, next }: StepProps) {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            Tip: <span className="font-mono">{"{top_seed}"}</span> becomes each
-            user's top watched title, fresh every night.
+            Tip: <span className="font-mono">{"{user}"}</span> becomes each
+            person's name, and <span className="font-mono">{"{top_seed}"}</span>{" "}
+            their top watched title, fresh every night.
           </p>
         </div>
       )}

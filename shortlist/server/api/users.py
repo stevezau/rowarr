@@ -51,6 +51,10 @@ class UserPatch(BaseModel):
     prefs: UserPrefs | None = None
 
 
+class BulkEnabled(BaseModel):
+    enabled: bool
+
+
 def _serialize(
     user: User,
     history_depth: int,
@@ -153,6 +157,26 @@ async def _remove_users_rows(state, user_slug: str) -> None:
         len(removed),
         f" then FAILED: {error}" if error else "",
     )
+
+
+@router.post("/set-enabled")
+async def set_all_users_enabled(body: BulkEnabled, request: Request) -> dict:
+    """Enable or disable EVERY user at once. Enabling just flips the flags (rows rebuild on the next
+    run). Disabling also removes each newly-disabled user's rows from Plex now — the same cleanup the
+    per-user toggle does, so 'off' means gone, not merely 'not refreshed'. Best-effort + audited."""
+    state = request.app.state
+    to_clean: list[str] = []
+    with state.sessions() as session:
+        users = session.query(User).all()
+        for user in users:
+            if body.enabled is False and user.enabled:
+                to_clean.append(user.slug)  # was on, now off -> remove their rows from Plex
+            user.enabled = body.enabled
+        session.commit()
+        total = len(users)
+    for slug in to_clean:
+        await _remove_users_rows(state, slug)
+    return {"updated": total, "cleaned": len(to_clean), "enabled": body.enabled}
 
 
 @router.patch("/{user_id}")

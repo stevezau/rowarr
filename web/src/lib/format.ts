@@ -174,6 +174,12 @@ export function timeFromCron(cron: string): { time: string; weekly: boolean } {
 }
 
 /** Row-name templates render {top_seed} from each user's history nightly. */
-export function renderRowName(template: string, topSeed = "Fargo"): string {
-  return template.replaceAll("{top_seed}", topSeed);
+export function renderRowName(
+  template: string,
+  topSeed = "Fargo",
+  user = "Sarah",
+): string {
+  // Fill BOTH placeholders with sample values so the "on Plex this looks like" preview shows what
+  // {user}/{top_seed} actually become — leaving {user} literal made the placeholder look broken.
+  return template.replaceAll("{top_seed}", topSeed).replaceAll("{user}", user);
 }

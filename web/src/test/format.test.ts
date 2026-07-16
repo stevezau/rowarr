@@ -138,4 +138,11 @@ describe("small formatters", () => {
     );
     expect(renderRowName("✨ Picked for You")).toBe("✨ Picked for You");
   });
+
+  it("renderRowName also fills {user} with a sample name for the preview", () => {
+    expect(renderRowName("✨ Picked for {user}")).toBe("✨ Picked for Sarah");
+    expect(renderRowName("{user}: because you watched {top_seed}")).toBe(
+      "Sarah: because you watched Fargo",
+    );
+  });
 });

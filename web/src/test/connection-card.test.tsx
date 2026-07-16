@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,8 +9,9 @@ import {
 } from "@/components/connection-card";
 import type { Settings } from "@/lib/types";
 
-const { putSettings } = vi.hoisted(() => ({
+const { putSettings, testConnection } = vi.hoisted(() => ({
   putSettings: vi.fn((values: Settings) => Promise.resolve(values)),
+  testConnection: vi.fn(() => Promise.resolve({ ok: true, message: "ok" })),
 }));
 
 vi.mock("@/lib/api", () => {
@@ -19,7 +20,7 @@ vi.mock("@/lib/api", () => {
     ApiError,
     api: {
       putSettings: (values: Settings) => putSettings(values),
-      testConnection: () => Promise.resolve({ ok: true, message: "ok" }),
+      testConnection: () => testConnection(),
     },
   };
 });
@@ -44,7 +45,26 @@ function renderCard(settings: Settings, fields: ConnectionField[]) {
 }
 
 describe("ConnectionCard", () => {
-  beforeEach(() => putSettings.mockClear());
+  beforeEach(() => {
+    putSettings.mockClear();
+    testConnection.mockClear();
+  });
+
+  it("auto-tests a configured connection on mount so its status shows without a click", async () => {
+    renderCard({ "tmdb.apikey": "•••••" }, [
+      { key: "tmdb.apikey", label: "API key", kind: "password" },
+    ]);
+    await waitFor(() => expect(testConnection).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Connection OK")).toBeInTheDocument();
+  });
+
+  it("does not auto-test a connection that isn't set up", async () => {
+    renderCard({}, [
+      { key: "tmdb.apikey", label: "API key", kind: "password" },
+    ]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(testConnection).not.toHaveBeenCalled();
+  });
 
   it("offers 'Set up' when nothing is configured, and saves the typed value", async () => {
     renderCard({}, [

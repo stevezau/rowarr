@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { PlugZap } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { Segmented } from "@/components/segmented";
 import { TestResult } from "@/components/test-result";
@@ -74,6 +74,17 @@ export function ConnectionCard({
   );
   const fieldId = useId();
   const configured = Boolean(summary);
+
+  // Auto-test a configured connection once when the page opens, so the dot shows real green/red
+  // without the owner clicking Test on every card. Only configured services probe (nothing to test
+  // otherwise); the ref fires it a single time per mount (or the first time setup completes).
+  const autoTested = useRef(false);
+  useEffect(() => {
+    if (configured && !autoTested.current && !editing) {
+      autoTested.current = true;
+      test.mutate();
+    }
+  }, [configured, editing, test]);
 
   // Status dot on the logo tile: green = last test passed, red = failed, amber = configured but
   // untested, grey = nothing set. A quick scan across the cards shows what's wired up. The dot is

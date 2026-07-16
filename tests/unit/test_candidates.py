@@ -331,17 +331,34 @@ class TestLlmWebBackends:
         assert curator.complete_calls == 1 and len(search.queries) == 1  # searched, then the model picked
         assert "Arrival" in search.queries[0]  # the query is built from what they watched, not a constant
 
-    def test_auto_prefers_the_native_tool_and_never_touches_exa(self, mock_tmdb):
-        self._tmdb(mock_tmdb, {"Native Pick": {"id": 77, "title": "Native Pick", "genre_ids": [], "vote_average": 8.0}})
-        search = _FakeSearch([make_result("unused", "unused")])
+    def test_auto_unions_native_and_exa_when_both_are_available(self, mock_tmdb):
+        # Both configured → auto runs BOTH and unions them (they surface different titles).
+        self._tmdb(
+            mock_tmdb,
+            {
+                "Native Pick": {"id": 77, "title": "Native Pick", "genre_ids": [], "vote_average": 8.0},
+                "Exa Pick": {"id": 88, "title": "Exa Pick", "genre_ids": [], "vote_average": 7.0},
+            },
+        )
+        search = _FakeSearch([make_result("2021", "Exa Pick")])
         curator = _NativeCurator()
 
         pool = gather_candidates(
             mock_tmdb, [seed(1)], sources=["llm_web"], curator=curator, profile=web_profile(), search=search
         )
+        assert {c.tmdb_id for c in pool} == {77, 88}  # native + exa, unioned
+        assert curator.recommend_calls == 1 and curator.complete_calls == 1
+        assert len(search.queries) == 1
+
+    def test_auto_uses_only_the_native_tool_when_no_search_is_configured(self, mock_tmdb):
+        self._tmdb(mock_tmdb, {"Native Pick": {"id": 77, "title": "Native Pick", "genre_ids": [], "vote_average": 8.0}})
+        curator = _NativeCurator()
+
+        pool = gather_candidates(
+            mock_tmdb, [seed(1)], sources=["llm_web"], curator=curator, profile=web_profile(), search=None
+        )
         assert {c.tmdb_id for c in pool} == {77}
         assert curator.recommend_calls == 1 and curator.complete_calls == 0
-        assert search.queries == []  # auto used the native tool; the external search was never run
 
     def test_exa_mode_forces_external_search_even_for_a_native_provider(self, mock_tmdb):
         self._tmdb(mock_tmdb, {"Exa Pick": {"id": 88, "title": "Exa Pick", "genre_ids": [], "vote_average": 7.0}})

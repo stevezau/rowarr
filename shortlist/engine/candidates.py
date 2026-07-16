@@ -52,18 +52,27 @@ def _web_search_capable(curator, search, mode: str) -> bool:
 def web_recommendations(curator, search, mode: str, profile, seeds: list[Seed], k: int) -> list[dict]:
     """Titles to watch next from a web search, as ``[{title, year, media}]`` for TMDB resolution.
 
-    ``mode`` chooses the search backend: ``native`` uses the provider's own web-search tool,
-    ``exa`` uses the external search provider, ``auto`` prefers native where the provider supports
-    it and otherwise falls back to the external one (the only path for a local Ollama model).
+    ``mode`` chooses the search backend:
+
+    * ``native`` — the provider's own web-search tool only (Claude/GPT/Gemini).
+    * ``exa`` — the external Exa search only (the only path for a local Ollama model).
+    * ``auto`` (default) — use everything configured, UNIONED: the provider's own tool AND Exa when
+      both are set up, else whichever one. The two surface largely different titles (measured — barely
+      any overlap), so running both roughly doubles the usable pool. Duplicates cost nothing:
+      ``gather_candidates`` dedupes by ``(tmdb_id, media_type)`` downstream.
     """
     native = getattr(curator, "supports_native_web_search", False)
     if mode == "native":
         return curator.recommend_web(profile, seeds, k) if native else []
     if mode == "exa":
         return _web_via_search(curator, search, profile, seeds, k) if search is not None else []
+    # auto: union of every available backend.
+    recs: list[dict] = []
     if native:
-        return curator.recommend_web(profile, seeds, k)
-    return _web_via_search(curator, search, profile, seeds, k) if search is not None else []
+        recs += curator.recommend_web(profile, seeds, k)
+    if search is not None:
+        recs += _web_via_search(curator, search, profile, seeds, k)
+    return recs
 
 
 def _web_via_search(curator, search, profile, seeds: list[Seed], k: int) -> list[dict]:

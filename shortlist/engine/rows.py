@@ -446,7 +446,7 @@ def _run_user(
             # merge needs the lock (Stage 3 parallel runs).
             with ctx.write_lock:
                 for key, cand in first_seen.items():
-                    requests_mod.accumulate(demand, [cand], tags=title_tags[key])
+                    requests_mod.accumulate(demand, [cand], tags=title_tags[key], wanter=user.username)
         user_report.status = "ok"
 
     if not ctx.plex.sections_by_type():

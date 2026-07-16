@@ -176,8 +176,9 @@ like the global one.
 ### The Requests inbox
 
 The **Requests** tab (in the sidebar) is your approval queue. Each run adds the wanted-but-missing
-titles it didn't auto-send — with the title, year, rating, and how many people wanted it. Tick the
-ones you want and click **Send to Sonarr/Radarr**, or **Reject** the rest. A rejected title is never
+titles it didn't auto-send — with the title, year, rating, and **who wanted it** (the names of the
+people whose picks surfaced it, e.g. "Wanted by Sarah, Mike"; older entries just show the count).
+Tick the ones you want and click **Send to Sonarr/Radarr**, or **Reject** the rest. A rejected title is never
 re-queued AND never auto-sent by a later run — a "no" is a no. A title already in the library stops
 appearing on its own, and one that's already been sent (still downloading, say) never re-consumes an
 auto-request slot, so a slow grab can't starve the queue. Sent and dismissed titles

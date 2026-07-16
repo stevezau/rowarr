@@ -500,6 +500,8 @@ export interface RequestCandidate {
   demand: number;
   /** Per-user + per-row tags recorded when queued; applied in Sonarr/Radarr on send. */
   tags: string[];
+  /** The usernames whose picks wanted it — the "who" behind the demand count. */
+  wanters: string[];
   status: "pending" | "sent" | "rejected";
   /** Send outcome, or why it's queued. */
   detail: string;

@@ -42,6 +42,7 @@ function candidate(
     vote_count: 5000,
     demand: 4,
     tags: [],
+    wanters: [],
     status: "pending",
     detail: "",
     ...overrides,
@@ -102,6 +103,36 @@ describe("RequestsPage", () => {
     expect(screen.getByText("Shogun")).toBeTruthy();
     expect(screen.getByText(/Already handled/i)).toBeTruthy();
     expect(screen.getByText(/sent to Sonarr\/Radarr/i)).toBeTruthy();
+  });
+
+  it("names who wanted a title, and falls back to the count when none were recorded", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "With Names", wanters: ["Sarah", "Mike"] }),
+      candidate({
+        id: 2,
+        tmdb_id: 200,
+        title: "No Names",
+        demand: 3,
+        wanters: [],
+      }),
+    ]);
+    renderPage();
+    expect(await screen.findByText(/Wanted by Sarah, Mike/)).toBeTruthy();
+    expect(screen.getByText(/wanted by 3 people/)).toBeTruthy();
+  });
+
+  it("truncates a long wanters list to three names plus a +N more count", async () => {
+    listRequests.mockResolvedValue([
+      candidate({
+        id: 1,
+        title: "Popular",
+        wanters: ["Sarah", "Mike", "Ann", "Jo", "Lee"],
+      }),
+    ]);
+    renderPage();
+    expect(
+      await screen.findByText(/Wanted by Sarah, Mike, Ann \+2 more/),
+    ).toBeTruthy();
   });
 
   it("sends the selected title by its id", async () => {

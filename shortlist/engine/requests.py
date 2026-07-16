@@ -43,14 +43,20 @@ def collect_missing(pool: list[Candidate], library_index: dict[MediaType, dict[i
     return [c for c in pool if library_index.get(c.media_type, {}).get(c.tmdb_id) is None]
 
 
-def accumulate(demand: DemandMap, missing: list[Candidate], tags: set[str] | None = None) -> None:
+def accumulate(
+    demand: DemandMap, missing: list[Candidate], tags: set[str] | None = None, wanter: str | None = None
+) -> None:
     """Fold one user's missing candidates into the run-wide demand map, counting distinct wanters.
 
     ``tags`` are the request tags to attach to every title in this batch — the wanting user's own tag
     plus each row they're in the audience of. They accumulate across users, so a title three people
     want carries the union of all three users' (and their rows') tags when it's finally requested.
+
+    ``wanter`` is the username whose taste surfaced these titles; it's collected into each title's
+    ``wanters`` so the inbox can show WHO drove the demand, not just the count.
     """
     tags = {t for t in (tags or set()) if t}
+    who = {wanter} if wanter else set()
     for c in missing:
         key = (c.tmdb_id, c.media_type)
         existing = demand.get(key)
@@ -64,10 +70,12 @@ def accumulate(demand: DemandMap, missing: list[Candidate], tags: set[str] | Non
                 vote_count=c.vote_count,
                 demand=1,
                 tags=set(tags),
+                wanters=set(who),
             )
         else:
             existing.demand += 1
             existing.tags |= tags
+            existing.wanters |= who
 
 
 def _within_year_window(year: int | None, min_year: int, max_year: int) -> bool:

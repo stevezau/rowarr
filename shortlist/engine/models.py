@@ -312,6 +312,10 @@ class MissingTitle:
     # Per-user + per-row tags to apply on request, layered on top of the target's global tag. Unioned
     # across every user who wanted the title and every row it surfaced in (deduplication merges them).
     tags: set[str] = field(default_factory=set)
+    # The usernames whose taste surfaced this title (the "who" behind the demand count) — the inbox
+    # shows the names so an owner sees WHY a title is being requested. len(wanters) <= demand, equal
+    # when every wanting user has a distinct, non-empty username (the real run always passes one).
+    wanters: set[str] = field(default_factory=set)
 
 
 @dataclass

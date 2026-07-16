@@ -39,6 +39,7 @@ def _candidate_row(m, run_id: int, *, status: str) -> RequestCandidate:
         vote_count=m.vote_count,
         demand=m.demand,
         tags=sorted(m.tags),
+        wanters=sorted(m.wanters),
         status=status,
         first_seen_run_id=run_id,
     )
@@ -608,13 +609,14 @@ class RunService:
             if row is None:
                 session.add(_candidate_row(m, run_id, status="pending"))
             elif row.status == "pending":
-                row.title, row.year, row.rating, row.vote_count, row.demand, row.tags = (
+                row.title, row.year, row.rating, row.vote_count, row.demand, row.tags, row.wanters = (
                     m.title,
                     m.year,
                     m.rating,
                     m.vote_count,
                     m.demand,
                     sorted(m.tags),
+                    sorted(m.wanters),
                 )
 
         # The titles this run AUTO-SENT are filed as `sent` too. Without this the ledger only knew

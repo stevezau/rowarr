@@ -33,6 +33,7 @@ class RequestCandidateOut(BaseModel):
     vote_count: int
     demand: int
     tags: list[str]
+    wanters: list[str]
     status: str
     detail: str
 
@@ -59,6 +60,7 @@ def list_requests(request: Request) -> list[RequestCandidateOut]:
             vote_count=r.vote_count,
             demand=r.demand,
             tags=list(r.tags or []),
+            wanters=list(r.wanters or []),
             status=r.status,
             detail=r.detail,
         )

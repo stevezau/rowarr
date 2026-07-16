@@ -126,6 +126,16 @@ class TestAccumulate:
         assert demand[(2, MediaType.MOVIE)].tags == {"sarah", "kids", "mike"}
         assert demand[(3, MediaType.SHOW)].tags == set()  # no tags configured -> stays empty
 
+    def test_wanters_collect_the_usernames_behind_the_demand(self):
+        demand: requests_mod.DemandMap = {}
+        # Two people want the same title; the inbox needs to show WHO, not just a count of 2.
+        requests_mod.accumulate(demand, [_cand(2, MediaType.MOVIE)], wanter="Sarah")
+        requests_mod.accumulate(demand, [_cand(2, MediaType.MOVIE)], wanter="Mike")
+        requests_mod.accumulate(demand, [_cand(3, MediaType.SHOW)], wanter="Sarah")
+        assert demand[(2, MediaType.MOVIE)].wanters == {"Sarah", "Mike"}
+        assert demand[(2, MediaType.MOVIE)].demand == len(demand[(2, MediaType.MOVIE)].wanters)
+        assert demand[(3, MediaType.SHOW)].wanters == {"Sarah"}
+
 
 class TestRequestMissing:
     def _demand(self, *titles: MissingTitle) -> requests_mod.DemandMap:

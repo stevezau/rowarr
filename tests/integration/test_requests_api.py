@@ -46,6 +46,7 @@ def client(tmp_path: Path):
                     vote_count=1000,
                     demand=2,
                     tags=["kids", "sarah"],  # per-user + per-row tags recorded when it was queued
+                    wanters=["Sarah", "Mike"],  # the two people whose picks wanted it
                 )
             )
             session.add(
@@ -123,6 +124,11 @@ class TestRequestsApi:
         rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
         assert rows[10]["tags"] == ["kids", "sarah"]  # what the run recorded, round-tripped to the UI
         assert rows[20]["tags"] == []  # a title queued with no tags carries none
+
+    def test_list_surfaces_who_wanted_each_title(self, client: TestClient):
+        rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
+        assert rows[10]["wanters"] == ["Sarah", "Mike"]  # the "who" behind the demand count
+        assert rows[20]["wanters"] == []  # a pre-wanters row (or none recorded) carries none
 
     def test_send_marks_the_title_sent_and_applies_stored_tags(self, client: TestClient, monkeypatch):
         fake = FakeArr()

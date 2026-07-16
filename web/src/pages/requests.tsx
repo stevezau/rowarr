@@ -41,7 +41,18 @@ function TypeBadge({
   );
 }
 
-/** The facts that let the owner judge a title at a glance: type, rating, and how many people wanted it. */
+/** "Wanted by …" — the actual names when a run recorded them, up to three then "+N more"; falls
+ *  back to the bare count for rows queued before who-wanted-it was tracked. */
+function wantedByLabel(item: RequestCandidate): string {
+  const names = item.wanters ?? [];
+  if (names.length === 0) {
+    return `wanted by ${item.demand} ${item.demand === 1 ? "person" : "people"}`;
+  }
+  if (names.length <= 3) return `Wanted by ${names.join(", ")}`;
+  return `Wanted by ${names.slice(0, 3).join(", ")} +${names.length - 3} more`;
+}
+
+/** The facts that let the owner judge a title at a glance: type, rating, and who wanted it. */
 function TitleMeta({
   item,
   globalTag,
@@ -63,8 +74,8 @@ function TitleMeta({
         />
         {item.rating.toFixed(1)}
       </span>
-      <span>
-        wanted by {item.demand} {item.demand === 1 ? "person" : "people"}
+      <span title={(item.wanters ?? []).join(", ") || undefined}>
+        {wantedByLabel(item)}
       </span>
       {tags.map((tag) => (
         <Badge key={tag} variant="secondary" className="font-normal">

@@ -140,7 +140,11 @@ export function rowOverrides(
   // "both" is the default placement (Home + Library), so only badge a narrowed one.
   if (collection.placement === "home") parts.push("Shows on: Home");
   else if (collection.placement === "library") parts.push("Shows on: Library");
-  if (collection.pin_top) parts.push("Pinned to top");
+  // Legacy row-level pin, or a per-library "Top" set via the Position control.
+  const anchors = Object.values(collection.hub_anchor ?? {});
+  if (collection.pin_top || anchors.some((a) => a.top))
+    parts.push("Pinned to top");
+  else if (anchors.some((a) => a.anchor)) parts.push("Custom shelf position");
 
   // The default row's style is the GLOBAL recipe — the server discards its stored prompt — so
   // badging one here would advertise a setting no run will ever apply.

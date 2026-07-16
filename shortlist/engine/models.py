@@ -347,15 +347,17 @@ class RequestReport:
 
 @dataclass(frozen=True)
 class HubAnchor:
-    """Where a library's Shortlist rows should sit in Plex's managed-recommendation shelf: right
-    after (``before=False``) or before (``before=True``) an existing collection, matched by title.
+    """Where a library's Shortlist rows should sit in Plex's managed-recommendation shelf: the very
+    TOP (``to_top=True``), or right after (``before=False``) / before (``before=True``) an existing
+    collection matched by ``anchor_title``. ``to_top`` ignores ``anchor_title``.
 
     Re-applied at the end of every run so a co-managing tool (e.g. Kometa, which can push our rows to
     the bottom of the shelf) can't leave them buried. Only OUR hubs are moved; the anchor is read-only.
     """
 
-    anchor_title: str
+    anchor_title: str = ""
     before: bool = False
+    to_top: bool = False
 
 
 @dataclass

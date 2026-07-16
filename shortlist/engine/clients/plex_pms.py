@@ -330,13 +330,15 @@ class PlexClient:
         section: LibrarySection,
         *,
         label_prefix: str,
-        anchor_title: str,
+        anchor_title: str = "",
         before: bool = False,
         dry_run: bool = False,
         only_titles: set[str] | None = None,
+        to_top: bool = False,
     ) -> dict:
-        """Place this section's Shortlist rows right after/before the ``anchor_title`` collection in
-        Plex's Managed Recommendations shelf, so a co-managing tool (Kometa) can't bury them.
+        """Place this section's Shortlist rows in Plex's Managed Recommendations shelf: at the very TOP
+        (``to_top``) or right after/before the ``anchor_title`` collection, so a co-managing tool
+        (Kometa) can't bury them.
 
         Only OUR hubs (``label_prefix``-labelled) are moved; the anchor is read-only. ``only_titles``
         restricts the move to that subset of our rows (used when different rows anchor to different
@@ -361,33 +363,35 @@ class PlexClient:
         if not ours:
             return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "rows not promoted yet"}
 
-        anchor = next(
-            (
-                h
-                for h in order
-                if (getattr(h, "title", "") or "") == anchor_title and (getattr(h, "title", "") or "") not in owned_all
-            ),
-            None,
-        )
-        if anchor is None:
-            logger.warning(
-                "hub order: anchor {!r} not found in {} — leaving the shelf order unchanged",
-                anchor_title,
-                section.title,
-            )
-            return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "anchor not found"}
-
-        # The hub our rows must sit directly after. 'after anchor' -> the anchor; 'before anchor' -> the
-        # hub just before the anchor that isn't one of ours (None -> the very top of the shelf).
-        if before:
-            anchor_idx = order.index(anchor)
-            # Skip past our OWN rows (any of them) to land the group directly before the anchor.
-            target = next(
-                (h for h in reversed(order[:anchor_idx]) if (getattr(h, "title", "") or "") not in owned_all),
+        if to_top:
+            target = None  # move(after=None) -> the very top of the shelf
+        else:
+            anchor = next(
+                (
+                    h
+                    for h in order
+                    if (getattr(h, "title", "") or "") == anchor_title
+                    and (getattr(h, "title", "") or "") not in owned_all
+                ),
                 None,
             )
-        else:
-            target = anchor
+            if anchor is None:
+                logger.warning(
+                    "hub order: anchor {!r} not found in {} — leaving the shelf order unchanged",
+                    anchor_title,
+                    section.title,
+                )
+                return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "anchor not found"}
+            # 'after anchor' -> the anchor; 'before anchor' -> the hub just before it that isn't one of
+            # ours (None -> the very top of the shelf).
+            if before:
+                anchor_idx = order.index(anchor)
+                target = next(
+                    (h for h in reversed(order[:anchor_idx]) if (getattr(h, "title", "") or "") not in owned_all),
+                    None,
+                )
+            else:
+                target = anchor
 
         idents = [h.identifier for h in order]
         our_idents = [h.identifier for h in ours]
@@ -395,20 +399,23 @@ class PlexClient:
         if idents[start : start + len(our_idents)] == our_idents:
             return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "already in place"}
 
-        where = "before" if before else "after"
+        where = "to the top" if to_top else f"{'before' if before else 'after'} {anchor_title!r}"
         moved_titles = [h.title for h in ours]
         if dry_run:
-            logger.info(
-                "[dry-run] hub order: would move {} row(s) {} {!r} in {}", len(ours), where, anchor_title, section.title
-            )
-            return {"anchor": anchor_title, "moved": moved_titles, "skipped": False, "dry_run": True}
+            logger.info("[dry-run] hub order: would move {} row(s) {} in {}", len(ours), where, section.title)
+            return {
+                "anchor": "top" if to_top else anchor_title,
+                "moved": moved_titles,
+                "skipped": False,
+                "dry_run": True,
+            }
 
         prev = target
         for hub in ours:
             hub.reload().move(after=prev)  # after=None -> top of the shelf
             prev = hub
-        logger.info("hub order: moved {} row(s) {} {!r} in {}", len(ours), where, anchor_title, section.title)
-        return {"anchor": anchor_title, "moved": [h.title for h in ours], "skipped": False}
+        logger.info("hub order: moved {} row(s) {} in {}", len(ours), where, section.title)
+        return {"anchor": "top" if to_top else anchor_title, "moved": moved_titles, "skipped": False}
 
     def set_items(self, collection: Collection, items: list) -> None:
         """Replace a collection's items and put them in the given (ranked) order via custom sort.

@@ -55,11 +55,11 @@ export function RowEditor({
   };
 
   const submit = () => {
-    // Drop any shelf anchor whose collection hasn't been chosen yet — a half-set library inherits the
-    // global default rather than being POSTed as an empty anchor (which the API rejects).
+    // Keep 'Top' entries and real anchors; drop a half-set library (mode chosen, no collection yet) so
+    // it inherits the global default rather than being POSTed as an empty anchor (which the API rejects).
     const hub_anchor = Object.fromEntries(
-      Object.entries(input.hub_anchor).filter(([, entry]) =>
-        entry.anchor.trim(),
+      Object.entries(input.hub_anchor).filter(
+        ([, entry]) => entry.top || (entry.anchor ?? "").trim(),
       ),
     );
     save.mutate(
@@ -240,37 +240,22 @@ export function RowEditor({
                 { value: "library", label: "Library only" },
               ]}
             />
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-0.5">
-                <span className="text-sm font-medium">
-                  Pin to top of the library
-                </span>
-                <p className="text-sm text-muted-foreground">
-                  Moves this row to the top of the library&rsquo;s Recommended
-                  shelf. This order is the same for everyone — Plex can&rsquo;t
-                  set a different home order per person.
-                </p>
-              </div>
-              <Switch
-                checked={input.pin_top}
-                onCheckedChange={(pin_top) => set({ pin_top })}
-                aria-label="Pin to top of the library shelf"
-              />
-            </div>
-
             <div className="space-y-2 pt-2">
               <span className="text-sm font-medium">
                 Position in the Recommended shelf
               </span>
               <p className="text-sm text-muted-foreground">
-                Where this row lands relative to your other collections. Each
-                library can inherit the global default (Settings → Row
-                placement) or anchor to its own collection.
+                Where this row lands. Each library can inherit the global
+                default (Settings → Row placement), sit at the{" "}
+                <strong>Top</strong>, or anchor right after/before one of your
+                collections.
               </p>
               <RowShelfPlacement
                 value={input.hub_anchor}
                 libraryKeys={input.library_keys}
                 media={input.media}
+                pinnedTop={input.pin_top}
+                onConsumePin={() => set({ pin_top: false })}
                 onChange={(hub_anchor) => set({ hub_anchor })}
               />
             </div>

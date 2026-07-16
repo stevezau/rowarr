@@ -17,7 +17,7 @@ const selectClass =
   "h-9 w-full rounded-md border bg-elevated px-3 text-sm focus-visible:outline-none " +
   "focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
-type Anchor = { anchor: string; before?: boolean };
+type Anchor = { anchor?: string; before?: boolean; top?: boolean };
 type AnchorMap = Record<string, Anchor>;
 
 function readAnchors(settings: Settings): AnchorMap {
@@ -25,24 +25,22 @@ function readAnchors(settings: Settings): AnchorMap {
   if (!raw || typeof raw !== "object") return {};
   const out: AnchorMap = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (
-      value &&
-      typeof value === "object" &&
-      typeof (value as Anchor).anchor === "string"
-    ) {
-      out[key] = {
-        anchor: (value as Anchor).anchor,
-        before: Boolean((value as Anchor).before),
-      };
-    }
+    if (!value || typeof value !== "object") continue;
+    const entry = value as Anchor;
+    if (entry.top) out[key] = { top: true };
+    else if (typeof entry.anchor === "string" && entry.anchor)
+      out[key] = { anchor: entry.anchor, before: Boolean(entry.before) };
   }
   return out;
 }
 
 /** The mode a single library is in. An entry exists the moment a non-default mode is chosen (even
  *  before a collection is picked), so an empty-anchor entry still reads as after/before, not default. */
-function modeOf(entry: Anchor | undefined): "default" | "after" | "before" {
+function modeOf(
+  entry: Anchor | undefined,
+): "default" | "top" | "after" | "before" {
   if (!entry) return "default";
+  if (entry.top) return "top";
   return entry.before ? "before" : "after";
 }
 
@@ -57,10 +55,12 @@ function LibraryPlacement({
   onChange: (next: Anchor | undefined) => void;
 }) {
   const mode = modeOf(entry);
-  const collections = useLibraryCollections(library.key, mode !== "default");
+  const relative = mode === "after" || mode === "before";
+  const collections = useLibraryCollections(library.key, relative);
 
-  const setMode = (next: "default" | "after" | "before") => {
+  const setMode = (next: "default" | "top" | "after" | "before") => {
     if (next === "default") return onChange(undefined);
+    if (next === "top") return onChange({ top: true });
     // Keep the chosen collection when only flipping after/before; else start unset.
     onChange({ anchor: entry?.anchor ?? "", before: next === "before" });
   };
@@ -76,16 +76,19 @@ function LibraryPlacement({
             className={selectClass + " w-48"}
             value={mode}
             onChange={(event) =>
-              setMode(event.target.value as "default" | "after" | "before")
+              setMode(
+                event.target.value as "default" | "top" | "after" | "before",
+              )
             }
           >
             <option value="default">Wherever Plex puts them</option>
+            <option value="top">Top of the shelf</option>
             <option value="after">Right after a collection…</option>
             <option value="before">Right before a collection…</option>
           </select>
         </div>
 
-        {mode !== "default" && (
+        {relative && (
           <div className="space-y-1">
             <Label htmlFor={`anchor-${library.key}`}>Collection</Label>
             {collections.isError ? (
@@ -125,7 +128,7 @@ function LibraryPlacement({
           </div>
         )}
       </div>
-      {mode !== "default" && !entry?.anchor && (
+      {relative && !entry?.anchor && (
         <p className="text-sm text-muted-foreground">
           Pick a collection to anchor to, or nothing changes.
         </p>
@@ -147,7 +150,7 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
   // Only anchors with a real collection are persisted — a half-set library (mode chosen, no
   // collection yet) is dropped so the engine never tries to anchor to "".
   const persistable = Object.fromEntries(
-    Object.entries(anchors).filter(([, a]) => a.anchor.trim()),
+    Object.entries(anchors).filter(([, a]) => a.top || (a.anchor ?? "").trim()),
   );
 
   const retry = useAutosave({ anchors }, () => {

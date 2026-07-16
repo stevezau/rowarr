@@ -51,10 +51,12 @@ class PromptIn(BaseModel):
 
 
 class HubAnchorIn(BaseModel):
-    """A per-library shelf anchor for one row: sit after (or before) a collection, by title."""
+    """A per-library shelf placement for one row: the very TOP (``top``), or after/before a collection
+    by title. ``top`` needs no anchor; otherwise ``anchor`` must be a non-empty title."""
 
-    anchor: str = Field(min_length=1, max_length=255)
+    anchor: str = Field(default="", max_length=255)
     before: bool = False
+    top: bool = False
 
 
 class CollectionIn(BaseModel):
@@ -95,6 +97,9 @@ def _validate(body: CollectionIn) -> None:
         raise HTTPException(422, f"unknown tone {body.prompt.tone!r}; valid: {sorted(TONE_PRESETS)} (or blank)")
     if body.placement not in PLACEMENTS:
         raise HTTPException(422, f"placement must be one of {sorted(PLACEMENTS)}")
+    for lib, anchor in body.hub_anchor.items():
+        if not anchor.top and not anchor.anchor.strip():
+            raise HTTPException(422, f"hub_anchor[{lib}]: needs 'top' or a non-empty 'anchor'")
 
 
 def _serialize(session, collection: Collection) -> dict:

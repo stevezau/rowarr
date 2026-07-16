@@ -56,18 +56,21 @@ def _is_bool(value: object) -> str | None:
 
 
 def _hub_anchors(value: object) -> str | None:
-    """`{sectionKey: {"anchor": str (non-empty), "before": bool}}` — the per-library Recommended-shelf
-    placement. An empty dict clears it. Bad shapes reached the engine and skipped ordering silently."""
+    """`{sectionKey: {"top": true} | {"anchor": str, "before": bool}}` — the per-library
+    Recommended-shelf placement. A `top` entry needs no anchor; otherwise `anchor` must be non-empty.
+    An empty dict clears it. Bad shapes reached the engine and skipped ordering silently."""
     if not isinstance(value, dict):
         return "must be an object keyed by library id"
     for key, entry in value.items():
         if not isinstance(key, str):
             return "library ids must be strings"
         if not isinstance(entry, dict):
-            return f"{key}: must be an object with 'anchor' and 'before'"
+            return f"{key}: must be an object with 'top', or 'anchor' and 'before'"
+        if entry.get("top"):
+            continue  # top mode ignores anchor/before
         anchor = entry.get("anchor")
         if not isinstance(anchor, str) or not anchor.strip():
-            return f"{key}: 'anchor' must be a non-empty collection title"
+            return f"{key}: needs 'top', or a non-empty 'anchor' title"
         if not isinstance(entry.get("before", False), bool):
             return f"{key}: 'before' must be true or false"
     return None

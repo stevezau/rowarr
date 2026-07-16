@@ -371,19 +371,11 @@ class ContextBuilder:
             )
         return specs
 
-    @staticmethod
-    def _row_hub_anchors(collection) -> dict[str, HubAnchor]:
-        """This row's per-library Recommended-shelf overrides (`collection.hub_anchor`). Blank anchors
-        are dropped, so a library falls back to the global default rather than trying to anchor to ''."""
-        raw = collection.hub_anchor or {}
-        anchors: dict[str, HubAnchor] = {}
-        for key, entry in raw.items():
-            if isinstance(entry, dict) and str(entry.get("anchor") or "").strip():
-                anchors[str(key)] = HubAnchor(
-                    anchor_title=str(entry["anchor"]).strip(),
-                    before=bool(entry.get("before", False)),
-                )
-        return anchors
+    @classmethod
+    def _row_hub_anchors(cls, collection) -> dict[str, HubAnchor]:
+        """This row's per-library Recommended-shelf overrides (`collection.hub_anchor`). A library not
+        overridden here falls back to the global default (legacy `pin_top` still pins in promote)."""
+        return cls._parse_hub_anchors(collection.hub_anchor or {})
 
     def _retired_rows(self, session: Session, store: SettingsStore) -> list[RowSpec]:
         """Per-person rows that are DISABLED — their collections must be removed from Plex.
@@ -441,19 +433,28 @@ class ContextBuilder:
         return retired
 
     @staticmethod
-    def _build_hub_anchors(store: SettingsStore) -> dict[str, HubAnchor]:
-        """Per-library Recommended-shelf placement from `rows.hub_anchor`. Entries with a blank anchor
-        are dropped (treated as 'no placement'), so the engine only ever moves rows with a real anchor."""
-        raw = store.get("rows.hub_anchor") or {}
+    def _parse_hub_anchors(raw: object) -> dict[str, HubAnchor]:
+        """`{sectionKey: {"top": true} | {"anchor": title, "before": bool}}` -> section key -> HubAnchor.
+        A `top` entry moves the row to the very top; otherwise a non-empty `anchor` places it relative
+        to that collection. Blank/invalid entries are dropped, so the engine only moves real placements."""
         anchors: dict[str, HubAnchor] = {}
         if isinstance(raw, dict):
             for key, entry in raw.items():
-                if isinstance(entry, dict) and str(entry.get("anchor") or "").strip():
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("top"):
+                    anchors[str(key)] = HubAnchor(to_top=True)
+                elif str(entry.get("anchor") or "").strip():
                     anchors[str(key)] = HubAnchor(
                         anchor_title=str(entry["anchor"]).strip(),
                         before=bool(entry.get("before", False)),
                     )
         return anchors
+
+    @classmethod
+    def _build_hub_anchors(cls, store: SettingsStore) -> dict[str, HubAnchor]:
+        """The GLOBAL per-library Recommended-shelf default from `rows.hub_anchor`."""
+        return cls._parse_hub_anchors(store.get("rows.hub_anchor") or {})
 
     @staticmethod
     def _build_requests(store: SettingsStore) -> RequestConfig | None:

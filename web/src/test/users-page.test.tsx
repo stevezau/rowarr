@@ -12,7 +12,7 @@ import { UsersPage } from "@/pages/users";
 const { getUsers, patchUser, setAllUsersEnabled } = vi.hoisted(() => ({
   getUsers: vi.fn(),
   patchUser: vi.fn(),
-  setAllUsersEnabled: vi.fn(() =>
+  setAllUsersEnabled: vi.fn((_enabled: boolean) =>
     Promise.resolve({ updated: 1, cleaned: 0, enabled: true }),
   ),
 }));

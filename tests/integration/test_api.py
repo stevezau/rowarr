@@ -277,6 +277,10 @@ class TestSettingsValidation:
         )
         good = {"2": {"anchor": "New Series (Unwatched)", "before": False}}
         assert client.put("/api/settings", json={"values": {"rows.hub_anchor": good}}).status_code == 200
+        # A 'top' entry is valid without an anchor.
+        assert (
+            client.put("/api/settings", json={"values": {"rows.hub_anchor": {"2": {"top": True}}}}).status_code == 200
+        )
         assert client.put("/api/settings", json={"values": {"rows.hub_anchor": {}}}).status_code == 200  # clears it
 
     def test_request_year_bounds_are_validated(self, client: TestClient):
@@ -528,16 +532,21 @@ class TestCollectionsSeed:
         body = {"name": "Gems Row", "hub_anchor": {"2": {"anchor": "New Series", "before": True}}}
         created = client.post("/api/collections", json=body)
         assert created.status_code == 201
-        assert created.json()["hub_anchor"] == {"2": {"anchor": "New Series", "before": True}}
-        # A blank anchor title is rejected by the shape.
+        assert created.json()["hub_anchor"] == {"2": {"anchor": "New Series", "before": True, "top": False}}
+        # A blank anchor with no top is rejected by the shape.
         blank = client.post("/api/collections", json={"name": "X", "hub_anchor": {"2": {"anchor": ""}}})
         assert blank.status_code == 422
+        # A 'top' entry needs no anchor.
+        top = client.post("/api/collections", json={"name": "Top Gems", "hub_anchor": {"2": {"top": True}}})
+        assert top.status_code == 201 and top.json()["hub_anchor"]["2"]["top"] is True
 
         builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
         with client.app.state.sessions() as session:
             specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
-        spec = next(s for s in specs if s.slug == "gems_row")
-        assert spec.hub_anchors == {"2": HubAnchor(anchor_title="New Series", before=True)}
+        assert next(s for s in specs if s.slug == "gems_row").hub_anchors == {
+            "2": HubAnchor(anchor_title="New Series", before=True)
+        }
+        assert next(s for s in specs if s.slug == "top_gems").hub_anchors == {"2": HubAnchor(to_top=True)}
 
     def test_a_disabled_row_becomes_a_retired_row_for_cleanup(self, client: TestClient):
         """A row switched off is not delivered (dropped from _build_rows) AND handed to the engine as

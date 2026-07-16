@@ -47,7 +47,8 @@ function row(patch: Partial<Collection> = {}): Collection {
     freshness: null,
     placement: "both",
     pin_top: false,
-    hub_anchor: {},    prompt: { tone: "", guidance: "", template: "" },
+    hub_anchor: {},
+    prompt: { tone: "", guidance: "", template: "" },
     ...patch,
   };
 }
@@ -120,13 +121,10 @@ describe("RowEditor — placement", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("round-trips a changed placement and pin into the PATCH body", async () => {
-    renderEditor(row({ placement: "both", pin_top: false }));
+  it("round-trips a changed placement into the PATCH body", async () => {
+    renderEditor(row({ placement: "both" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Home only" }));
-    await userEvent.click(
-      screen.getByRole("switch", { name: /pin to top of the library/i }),
-    );
     await userEvent.click(
       screen.getByRole("button", { name: /Save changes/i }),
     );
@@ -134,7 +132,6 @@ describe("RowEditor — placement", () => {
     await waitFor(() => expect(updateCollection).toHaveBeenCalled());
     const body = updateCollection.mock.calls.at(0)?.[1] as Collection;
     expect(body.placement).toBe("home");
-    expect(body.pin_top).toBe(true);
   });
 });
 

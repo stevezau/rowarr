@@ -584,6 +584,7 @@ def _apply_order(ctx: EngineContext, report: RunReport, section, anchor, only_ti
                 label_prefix=ctx.config.label_prefix,
                 anchor_title=anchor.anchor_title,
                 before=anchor.before,
+                to_top=anchor.to_top,
                 dry_run=ctx.config.dry_run,
                 only_titles=only_titles,
             )
@@ -626,16 +627,18 @@ def _order_phase(ctx: EngineContext, report: RunReport) -> None:
                 _apply_order(ctx, report, section, default, only_titles=None)
             continue
         # Some rows override here: group each row by its effective anchor (override, else default).
-        groups: dict[tuple[str, bool], set[str]] = {}
+        groups: dict[tuple[bool, str, bool], set[str]] = {}
         for spec in ctx.config.rows:
             effective = spec.hub_anchors.get(key) or global_anchors.get(key)
             if effective is None:
                 continue
             titles = titles_by_slug.get(spec.slug, set())
             if titles:
-                groups.setdefault((effective.anchor_title, effective.before), set()).update(titles)
-        for (anchor_title, before), titles in groups.items():
-            _apply_order(ctx, report, section, HubAnchor(anchor_title, before), only_titles=titles)
+                grp = (effective.to_top, effective.anchor_title, effective.before)
+                groups.setdefault(grp, set()).update(titles)
+        for (to_top, anchor_title, before), titles in groups.items():
+            anchor = HubAnchor(anchor_title=anchor_title, before=before, to_top=to_top)
+            _apply_order(ctx, report, section, anchor, only_titles=titles)
 
 
 def _request_phase(ctx: EngineContext, requests_on: bool, demand: requests_mod.DemandMap, report: RunReport) -> None:

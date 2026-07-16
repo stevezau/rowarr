@@ -73,6 +73,30 @@ def test_moves_our_rows_immediately_after_the_anchor():
     assert genre.moved_after == _UNSET  # a foreign hub is never touched
 
 
+def test_to_top_moves_our_rows_to_position_zero_ignoring_any_anchor():
+    kometa = FakeHub("Kometa Genre", "g")
+    r1 = FakeHub("Picked for You", "o1")
+    section = FakeSection([kometa, r1])  # our row buried below a foreign hub
+    client = _client([FakeColl("Picked for You", ["shortlist_sarah"]), FakeColl("Kometa Genre", ["kometa"])])
+
+    result = client.order_owned_hubs(section, label_prefix="shortlist", to_top=True)
+
+    assert result["skipped"] is False and result["anchor"] == "top"
+    assert r1.moved_after is None  # after=None -> the very top of the shelf
+    assert kometa.moved_after == _UNSET  # foreign hub untouched
+
+
+def test_to_top_is_idempotent_when_already_at_the_top():
+    r1 = FakeHub("Picked for You", "o1")  # already first
+    section = FakeSection([r1, FakeHub("Genre", "g")])
+    client = _client([FakeColl("Picked for You", ["shortlist_sarah"])])
+
+    result = client.order_owned_hubs(section, label_prefix="shortlist", to_top=True)
+
+    assert result["skipped"] is True and result["reason"] == "already in place"
+    assert r1.moved_after == _UNSET
+
+
 def test_before_places_rows_ahead_of_the_anchor():
     other = FakeHub("Trending", "t")
     anchor = FakeHub("New Series", "a")
@@ -269,6 +293,31 @@ def test_order_phase_groups_rows_by_effective_anchor_when_one_overrides():
         frozenset({"Picked A", "Picked B"}): "Default Anchor",
         frozenset({"Gems A", "Gems B"}): "Gems Anchor",
     }
+
+
+def test_order_phase_mixes_a_top_override_with_an_anchor_override():
+    from unittest.mock import MagicMock
+
+    from shortlist.engine.models import EngineConfig, HubAnchor, RowSpec
+    from shortlist.engine.pipeline import _order_phase
+
+    plex = MagicMock()
+    plex.order_owned_hubs.return_value = {"skipped": False, "moved": ["x"]}
+    cfg = EngineConfig(
+        hub_anchors={},
+        rows=[
+            RowSpec(slug="picked", name_template="", size=10, hub_anchors={"2": HubAnchor(to_top=True)}),
+            RowSpec(
+                slug="gems", name_template="Gems", size=10, hub_anchors={"2": HubAnchor(anchor_title="New Series")}
+            ),
+        ],
+    )
+    _order_phase(_order_ctx(cfg, plex), _report_with_titles())
+
+    calls = {frozenset(c.kwargs["only_titles"]): c.kwargs for c in plex.order_owned_hubs.call_args_list}
+    assert calls[frozenset({"Picked A", "Picked B"})]["to_top"] is True
+    gems = calls[frozenset({"Gems A", "Gems B"})]
+    assert gems["to_top"] is False and gems["anchor_title"] == "New Series"
 
 
 def test_order_phase_applies_a_before_override_with_no_global_default():

@@ -23,9 +23,13 @@ vi.mock("@/lib/api", () => ({
 function Harness({
   start,
   onChange,
+  pinnedTop,
+  onConsumePin,
 }: {
   start: HubAnchorMap;
   onChange: (m: HubAnchorMap) => void;
+  pinnedTop?: boolean;
+  onConsumePin?: () => void;
 }) {
   const [value, setValue] = useState<HubAnchorMap>(start);
   return (
@@ -33,6 +37,8 @@ function Harness({
       value={value}
       libraryKeys={[]}
       media="both"
+      pinnedTop={pinnedTop}
+      onConsumePin={onConsumePin}
       onChange={(next) => {
         setValue(next);
         onChange(next);
@@ -41,14 +47,17 @@ function Harness({
   );
 }
 
-function renderControl(start: HubAnchorMap = {}) {
+function renderControl(
+  start: HubAnchorMap = {},
+  opts: { pinnedTop?: boolean; onConsumePin?: () => void } = {},
+) {
   const latest = { value: start };
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <Harness start={start} onChange={(m) => (latest.value = m)} />
+      <Harness start={start} onChange={(m) => (latest.value = m)} {...opts} />
     </QueryClientProvider>,
   );
   return latest;
@@ -88,5 +97,46 @@ describe("RowShelfPlacement", () => {
 
     await userEvent.selectOptions(screen.getByLabelText("Position"), "default");
     await waitFor(() => expect(latest.value).toEqual({}));
+  });
+
+  it("sets a per-row 'Top' with no collection needed", async () => {
+    const latest = renderControl();
+    await screen.findByText("TV Shows");
+
+    await userEvent.selectOptions(screen.getByLabelText("Position"), "top");
+    await waitFor(() => expect(latest.value).toEqual({ "2": { top: true } }));
+    // Top needs no collection dropdown.
+    expect(screen.queryByLabelText("Collection")).toBeNull();
+  });
+
+  it("carries a legacy row-level pin over into per-library Top, once, and consumes the pin", async () => {
+    const onConsumePin = vi.fn();
+    const latest = renderControl({}, { pinnedTop: true, onConsumePin });
+
+    await screen.findByText("TV Shows");
+    await waitFor(() => expect(latest.value).toEqual({ "2": { top: true } }));
+    expect(onConsumePin).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Position")).toHaveValue("top");
+  });
+
+  it("does not consume the pin (so pin_top survives) when libraries can't load", async () => {
+    getLibraries.mockRejectedValue(new Error("Plex is down"));
+    const onConsumePin = vi.fn();
+    const latest = renderControl({}, { pinnedTop: true, onConsumePin });
+
+    await waitFor(() => expect(getLibraries).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0)); // let the effect (not) fire
+    expect(onConsumePin).not.toHaveBeenCalled(); // pin_top left intact by the editor
+    expect(latest.value).toEqual({});
+  });
+
+  it("does not re-pin a library the user has moved off Top", async () => {
+    const latest = renderControl({}, { pinnedTop: true });
+    await screen.findByText("TV Shows");
+    await waitFor(() => expect(latest.value).toEqual({ "2": { top: true } }));
+
+    await userEvent.selectOptions(screen.getByLabelText("Position"), "default");
+    await new Promise((r) => setTimeout(r, 0)); // give the effect a chance to (wrongly) re-materialize
+    expect(latest.value).toEqual({}); // the ref guard keeps it from coming back
   });
 });

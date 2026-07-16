@@ -136,11 +136,12 @@ library (e.g. only "4K Movies") on a server with several libraries of one type. 
 library**: each targeted library seeds from its own watched history and fills to `row.size` on its
 own, so a movies-and-TV watcher gets a full movie row AND a full TV row.
 
-Placement is per row (`collections.placement`: `both` \| `home` \| `library`, default `both`) plus
-`collections.pin_top` (default `false`). `placement` sets which Plex surfaces the row appears on
-once promoted (Home, the library's Recommended tab, or both); `pin_top` moves it to the top of that
-library's Recommended shelf. Pinning uses Plex's Managed Recommendations, which are **server-wide**
-— Plex exposes no per-viewing-user hub order, so a pinned row sits in the same slot for everyone.
+Placement is per row (`collections.placement`: `both` \| `home` \| `library`, default `both`), which
+sets which Plex surfaces the row appears on once promoted (Home, the library's Recommended tab, or
+both). WHERE in that shelf it sits is the **Position** control (`collections.hub_anchor`, per library:
+`{"top": true}` or `{"anchor": "<collection>", "before": bool}`) — see [Row placement](#) above; it
+replaces the old `pin_top` toggle (still honoured for rows not yet re-saved). This order is Plex's
+Managed Recommendations, which are **server-wide** — Plex exposes no per-viewing-user hub order.
 
 Request tags are three-layered: the global `requests.tag` setting, a per-user `request_tag`
 (`PATCH /api/users/{id}`), and a per-row `request_tag` (`collections`, per-person rows only —

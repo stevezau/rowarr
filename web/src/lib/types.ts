@@ -58,8 +58,12 @@ export interface Collection {
   prompt: { tone?: string; guidance?: string; template?: string };
 }
 
-/** Where a row sits in a library's Recommended shelf, keyed by library (section) key. */
-export type HubAnchorMap = Record<string, { anchor: string; before: boolean }>;
+/** Where a row sits in a library's Recommended shelf, keyed by library (section) key. A `top` entry
+ *  means the very top; otherwise `anchor` places it after/before that collection. */
+export type HubAnchorMap = Record<
+  string,
+  { anchor?: string; before?: boolean; top?: boolean }
+>;
 
 /** A Plex library on the server (GET /api/system/libraries). */
 export interface PlexLibrary {

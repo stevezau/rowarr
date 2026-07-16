@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { QueryBoundary } from "@/components/query-boundary";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,7 +11,7 @@ const selectClass =
   "focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 type Entry = HubAnchorMap[string];
-type Mode = "default" | "after" | "before";
+type Mode = "default" | "top" | "after" | "before";
 
 /** A row targets a library when it lists it, or (when it lists none) any library of its media type. */
 function targetsLibrary(
@@ -23,9 +25,10 @@ function targetsLibrary(
     : libraryKeys.includes(library.key);
 }
 
-/** An existing entry means a set anchor; its absence means "inherit the global default". */
+/** No entry = inherit the global default; `top` = the very top; else after/before its anchor. */
 function modeOf(entry: Entry | undefined): Mode {
   if (!entry) return "default";
+  if (entry.top) return "top";
   return entry.before ? "before" : "after";
 }
 
@@ -39,10 +42,12 @@ function LibraryAnchor({
   onChange: (next: Entry | undefined) => void;
 }) {
   const mode = modeOf(entry);
-  const collections = useLibraryCollections(library.key, mode !== "default");
+  const relative = mode === "after" || mode === "before";
+  const collections = useLibraryCollections(library.key, relative);
 
   const setMode = (next: Mode) => {
     if (next === "default") return onChange(undefined);
+    if (next === "top") return onChange({ top: true });
     onChange({ anchor: entry?.anchor ?? "", before: next === "before" });
   };
 
@@ -59,11 +64,12 @@ function LibraryAnchor({
             onChange={(event) => setMode(event.target.value as Mode)}
           >
             <option value="default">Use the default (Settings)</option>
+            <option value="top">Top of the shelf</option>
             <option value="after">Right after a collection…</option>
             <option value="before">Right before a collection…</option>
           </select>
         </div>
-        {mode !== "default" && (
+        {relative && (
           <div className="space-y-1">
             <Label htmlFor={`row-anchor-${library.key}`}>Collection</Label>
             {collections.isError ? (
@@ -106,20 +112,26 @@ function LibraryAnchor({
   );
 }
 
-/** Per-library override of where THIS row sits in the Recommended shelf. Each targeted library can
- *  inherit the global default (Settings → Row placement) or anchor to its own collection. */
+/** Per-library placement of THIS row in the Recommended shelf. Each targeted library can inherit the
+ *  global default, sit at the Top, or anchor after/before a collection. `pinnedTop` carries a legacy
+ *  row-level pin over into per-library "Top" once, then `onConsumePin` lets the editor clear it. */
 export function RowShelfPlacement({
   value,
   libraryKeys,
   media,
+  pinnedTop = false,
+  onConsumePin,
   onChange,
 }: {
   value: HubAnchorMap;
   libraryKeys: string[];
   media: CollectionInput["media"];
+  pinnedTop?: boolean;
+  onConsumePin?: () => void;
   onChange: (next: HubAnchorMap) => void;
 }) {
   const libraries = useLibraries();
+  const migrated = useRef(false);
 
   const setLibrary = (key: string, entry: Entry | undefined) => {
     const next = { ...value };
@@ -127,6 +139,31 @@ export function RowShelfPlacement({
     else delete next[key];
     onChange(next);
   };
+
+  // Legacy pin_top -> per-library Top, exactly once (only libraries without an explicit choice), the
+  // moment the library list is known. Then tell the editor the pin is consumed so it clears pin_top.
+  useEffect(() => {
+    if (!pinnedTop || migrated.current || !libraries.data) return;
+    migrated.current = true;
+    const next = { ...value };
+    let changed = false;
+    for (const library of libraries.data) {
+      if (targetsLibrary(library, libraryKeys, media) && !next[library.key]) {
+        next[library.key] = { top: true };
+        changed = true;
+      }
+    }
+    if (changed) onChange(next);
+    onConsumePin?.();
+  }, [
+    pinnedTop,
+    libraries.data,
+    libraryKeys,
+    media,
+    value,
+    onChange,
+    onConsumePin,
+  ]);
 
   return (
     <QueryBoundary

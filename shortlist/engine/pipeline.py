@@ -26,7 +26,7 @@ from shortlist.engine.clients.search import WebSearchProvider
 from shortlist.engine.clients.tmdb import Cache, NullCache, TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import Curator
-from shortlist.engine.delivery import render_row_name, row_marker, sweep_broken_rows
+from shortlist.engine.delivery import render_row_name, resolve_row_template, row_marker, sweep_broken_rows
 from shortlist.engine.history import HistorySource
 from shortlist.engine.models import (
     CollectionDiff,
@@ -521,13 +521,13 @@ def _promote_phase(
         # placement_titles): a STATIC-titled row's title is stable, so map it to its spec by that title
         # — otherwise _promote_one would fall to the everywhere-visible default and yank a "Library
         # only" row onto Home for this one run. Dynamic ({top_seed}) titles can't be predicted without
-        # picks, so those keep the safe hide-everywhere fallback. Matches delivery's title logic exactly
-        # (rows.py `spec.name_template or (user.row_name_template or cfg.row_name_template)`).
+        # picks, so those keep the safe hide-everywhere fallback. resolve_row_template is the shared
+        # source of truth for the template precedence delivery also uses — they must not drift.
         marker = row_marker(user.plex_account_id)
         for spec in ctx.config.rows:
             if spec.shared or (spec.audience is not None and user.plex_account_id not in spec.audience):
                 continue
-            title_template = spec.name_template or (user.row_name_template or ctx.config.row_name_template)
+            title_template = resolve_row_template(spec, user, ctx.config)
             if "{top_seed}" not in title_template:
                 placements.setdefault(render_row_name(title_template, user, []) + marker, spec)
         try:

@@ -70,6 +70,18 @@ def render_row_name(template: str, profile: UserProfile, picks: list[Pick]) -> s
     return rendered or DEFAULT_ROW_NAME
 
 
+def resolve_row_template(spec: RowSpec, profile: UserProfile, config: EngineConfig) -> str:
+    """The row-name template to render, most-specific wins: the row's own template, else the user's
+    per-user override, else the global default.
+
+    This MUST be the single source of truth for that precedence. The promote phase renders the
+    delivered collection's title from the same resolution to find the row it just wrote; if a caller
+    resolved the template differently, promote would look for a title delivery never created and the
+    row's placement/privacy promotion would silently no-op (plex-safety: a row could stay unhidden).
+    """
+    return spec.name_template or (profile.row_name_template or config.row_name_template)
+
+
 def _allowed_media(media: str) -> set[MediaType]:
     """Which media types a row writes to. 'both' -> movies and shows; else that one type."""
     if media == "both":
@@ -148,7 +160,7 @@ def deliver_rows(
     # fixed marker (there's no single owner account) so they resolve to one stable membership.
     wanted_label = spec.label or f"{config.label_prefix}_{profile.slug}"
     marker = row_marker(0) if spec.shared else row_marker(profile.plex_account_id)
-    template = spec.name_template or (profile.row_name_template or config.row_name_template)
+    template = resolve_row_template(spec, profile, config)
     # The key `stored_labels` is filed under: per-person rows collapse to one entry per user (all
     # their rows share one label); a shared row files under its own `shared_<slug>` key.
     stored_key = f"{SHARED_SLUG_PREFIX}_{spec.slug}" if spec.shared else profile.slug
@@ -247,7 +259,7 @@ def remove_row(
     """
     wanted_label = spec.label or f"{config.label_prefix}_{profile.slug}"
     marker = row_marker(0) if spec.shared else row_marker(profile.plex_account_id)
-    template = spec.name_template or (profile.row_name_template or config.row_name_template)
+    template = resolve_row_template(spec, profile, config)
     display = render_row_name(template, profile, [])
     title = display + marker
     # Look in every library, not just the row's current targets: if its library_keys changed, an

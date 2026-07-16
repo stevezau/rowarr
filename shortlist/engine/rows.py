@@ -25,6 +25,7 @@ from shortlist.engine.delivery import (
     deliver_rows,
     remove_row,
     render_row_name,
+    resolve_row_template,
     row_marker,
 )
 from shortlist.engine.history import derive_seeds
@@ -525,7 +526,7 @@ def _run_user(
             sub = _rotate_for_freshness(sub, k, effective_freshness(spec), ctx.run_day)
             try:
                 sec_picks = ctx.curator.curate(row_profile, sub, k)
-                user_report.llm_tokens += getattr(ctx.curator, "last_tokens", 0)
+                user_report.llm_tokens += ctx.curator.last_tokens
             except CuratorError as e:
                 logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
                 sec_picks = NullCurator().curate(row_profile, sub, k)
@@ -543,7 +544,7 @@ def _run_user(
         # Record the exact title delivery will write for EACH library, so the promote phase can apply
         # this row's placement/pin. Per library, because a {top_seed} title differs library to library
         # (each was curated from its own contents). Matches delivery's `render_row_name(...) + marker`.
-        title_template = spec.name_template or (user.row_name_template or cfg.row_name_template)
+        title_template = resolve_row_template(spec, user, cfg)
         marker = row_marker(user.plex_account_id)
         for sp in section_picks.values():
             if sp:
@@ -707,7 +708,7 @@ def _shared_row(
         try:
             sec_picks = ctx.curator.curate(agg, sub, k)
             # Shared-row LLM spend used to vanish — only the per-person path accounted tokens.
-            user_report.llm_tokens += getattr(ctx.curator, "last_tokens", 0)
+            user_report.llm_tokens += ctx.curator.last_tokens
         except CuratorError:
             sec_picks = NullCurator().curate(agg, sub, k)
         if len(sec_picks) < k:

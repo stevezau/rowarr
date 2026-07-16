@@ -106,6 +106,9 @@ class Curator(Protocol):
     # ``recommend_web``. False for local/offline providers (Ollama) and NullCurator — they can still
     # power the ``llm_web`` source via an external search provider (Exa) feeding ``complete``.
     supports_native_web_search: bool
+    # Output-token count from THIS thread's most recent curate call, for per-run accounting. A
+    # ThreadLocalTokens descriptor on the network providers; a plain 0 on NullCurator (no LLM call).
+    last_tokens: int
 
     def curate(self, profile: UserProfile, candidates: list[Candidate], k: int) -> list[Pick]:
         """Rank the top k candidates with a one-line reason each.

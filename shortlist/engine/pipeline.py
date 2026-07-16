@@ -26,7 +26,7 @@ from shortlist.engine.clients.search import WebSearchProvider
 from shortlist.engine.clients.tmdb import Cache, NullCache, TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import Curator
-from shortlist.engine.delivery import row_marker, sweep_broken_rows
+from shortlist.engine.delivery import render_row_name, row_marker, sweep_broken_rows
 from shortlist.engine.history import HistorySource
 from shortlist.engine.models import (
     CollectionDiff,
@@ -511,6 +511,19 @@ def _promote_phase(
         placements = {
             title: spec_by_slug[slug] for title, slug in user_report.placement_titles.items() if slug in spec_by_slug
         }
+        # Fallback for rows that EXIST but got no picks this run (so they're absent from
+        # placement_titles): a STATIC-titled row's title is stable, so map it to its spec by that title
+        # — otherwise _promote_one would fall to the everywhere-visible default and yank a "Library
+        # only" row onto Home for this one run. Dynamic ({top_seed}) titles can't be predicted without
+        # picks, so those keep the safe hide-everywhere fallback. Matches delivery's title logic exactly
+        # (rows.py `spec.name_template or (user.row_name_template or cfg.row_name_template)`).
+        marker = row_marker(user.plex_account_id)
+        for spec in ctx.config.rows:
+            if spec.shared or (spec.audience is not None and user.plex_account_id not in spec.audience):
+                continue
+            title_template = spec.name_template or (user.row_name_template or ctx.config.row_name_template)
+            if "{top_seed}" not in title_template:
+                placements.setdefault(render_row_name(title_template, user, []) + marker, spec)
         try:
             # Every row the user has, in every library — they can have several rows (all sharing
             # their label), and promoting only one would leave the others invisible to the one

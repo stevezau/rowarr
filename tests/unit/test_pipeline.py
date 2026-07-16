@@ -985,6 +985,108 @@ class TestPlacement:
         _promote_one(ctx, collection, None)
         ctx.plex.promote.assert_called_once_with(collection, shared=True)
 
+    def test_undelivered_static_library_only_row_keeps_its_placement(self, ctx: EngineContext):
+        """INT-3: a STATIC-titled 'Library only' row that exists but got no picks this run keeps its
+        library-only placement — it must NOT fall to the everywhere-visible default and pop onto Home
+        for that one run (the promote-phase fallback maps it to its spec by its stable title)."""
+        from datetime import UTC, datetime
+
+        from shortlist.engine.delivery import render_row_name, row_marker
+        from shortlist.engine.models import RowSpec, RunReport, UserProfile, UserRunReport, UserType
+        from shortlist.engine.pipeline import _promote_phase
+
+        user = UserProfile(username="sarah", plex_account_id=100, user_type=UserType.SHARED, slug="sarah")
+        ctx.config.rows = [RowSpec(slug="gems", name_template="Hidden Gems", size=10, placement="library")]
+        ctx.config.dry_run = False
+        section = MagicMock()
+        ctx.delivery_sections = [section]
+        coll = MagicMock(title=render_row_name("Hidden Gems", user, []) + row_marker(100))  # exists, no picks
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: [coll] if s is section else []
+        report = RunReport(started_at=datetime.now(UTC), users=[UserRunReport(username="sarah", slug="sarah")])
+
+        _promote_phase(ctx, [user], [], filters_ok=True, report=report)
+
+        assert ctx.plex.promote.call_args.kwargs == {
+            "shared": False,
+            "home": False,
+            "recommended": True,
+            "pin_top": False,
+        }
+
+    def test_undelivered_dynamic_titled_row_keeps_the_safe_everywhere_fallback(self, ctx: EngineContext):
+        """A {top_seed} row's title can't be predicted without picks, so an un-delivered one keeps the
+        hide-everywhere fallback (privacy-safe) rather than risk mis-mapping to the wrong placement."""
+        from datetime import UTC, datetime
+
+        from shortlist.engine.models import RowSpec, RunReport, UserProfile, UserRunReport, UserType
+        from shortlist.engine.pipeline import _promote_phase
+
+        user = UserProfile(username="sarah", plex_account_id=100, user_type=UserType.SHARED, slug="sarah")
+        ctx.config.rows = [
+            RowSpec(slug="dyn", name_template="Because you watched {top_seed}", size=10, placement="library")
+        ]
+        ctx.config.dry_run = False
+        section = MagicMock()
+        ctx.delivery_sections = [section]
+        coll = MagicMock(title="Because you watched Dune (from a prior run)")
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: [coll] if s is section else []
+        report = RunReport(started_at=datetime.now(UTC), users=[UserRunReport(username="sarah", slug="sarah")])
+
+        _promote_phase(ctx, [user], [], filters_ok=True, report=report)
+
+        ctx.plex.promote.assert_called_once_with(coll, shared=True)  # unmapped dynamic → safe fallback
+
+    def test_fallback_skips_a_row_this_user_is_not_in_the_audience_for(self, ctx: EngineContext):
+        """Audience is honoured by the no-picks fallback: a per-person row this user is excluded from
+        must never be handed a Home/Library placement for them. It stays on the unmapped safe fallback
+        (per-person rows share the same marker, so this audience skip is the ONLY thing protecting it)."""
+        from datetime import UTC, datetime
+
+        from shortlist.engine.delivery import render_row_name, row_marker
+        from shortlist.engine.models import RowSpec, RunReport, UserProfile, UserRunReport, UserType
+        from shortlist.engine.pipeline import _promote_phase
+
+        user = UserProfile(username="sarah", plex_account_id=100, user_type=UserType.SHARED, slug="sarah")
+        ctx.config.rows = [
+            RowSpec(slug="gems", name_template="Hidden Gems", size=10, placement="library", audience={999})
+        ]
+        ctx.config.dry_run = False
+        section = MagicMock()
+        ctx.delivery_sections = [section]
+        coll = MagicMock(title=render_row_name("Hidden Gems", user, []) + row_marker(100))
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: [coll] if s is section else []
+        report = RunReport(started_at=datetime.now(UTC), users=[UserRunReport(username="sarah", slug="sarah")])
+
+        _promote_phase(ctx, [user], [], filters_ok=True, report=report)
+
+        ctx.plex.promote.assert_called_once_with(coll, shared=True)  # excluded → NOT mapped
+
+    def test_fallback_leaves_shared_rows_to_the_shared_promote_loop(self, ctx: EngineContext):
+        """A shared row must never be picked up by the PER-PERSON fallback (it promotes in the separate
+        shared loop). Even if a collection under this user's label matched the title the fallback would
+        compute, the `spec.shared` skip keeps it on the unmapped safe fallback, not the shared spec's
+        Home placement."""
+        from datetime import UTC, datetime
+
+        from shortlist.engine.delivery import render_row_name, row_marker
+        from shortlist.engine.models import RowSpec, RunReport, UserProfile, UserRunReport, UserType
+        from shortlist.engine.pipeline import _promote_phase
+
+        user = UserProfile(username="sarah", plex_account_id=100, user_type=UserType.SHARED, slug="sarah")
+        ctx.config.rows = [
+            RowSpec(slug="all", name_template="Everyone's Picks", size=10, placement="home", shared=True)
+        ]
+        ctx.config.dry_run = False
+        section = MagicMock()
+        ctx.delivery_sections = [section]
+        coll = MagicMock(title=render_row_name("Everyone's Picks", user, []) + row_marker(100))
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: [coll] if s is section else []
+        report = RunReport(started_at=datetime.now(UTC), users=[UserRunReport(username="sarah", slug="sarah")])
+
+        _promote_phase(ctx, [user], [], filters_ok=True, report=report)
+
+        ctx.plex.promote.assert_called_once_with(coll, shared=True)  # shared spec skipped → NOT mapped
+
     def test_a_top_seed_row_records_a_placement_title_per_library(self, ctx: EngineContext, mock_plextv):
         """A {top_seed} row spanning two libraries writes a DIFFERENT title in each (each curated from
         its own contents), so promotion must know both — not just the first. The recorded titles must

@@ -15,7 +15,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, runStatusVariant, timeAgo } from "@/lib/format";
+import {
+  formatDate,
+  runStatusLabel,
+  runStatusVariant,
+  timeAgo,
+  triggerLabel,
+} from "@/lib/format";
 import { useRuns, useStartRun } from "@/lib/queries";
 import type { Run } from "@/lib/types";
 
@@ -40,7 +46,9 @@ function RunRow({ run }: { run: Run }) {
           #{run.id}
         </Link>
       </TableCell>
-      <TableCell className="text-muted-foreground">{run.trigger}</TableCell>
+      <TableCell className="text-muted-foreground">
+        {triggerLabel(run.trigger)}
+      </TableCell>
       <TableCell
         className="text-muted-foreground"
         title={formatDate(run.started_at)}
@@ -49,7 +57,9 @@ function RunRow({ run }: { run: Run }) {
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap gap-1">
-          <Badge variant={runStatusVariant(run.status)}>{run.status}</Badge>
+          <Badge variant={runStatusVariant(run.status)}>
+            {runStatusLabel(run.status)}
+          </Badge>
           {run.dry_run && <Badge variant="outline">dry-run</Badge>}
         </div>
       </TableCell>

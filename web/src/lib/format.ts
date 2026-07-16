@@ -44,6 +44,34 @@ export function runStatusVariant(
   return "secondary";
 }
 
+const RUN_STATUS_LABELS: Record<string, string> = {
+  ok: "OK",
+  success: "OK",
+  finished: "OK",
+  error: "Failed",
+  failed: "Failed",
+  cold_start: "Cold start",
+  skipped: "Skipped",
+  pending: "Pending",
+  running: "Running",
+};
+
+const TRIGGER_LABELS: Record<string, string> = {
+  manual: "Manual",
+  scheduled: "Scheduled",
+  cron: "Scheduled",
+};
+
+/** A run/user status as a person reads it — never the raw enum ("cold_start" → "Cold start"). */
+export function runStatusLabel(status: string): string {
+  return RUN_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
+}
+
+/** A run trigger as a person reads it ("manual" → "Manual"). */
+export function triggerLabel(trigger: string): string {
+  return TRIGGER_LABELS[trigger] ?? trigger.replace(/_/g, " ");
+}
+
 /** hit_rate fraction (0..1) → "31%" or "—" before first measurement. */
 export function formatHitRate(rate: number | null): string {
   if (rate === null) return "—";

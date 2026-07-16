@@ -72,14 +72,15 @@ GET  /api/users/{id}/rows · PUT /api/users/{id}/rows/{collection_id} {muted?, r
 GET  /api/users/{id}/runs · GET /api/users/{id}/history
 GET/POST /api/collections · PATCH/DELETE /api/collections/{id} (incl. `request_tag`, `candidate_sources`, `library_keys`)
 GET  /api/system/libraries -> [{key, title, type}] (the server's Plex libraries, for the row editor)
-GET  /api/runs · GET /api/runs/{id} · POST /api/runs {user_ids?, dry_run?}
+GET  /api/runs · GET /api/runs/{id} · GET /api/runs/{id}/log (activity feed) · POST /api/runs {user_ids?, dry_run?}
 GET  /api/requests · POST /api/requests/send {ids, dry_run?} · POST /api/requests/reject {ids}
 GET  /api/events (SSE) · GET /api/events/log (audit feed)
 GET  /api/privacy/status · POST /api/privacy/check {probe?} · GET /api/privacy/snapshots
 GET/PUT /api/settings · POST /api/settings/test/{plex|tautulli|tmdb|llm|radarr|sonarr|omdb|trakt|exa}
 GET  /api/settings/arr/{radarr|sonarr}/options -> {quality_profiles, root_folders}
 POST /api/settings/prompt-preview {tone?, guidance?, template?, shared?} -> {system, user}
-GET  /api/system/health · POST /api/system/uninstall {confirm: "UNINSTALL"}
+GET  /api/system/health · GET /api/system/version · POST /api/system/uninstall {confirm: "UNINSTALL"}
+GET  /api/setup/servers (Plex server picker during onboarding) · GET /api/setup/state
 ```
 
 The curation prompt is tunable: a `tone` preset + free-text `guidance` + an optional full custom

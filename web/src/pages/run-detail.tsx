@@ -14,7 +14,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { formatDate, formatDuration, runStatusVariant } from "@/lib/format";
+import {
+  formatDate,
+  formatDuration,
+  runStatusLabel,
+  runStatusVariant,
+} from "@/lib/format";
 import { githubIssueSnippet } from "@/lib/github";
 import { queryKeys, useRun, useUsers } from "@/lib/queries";
 import { mergeRunLog } from "@/lib/run-log";
@@ -496,7 +501,7 @@ export function RunDetailPage() {
                                   : runStatusVariant(selected.status)
                               }
                             >
-                              {selected.status}
+                              {runStatusLabel(selected.status)}
                             </Badge>
                           </CardTitle>
                           <p className="text-sm text-muted-foreground">

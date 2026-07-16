@@ -1032,6 +1032,21 @@ class TestCollectionsApi:
         # Every user's OLD per-person collection was removed (the new shared row builds on the next run).
         assert set(deleted) == {"Gems" + row_marker(acct) for _, acct in info}
 
+    def test_changing_a_shared_row_to_per_person_removes_the_shared_collection(self, client: TestClient, monkeypatch):
+        """The other direction of the flip: shared → per-person removes the OLD shared collection (found
+        by its own shared label), so it doesn't linger while the new per-person rows build."""
+        from shortlist.engine.delivery import row_marker
+
+        created = client.post("/api/collections", json={"name": "Popular", "build": "shared"})
+        cid, slug = created.json()["id"], created.json()["slug"]
+        deleted = self._fake_plex_ctx(
+            monkeypatch, client, collections=[("🔥 Popular" + row_marker(0), f"shortlist__shared_{slug}")]
+        )
+
+        r = client.patch(f"/api/collections/{cid}", json={"name": "Popular", "build": "per_person"})
+        assert r.status_code == 200 and r.json()["build"] == "per_person"
+        assert deleted == ["🔥 Popular" + row_marker(0)]  # the old shared collection removed by its label
+
     def test_shared_collection_with_subset_audience(self, client: TestClient):
         users = client.get("/api/users").json()
         ids = [u["id"] for u in users]

@@ -241,6 +241,17 @@ class TestSettingsValidation:
         assert client.put("/api/settings", json={"values": {"row.size": 41}}).status_code == 422
         assert client.put("/api/settings", json={"values": {"row.size": 4}}).status_code == 422
 
+    def test_hub_anchor_shape_is_validated(self, client: TestClient):
+        # Bad shapes used to reach the engine and skip ordering silently.
+        bad = {"2": {"before": True}}  # missing 'anchor'
+        assert client.put("/api/settings", json={"values": {"rows.hub_anchor": bad}}).status_code == 422
+        assert (
+            client.put("/api/settings", json={"values": {"rows.hub_anchor": {"2": {"anchor": ""}}}}).status_code == 422
+        )
+        good = {"2": {"anchor": "New Series (Unwatched)", "before": False}}
+        assert client.put("/api/settings", json={"values": {"rows.hub_anchor": good}}).status_code == 200
+        assert client.put("/api/settings", json={"values": {"rows.hub_anchor": {}}}).status_code == 200  # clears it
+
     def test_request_year_bounds_are_validated(self, client: TestClient):
         # Both ends of the request year window share the 0..2100 bound (0 = that end disabled).
         assert client.put("/api/settings", json={"values": {"requests.max_year": 3000}}).status_code == 422

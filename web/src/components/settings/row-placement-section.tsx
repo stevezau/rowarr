@@ -1,0 +1,219 @@
+import { useState } from "react";
+
+import { QueryBoundary } from "@/components/query-boundary";
+import { SaveStatus } from "@/components/save-status";
+import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAutosave } from "@/lib/autosave";
+import {
+  useLibraries,
+  useLibraryCollections,
+  useSaveSettings,
+} from "@/lib/queries";
+import type { PlexLibrary, Settings } from "@/lib/types";
+
+const selectClass =
+  "h-9 w-full rounded-md border bg-elevated px-3 text-sm focus-visible:outline-none " +
+  "focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
+
+type Anchor = { anchor: string; before?: boolean };
+type AnchorMap = Record<string, Anchor>;
+
+function readAnchors(settings: Settings): AnchorMap {
+  const raw = settings["rows.hub_anchor"];
+  if (!raw || typeof raw !== "object") return {};
+  const out: AnchorMap = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (
+      value &&
+      typeof value === "object" &&
+      typeof (value as Anchor).anchor === "string"
+    ) {
+      out[key] = {
+        anchor: (value as Anchor).anchor,
+        before: Boolean((value as Anchor).before),
+      };
+    }
+  }
+  return out;
+}
+
+/** The mode a single library is in. An entry exists the moment a non-default mode is chosen (even
+ *  before a collection is picked), so an empty-anchor entry still reads as after/before, not default. */
+function modeOf(entry: Anchor | undefined): "default" | "after" | "before" {
+  if (!entry) return "default";
+  return entry.before ? "before" : "after";
+}
+
+/** One library's placement control: a mode select plus, when anchored, a collection dropdown. */
+function LibraryPlacement({
+  library,
+  entry,
+  onChange,
+}: {
+  library: PlexLibrary;
+  entry: Anchor | undefined;
+  onChange: (next: Anchor | undefined) => void;
+}) {
+  const mode = modeOf(entry);
+  const collections = useLibraryCollections(library.key, mode !== "default");
+
+  const setMode = (next: "default" | "after" | "before") => {
+    if (next === "default") return onChange(undefined);
+    // Keep the chosen collection when only flipping after/before; else start unset.
+    onChange({ anchor: entry?.anchor ?? "", before: next === "before" });
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="font-medium">{library.title}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor={`mode-${library.key}`}>Place Shortlist rows</Label>
+          <select
+            id={`mode-${library.key}`}
+            className={selectClass + " w-48"}
+            value={mode}
+            onChange={(event) =>
+              setMode(event.target.value as "default" | "after" | "before")
+            }
+          >
+            <option value="default">Wherever Plex puts them</option>
+            <option value="after">Right after a collection…</option>
+            <option value="before">Right before a collection…</option>
+          </select>
+        </div>
+
+        {mode !== "default" && (
+          <div className="space-y-1">
+            <Label htmlFor={`anchor-${library.key}`}>Collection</Label>
+            {collections.isError ? (
+              <p className="text-sm text-destructive">
+                Couldn’t load this library’s collections.
+              </p>
+            ) : (
+              <select
+                id={`anchor-${library.key}`}
+                className={selectClass + " w-64"}
+                disabled={collections.isPending}
+                value={entry?.anchor ?? ""}
+                onChange={(event) =>
+                  onChange({
+                    anchor: event.target.value,
+                    before: mode === "before",
+                  })
+                }
+              >
+                <option value="" disabled>
+                  {collections.isPending ? "Loading…" : "Choose a collection"}
+                </option>
+                {/* A previously-saved anchor that no longer exists still shows, so the setting reads truthfully. */}
+                {entry?.anchor &&
+                  !collections.data?.some((c) => c.title === entry.anchor) && (
+                    <option value={entry.anchor}>
+                      {entry.anchor} (not found)
+                    </option>
+                  )}
+                {collections.data?.map((c) => (
+                  <option key={c.title} value={c.title}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+      </div>
+      {mode !== "default" && !entry?.anchor && (
+        <p className="text-sm text-muted-foreground">
+          Pick a collection to anchor to, or nothing changes.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Where Shortlist's rows land in each library's Plex "Recommended" shelf — anchored to a collection
+ *  you choose, re-applied every run so a co-managing tool (Kometa) can't bury them again. */
+export function RowPlacementSection({ settings }: { settings: Settings }) {
+  const librariesQuery = useLibraries();
+  const saveSettings = useSaveSettings();
+  const [anchors, setAnchors] = useState<AnchorMap>(() =>
+    readAnchors(settings),
+  );
+  const [justSaved, setJustSaved] = useState(false);
+
+  // Only anchors with a real collection are persisted — a half-set library (mode chosen, no
+  // collection yet) is dropped so the engine never tries to anchor to "".
+  const persistable = Object.fromEntries(
+    Object.entries(anchors).filter(([, a]) => a.anchor.trim()),
+  );
+
+  const retry = useAutosave({ anchors }, () => {
+    setJustSaved(false);
+    saveSettings.mutate(
+      { "rows.hub_anchor": persistable },
+      { onSuccess: () => setJustSaved(true) },
+    );
+  });
+
+  const update = (key: string, next: Anchor | undefined) =>
+    setAnchors((current) => {
+      const copy = { ...current };
+      if (next) copy[key] = next;
+      else delete copy[key];
+      return copy;
+    });
+
+  return (
+    <section aria-labelledby="placement-heading" className="space-y-3">
+      <h2 id="placement-heading" className="text-lg font-semibold">
+        Row placement
+      </h2>
+      <Card>
+        <CardContent className="space-y-4 pt-6">
+          <p className="text-sm text-muted-foreground">
+            By default Plex adds new collections at the end of a library’s{" "}
+            <em>Recommended</em> shelf — so if another tool (like Kometa)
+            manages collections here, Shortlist’s rows can end up buried at the
+            bottom. Anchor them to a collection you pick and they’ll sit right
+            after (or before) it after every run.
+          </p>
+
+          <QueryBoundary
+            query={librariesQuery}
+            skeleton={<Skeleton className="h-24 w-full" />}
+          >
+            {(libraries) =>
+              libraries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No Plex libraries found.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {libraries.map((library) => (
+                    <LibraryPlacement
+                      key={library.key}
+                      library={library}
+                      entry={anchors[library.key]}
+                      onChange={(next) => update(library.key, next)}
+                    />
+                  ))}
+                </div>
+              )
+            }
+          </QueryBoundary>
+
+          <SaveStatus
+            isPending={saveSettings.isPending}
+            isError={saveSettings.isError}
+            error={saveSettings.error}
+            saved={justSaved}
+            onRetry={retry}
+          />
+        </CardContent>
+      </Card>
+    </section>
+  );
+}

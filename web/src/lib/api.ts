@@ -246,6 +246,10 @@ export const api = {
   /** The server's Plex libraries, for the Rows editor's per-row delivery-target picker. */
   getLibraries: (): Promise<PlexLibrary[]> => request("/api/system/libraries"),
 
+  /** A library's managed collections — the candidate anchors for placing rows in the shelf. */
+  getLibraryCollections: (key: string): Promise<{ title: string }[]> =>
+    request(`/api/system/libraries/${encodeURIComponent(key)}/collections`),
+
   // --- Collections (rows) ---
   listCollections: (): Promise<Collection[]> => request("/api/collections"),
 

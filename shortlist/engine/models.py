@@ -341,6 +341,19 @@ class RequestReport:
         return sum(1 for o in self.outcomes if o.status in ("requested", "would_request"))
 
 
+@dataclass(frozen=True)
+class HubAnchor:
+    """Where a library's Shortlist rows should sit in Plex's managed-recommendation shelf: right
+    after (``before=False``) or before (``before=True``) an existing collection, matched by title.
+
+    Re-applied at the end of every run so a co-managing tool (e.g. Kometa, which can push our rows to
+    the bottom of the shelf) can't leave them buried. Only OUR hubs are moved; the anchor is read-only.
+    """
+
+    anchor_title: str
+    before: bool = False
+
+
 @dataclass
 class EngineConfig:
     """Static configuration for one engine run (adapters build this from settings)."""
@@ -368,6 +381,10 @@ class EngineConfig:
     # How the llm_web source searches: 'native' (the provider's own web-search tool), 'exa' (the
     # external search provider — the only path for Ollama), or 'auto' (native where supported, else Exa).
     web_search_provider: str = "auto"
+    # Per-library placement of Shortlist's rows in Plex's Recommended shelf, keyed by section key
+    # (str). Empty -> leave Plex's default order (rows land wherever they're created — last, under a
+    # co-managing tool's collections). Applied at end of run, read-only against the anchor.
+    hub_anchors: dict[str, HubAnchor] = field(default_factory=dict)
     dry_run: bool = False
     # The curated rows to deliver. Empty -> a single default per-person row synthesized from
     # row_name_template/row_size, so the CLI and existing callers behave exactly as before.
@@ -483,6 +500,10 @@ class RunReport:
     # any run's user list — so without this, "what changed on whose share at 03:31" would have no
     # answer for them at all (plex-safety rule 10).
     filter_writes: dict[int, dict] = field(default_factory=dict)
+    # Managed-recommendation shelf reorders applied this run, one per library actually moved (a title
+    # anchor + the row titles moved). Empty when no anchors are configured or everything was already
+    # in place — a run-level audit of a server-wide Plex write (plex-safety rule 10).
+    hub_orderings: list[dict] = field(default_factory=list)
     # Sonarr/Radarr requests made (or, in dry-run, that would be made) for picks the library lacks.
     # None when the feature is off — distinct from an empty report (on, but nothing qualified).
     requests: RequestReport | None = None

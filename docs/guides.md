@@ -21,6 +21,16 @@ presets (just pick a run time), or switch to **Custom (cron)** to enter any 5-fi
 — e.g. `0 */6 * * *` for every six hours, or `0 4 * * 1` for Mondays at 4am. One schedule covers
 the whole server; to skip someone, pause them on their detail page.
 
+## Row placement (Recommended shelf)
+
+By default Plex adds new collections at the **end** of a library's _Recommended_ shelf, so if another
+tool (like **Kometa**) manages collections on the same server, Shortlist's rows can end up buried at
+the bottom. Settings → **Row placement** fixes this per library: pick an existing collection and choose
+whether Shortlist's rows sit **right after** or **right before** it. Shortlist re-applies this at the end
+of every run (so a co-managing tool can't re-bury them), only ever moves its own rows, and never touches
+the anchor collection. Leave a library on "Wherever Plex puts them" to keep the default order. The order
+is server-wide, but since each person only sees their own row, moving them up lifts everyone's at once.
+
 ## Hit rate
 
 The % of recommended items a user actually watched within 30 days, computed from the same

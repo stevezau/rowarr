@@ -160,6 +160,16 @@ export function useLibraries() {
   });
 }
 
+export function useLibraryCollections(key: string, enabled = true) {
+  return useQuery({
+    queryKey: ["library-collections", key],
+    queryFn: () => api.getLibraryCollections(key),
+    staleTime: 60_000,
+    retry: false,
+    enabled,
+  });
+}
+
 export function useUserRows(id: number) {
   return useQuery({
     queryKey: queryKeys.userRows(id),

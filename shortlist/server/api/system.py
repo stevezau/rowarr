@@ -45,6 +45,39 @@ async def libraries(request: Request) -> list[dict]:
     return await asyncio.get_running_loop().run_in_executor(None, read)
 
 
+@router.get("/libraries/{key}/collections", dependencies=[Depends(require_owner)])
+async def library_collections(key: str, request: Request) -> list[dict]:
+    """A library's managed (orderable) collections — the candidate ANCHORS for placing Shortlist rows
+    in the Recommended shelf. Shortlist's own rows are excluded (you don't anchor a row to itself)."""
+    from shortlist.engine.clients.plex_pms import PlexClient
+    from shortlist.server.settings_store import SettingsStore
+
+    state = request.app.state
+
+    def read() -> list[dict]:
+        with state.sessions() as session:
+            store = SettingsStore(session, state.secrets)
+            url, token = store.get("plex.url"), store.get("plex.token")
+        if not url or not token:
+            raise HTTPException(status_code=409, detail="Plex isn't connected yet")
+        section = next((s for s in PlexClient(url, token).sections() if str(s.key) == key), None)
+        if section is None:
+            raise HTTPException(status_code=404, detail="library not found")
+        ours = {
+            c.title
+            for c in section.collections()
+            if any(lbl.tag.lower().startswith("shortlist_") for lbl in (c.labels or []))
+        }
+        titles: list[str] = []
+        for hub in section.managedHubs():
+            title = getattr(hub, "title", "") or ""
+            if title and title not in ours and title not in titles:
+                titles.append(title)
+        return [{"title": t} for t in titles]
+
+    return await asyncio.get_running_loop().run_in_executor(None, read)
+
+
 class UninstallRequest(BaseModel):
     confirm: str = ""
     dry_run: bool = False  # preview: report what WOULD be restored/deleted (rule 8)

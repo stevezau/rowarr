@@ -303,6 +303,77 @@ class PlexClient:
             time.monotonic() - start,
         )
 
+    def order_owned_hubs(
+        self,
+        section: LibrarySection,
+        *,
+        label_prefix: str,
+        anchor_title: str,
+        before: bool = False,
+        dry_run: bool = False,
+    ) -> dict:
+        """Place this section's Shortlist rows right after/before the ``anchor_title`` collection in
+        Plex's Managed Recommendations shelf, so a co-managing tool (Kometa) can't bury them.
+
+        Only OUR hubs (``label_prefix``-labelled) are moved; the anchor is read-only. Idempotent — if
+        our rows already sit contiguously in the target slot, nothing is written (no nightly churn).
+        Returns an audit dict: ``{anchor, moved: [titles], skipped: bool, reason?}``.
+        """
+        prefix = f"{label_prefix}_".lower()
+        owned_titles = {
+            c.title
+            for c in self._section_collections(section)
+            if any(label.tag.lower().startswith(prefix) for label in c.labels)
+        }
+        if not owned_titles:
+            return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "no rows in this library"}
+
+        order = list(section.managedHubs())  # the live shelf order
+        ours = [h for h in order if (getattr(h, "title", "") or "") in owned_titles]
+        if not ours:
+            return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "rows not promoted yet"}
+
+        anchor = next(
+            (h for h in order if (getattr(h, "title", "") or "") == anchor_title and h not in ours),
+            None,
+        )
+        if anchor is None:
+            logger.warning(
+                "hub order: anchor {!r} not found in {} — leaving the shelf order unchanged",
+                anchor_title,
+                section.title,
+            )
+            return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "anchor not found"}
+
+        # The hub our rows must sit directly after. 'after anchor' -> the anchor; 'before anchor' -> the
+        # hub just before the anchor that isn't one of ours (None -> the very top of the shelf).
+        if before:
+            anchor_idx = order.index(anchor)
+            target = next((h for h in reversed(order[:anchor_idx]) if h not in ours), None)
+        else:
+            target = anchor
+
+        idents = [h.identifier for h in order]
+        our_idents = [h.identifier for h in ours]
+        start = idents.index(target.identifier) + 1 if target is not None else 0
+        if idents[start : start + len(our_idents)] == our_idents:
+            return {"anchor": anchor_title, "moved": [], "skipped": True, "reason": "already in place"}
+
+        where = "before" if before else "after"
+        moved_titles = [h.title for h in ours]
+        if dry_run:
+            logger.info(
+                "[dry-run] hub order: would move {} row(s) {} {!r} in {}", len(ours), where, anchor_title, section.title
+            )
+            return {"anchor": anchor_title, "moved": moved_titles, "skipped": False, "dry_run": True}
+
+        prev = target
+        for hub in ours:
+            hub.reload().move(after=prev)  # after=None -> top of the shelf
+            prev = hub
+        logger.info("hub order: moved {} row(s) {} {!r} in {}", len(ours), where, anchor_title, section.title)
+        return {"anchor": anchor_title, "moved": [h.title for h in ours], "skipped": False}
+
     def set_items(self, collection: Collection, items: list) -> None:
         """Replace a collection's items and put them in the given (ranked) order via custom sort.
 

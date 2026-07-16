@@ -403,6 +403,7 @@ class RunService:
                 self._persist_user_report(session, run_id, user, user_report, report.dry_run)
             self._emit_sweep_event(session, run_id, report)
             self._emit_privacy_sync_events(session, run_id, report)
+            self._emit_hub_ordering_events(session, run_id, report)
             self._emit_request_events(session, run_id, report)
             self._persist_request_queue(session, run_id, report)
             if report.error:
@@ -526,6 +527,26 @@ class RunService:
                             field: {"before": before, "after": after}
                             for field, (before, after) in write["fields"].items()
                         },
+                    },
+                )
+            )
+
+    @staticmethod
+    def _emit_hub_ordering_events(session: Session, run_id: int, report) -> None:
+        # Recommended-shelf reorders. Moving a managed hub shifts every collection's position on a
+        # server-wide shelf that a co-managing tool (Kometa) also cares about, so each library we
+        # actually moved rows in is audited — "what changed on the shelf at 03:31" (plex-safety rule 10).
+        for entry in report.hub_orderings:
+            session.add(
+                Event(
+                    scope="run.hub_order",
+                    level="info",
+                    message={
+                        "run_id": run_id,
+                        "dry_run": report.dry_run,
+                        "library": entry.get("library"),
+                        "anchor": entry.get("anchor"),
+                        "moved": entry.get("moved", []),
                     },
                 )
             )

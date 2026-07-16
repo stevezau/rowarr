@@ -169,6 +169,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     # Only now, with the exclusions in place, promote rows onto shared Home.
     _promote_phase(ctx, to_promote, shared_to_promote, filters_ok, report)
 
+    # Position the just-promoted rows in each library's Recommended shelf (must run after promotion —
+    # a hub has to be promoted to be movable). Best-effort and privacy-neutral.
+    if filters_ok:
+        _order_phase(ctx, report)
+
     # Sonarr/Radarr requests, dead LAST — after every Plex write is done.
     _request_phase(ctx, requests_on, demand, report)
 
@@ -565,6 +570,36 @@ def _promote_one(ctx: EngineContext, collection, spec: RowSpec | None) -> None:
         recommended=spec.show_library,
         pin_top=spec.pin_top,
     )
+
+
+def _order_phase(ctx: EngineContext, report: RunReport) -> None:
+    """Place each configured library's Shortlist rows in its Recommended shelf, right after/before an
+    anchor collection — so a co-managing tool (Kometa) can't leave our rows buried at the bottom.
+
+    Best-effort: a shelf reorder is cosmetic and privacy-neutral (the hubs are already promoted and
+    browse-hidden; only their position changes), so a failure is logged and never fails the run. The
+    anchor is read-only; only Shortlist's own hubs move (Kometa coexistence). The would-be move is
+    still logged under dry-run."""
+    if not ctx.config.hub_anchors:
+        return
+    for section in ctx.delivery_sections:
+        anchor = ctx.config.hub_anchors.get(str(section.key))
+        if anchor is None:
+            continue
+        try:
+            with ctx.write_lock:
+                result = ctx.plex.order_owned_hubs(
+                    section,
+                    label_prefix=ctx.config.label_prefix,
+                    anchor_title=anchor.anchor_title,
+                    before=anchor.before,
+                    dry_run=ctx.config.dry_run,
+                )
+            if result.get("moved") and not result.get("skipped"):
+                report.hub_orderings.append({"library": section.title, **result})
+        except Exception as e:
+            # A shelf reorder is cosmetic — never fail the run over it; next run re-applies.
+            logger.warning("{}: hub ordering failed ({}: {}) — left Plex's order", section.title, type(e).__name__, e)
 
 
 def _request_phase(ctx: EngineContext, requests_on: bool, demand: requests_mod.DemandMap, report: RunReport) -> None:

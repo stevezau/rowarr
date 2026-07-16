@@ -55,6 +55,24 @@ def _is_bool(value: object) -> str | None:
     return None if isinstance(value, bool) else "must be true or false"
 
 
+def _hub_anchors(value: object) -> str | None:
+    """`{sectionKey: {"anchor": str (non-empty), "before": bool}}` — the per-library Recommended-shelf
+    placement. An empty dict clears it. Bad shapes reached the engine and skipped ordering silently."""
+    if not isinstance(value, dict):
+        return "must be an object keyed by library id"
+    for key, entry in value.items():
+        if not isinstance(key, str):
+            return "library ids must be strings"
+        if not isinstance(entry, dict):
+            return f"{key}: must be an object with 'anchor' and 'before'"
+        anchor = entry.get("anchor")
+        if not isinstance(anchor, str) or not anchor.strip():
+            return f"{key}: 'anchor' must be a non-empty collection title"
+        if not isinstance(entry.get("before", False), bool):
+            return f"{key}: 'before' must be true or false"
+    return None
+
+
 def _known_sources(value: object) -> str | None:
     from shortlist.engine.candidates import KNOWN_SOURCES
 
@@ -76,6 +94,7 @@ VALIDATORS = {
     "requests.enabled": _is_bool,
     "requests.auto_send": _is_bool,
     "candidates.sources": _known_sources,
+    "rows.hub_anchor": _hub_anchors,
     "llm_web.search_provider": _one_of("auto", "native", "exa"),
     "recommendations.watched_pct": _bounded_float(0.0, 1.0),
     "recommendations.freshness": _bounded_float(0.0, 1.0),

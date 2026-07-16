@@ -26,6 +26,7 @@ from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, T
 from shortlist.engine.models import (
     ArrTarget,
     EngineConfig,
+    HubAnchor,
     MediaType,
     PromptConfig,
     RequestConfig,
@@ -105,6 +106,7 @@ class ContextBuilder:
                 # the same everywhere (gather_candidates still floors an explicit [] at tmdb_similar).
                 candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
                 web_search_provider=store.get("llm_web.search_provider") or "auto",
+                hub_anchors=self._build_hub_anchors(store),
                 watched_pct=float(store.get("recommendations.watched_pct") or 0.0),
                 freshness=float(store.get("recommendations.freshness") or 0.0),
                 dry_run=dry_run,
@@ -422,6 +424,21 @@ class ContextBuilder:
                 )
             )
         return retired
+
+    @staticmethod
+    def _build_hub_anchors(store: SettingsStore) -> dict[str, HubAnchor]:
+        """Per-library Recommended-shelf placement from `rows.hub_anchor`. Entries with a blank anchor
+        are dropped (treated as 'no placement'), so the engine only ever moves rows with a real anchor."""
+        raw = store.get("rows.hub_anchor") or {}
+        anchors: dict[str, HubAnchor] = {}
+        if isinstance(raw, dict):
+            for key, entry in raw.items():
+                if isinstance(entry, dict) and str(entry.get("anchor") or "").strip():
+                    anchors[str(key)] = HubAnchor(
+                        anchor_title=str(entry["anchor"]).strip(),
+                        before=bool(entry.get("before", False)),
+                    )
+        return anchors
 
     @staticmethod
     def _build_requests(store: SettingsStore) -> RequestConfig | None:

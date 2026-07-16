@@ -50,6 +50,11 @@ DEFAULTS: dict[str, Any] = {
     "requests.auto_min_rating": 8.0,  # ...and rated at least this high on the chosen source
     "requests.tag": "shortlist",  # tag applied to every title Shortlist adds ("" = no tag)
     "schedule.cron": "30 3 * * *",
+    # Where Shortlist's rows sit in each library's Plex "Recommended" shelf, keyed by library (section)
+    # key: {"anchor": "<collection title>", "before": false}. Empty = leave Plex's default order (rows
+    # land last, under any co-managing tool like Kometa). Re-applied at end of each run; anchor is
+    # read-only, only our rows move.
+    "rows.hub_anchor": {},
     "staleness_runs": 3,
     # Which candidate sources feed recommendations (engine/candidates.py). More = wider recall.
     "candidates.sources": ["tmdb_similar", "tmdb_discover"],

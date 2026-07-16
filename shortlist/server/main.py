@@ -147,13 +147,20 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
 
     if WEB_DIST.exists():
         app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+        web_root = WEB_DIST.resolve()
+        index = web_root / "index.html"
 
         @app.get("/{path:path}", include_in_schema=False)
         async def spa(path: str):  # SPA fallback: every non-API path serves the app shell
-            file = WEB_DIST / path
-            if path and file.is_file():
-                return FileResponse(file)
-            return FileResponse(WEB_DIST / "index.html")
+            if path:
+                # Containment guard: `path` is caller-controlled and uvicorn does NOT collapse
+                # `..`/`%2e%2e`, so a crafted `../../config/secret.key` would otherwise escape the
+                # bundle and leak the Fernet key + DB. Resolve and require the target stays inside
+                # web_root before serving it as a file (plex-safety: secrets never leave the box).
+                target = (web_root / path).resolve()
+                if target.is_relative_to(web_root) and target.is_file():
+                    return FileResponse(target)
+            return FileResponse(index)
 
     return app
 

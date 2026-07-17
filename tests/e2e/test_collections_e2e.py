@@ -29,7 +29,10 @@ def test_default_row_is_listed_and_a_per_person_row_can_be_added(page: Page, app
 
     page.get_by_role("button", name="Add a row").click()
     expect(page.get_by_role("heading", name="Add a row")).to_be_visible()
-    page.get_by_label("Name").fill("Hidden Gems")
+    # exact=True: get_by_label is a substring match, and the default row's name is the *template*
+    # "✨ {library_name} Picked for You" — so its card's "Enable …"/"Remove …" aria-labels contain
+    # "name" and would otherwise collide with the dialog's real "Name" field.
+    page.get_by_label("Name", exact=True).fill("Hidden Gems")
     page.get_by_role("button", name="Add row").click()
 
     expect(page.get_by_text("Hidden Gems").first).to_be_visible(timeout=LOAD)
@@ -40,7 +43,7 @@ def test_default_row_is_listed_and_a_per_person_row_can_be_added(page: Page, app
 def test_a_shared_row_created_in_the_ui_is_stored_as_shared(page: Page, app: ShortlistApp):
     _open_rows(page)
     page.get_by_role("button", name="Add a row").click()
-    page.get_by_label("Name").fill("Popular Here")
+    page.get_by_label("Name", exact=True).fill("Popular Here")
     page.get_by_role("button", name="Shared", exact=True).click()
     # The aggregate-privacy control appears only for shared rows.
     expect(page.get_by_text("Only show titles at least this many people watched")).to_be_visible()

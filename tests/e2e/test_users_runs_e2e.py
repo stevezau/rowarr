@@ -117,7 +117,7 @@ class TestRuns:
 
         page.goto("/runs")
         expect(page.get_by_text("No runs yet")).to_be_visible(timeout=LOAD)
-        page.get_by_role("button", name="Run all users now").click()
+        page.get_by_role("button", name="Run all rows now").click()
 
         # The row appears the moment the run is queued — the owner is never left guessing.
         run_link = page.get_by_role("link", name="#1")

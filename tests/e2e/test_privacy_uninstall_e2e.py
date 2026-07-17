@@ -80,18 +80,18 @@ class TestUninstall:
         assert len(state.collections) == 5
         assert state.users[201].filters["filterMovies"] == "label!=Shortlist_canary,Shortlist_mike"
 
+        # Uninstall is its own page now (with a live per-step log), reached from the Danger Zone link.
         page.goto("/settings")
-        page.get_by_role("button", name="Uninstall Shortlist…").click()
-        dialog = page.get_by_role("dialog")
-        expect(dialog).to_be_visible(timeout=LOAD)
+        page.get_by_role("link", name="Uninstall Shortlist…").click()
+        expect(page.get_by_role("heading", name="Uninstall Shortlist")).to_be_visible(timeout=LOAD)
 
-        commit = dialog.get_by_role("button", name="Uninstall and restore server")
+        commit = page.get_by_role("button", name="Uninstall and restore server")
         expect(commit).to_be_disabled()
-        dialog.get_by_role("textbox").fill("uninstall shortlist")
+        page.get_by_role("textbox").fill("uninstall shortlist")
         expect(commit).to_be_enabled()
         commit.click()
 
-        expect(page.get_by_text("Your server is as we found it.")).to_be_visible(timeout=SLOW)
+        expect(page.get_by_text("Uninstall complete")).to_be_visible(timeout=SLOW)
 
         assert state.collections == {}, "a Shortlist collection survived the uninstall"
         for user in state.users.values():
@@ -116,16 +116,17 @@ class TestUninstall:
         state.collections[9999] = foreign
 
         page.goto("/settings")
-        page.get_by_role("button", name="Uninstall Shortlist…").click()
-        dialog = page.get_by_role("dialog")
+        page.get_by_role("link", name="Uninstall Shortlist…").click()
+        expect(page.get_by_role("heading", name="Uninstall Shortlist")).to_be_visible(timeout=LOAD)
 
-        dialog.get_by_role("button", name="Preview what would change").click()
-        expect(dialog).to_contain_text("5 collections deleted", timeout=SLOW)
-        expect(dialog).not_to_contain_text("Kometa")
+        page.get_by_role("button", name="Preview what would change").click()
+        # The preview summary counts the 5 Shortlist rows that would go — and never the Kometa one.
+        expect(page.locator("body")).to_contain_text("5 collections", timeout=SLOW)
+        expect(page.locator("body")).not_to_contain_text("Kometa")
 
-        dialog.get_by_role("textbox").fill("uninstall shortlist")
-        dialog.get_by_role("button", name="Uninstall and restore server").click()
-        expect(page.get_by_text("Your server is as we found it.")).to_be_visible(timeout=SLOW)
+        page.get_by_role("textbox").fill("uninstall shortlist")
+        page.get_by_role("button", name="Uninstall and restore server").click()
+        expect(page.get_by_text("Uninstall complete")).to_be_visible(timeout=SLOW)
 
         assert list(state.collections) == [9999], "uninstall deleted a collection Shortlist did not create"
         assert state.collections[9999].item_keys == [101, 102]

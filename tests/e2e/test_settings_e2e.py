@@ -120,25 +120,25 @@ class TestDangerZone:
         assert len(before_collections) == 5
 
         _open_settings(page)
-        page.get_by_role("button", name="Uninstall Shortlist…").click()
+        # Uninstall is its own page now; the Danger Zone links to it.
+        page.get_by_role("link", name="Uninstall Shortlist…").click()
+        expect(page.get_by_role("heading", name="Uninstall Shortlist")).to_be_visible(timeout=LOAD)
 
-        dialog = page.get_by_role("dialog")
-        expect(dialog).to_be_visible()
-        expect(dialog).to_contain_text("Uninstall Shortlist from this server?")
-
-        dialog.get_by_role("button", name="Preview what would change").click()
-        expect(dialog).to_contain_text("5 collections deleted", timeout=SLOW)
-        expect(dialog).to_contain_text("3 share filters restored")
-        expect(dialog).to_contain_text("Preview only — nothing was changed.")
+        page.get_by_role("button", name="Preview what would change").click()
+        body = page.locator("body")
+        expect(body).to_contain_text("5 collections", timeout=SLOW)
+        expect(body).to_contain_text("3 share filters")
+        expect(body).to_contain_text("Preview only — nothing was changed.")
         for title in before_collections.values():
-            expect(dialog).to_contain_text(title)
+            expect(body).to_contain_text(title)
 
         # The destructive button stays locked until the phrase is typed — a preview is not consent.
-        commit = dialog.get_by_role("button", name="Uninstall and restore server")
+        commit = page.get_by_role("button", name="Uninstall and restore server")
         expect(commit).to_be_disabled()
 
-        dialog.get_by_role("button", name="Keep Shortlist").click()
-        expect(dialog).not_to_be_visible()
+        # "Keep Shortlist" is the way out — it goes back to Settings without touching anything.
+        page.get_by_role("link", name="Keep Shortlist").click()
+        expect(page.get_by_role("heading", name="Settings", exact=True)).to_be_visible(timeout=LOAD)
 
         # Nothing moved on the fake Plex: not one collection, not one share filter.
         assert {c.rating_key: c.title for c in state.collections.values()} == before_collections

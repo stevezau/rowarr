@@ -278,11 +278,15 @@ class ContextBuilder:
                 return []
             query = query.filter(User.id.in_(user_ids))
         overrides = self._row_overrides(session)
+        # Auto-tag: a user with no tag of their own falls back to their slug, so every request is
+        # attributable to a person without hand-editing each user (Settings → Requests).
+        auto_user_tag = bool(store.get("requests.auto_user_tag"))
         profiles = []
         for user in query.all():
             prefs = user.prefs or {}
             if prefs.get("paused"):
                 continue
+            request_tag = (user.request_tag or "").strip() or (user.slug if auto_user_tag else "")
             profiles.append(
                 UserProfile(
                     username=user.username,
@@ -292,7 +296,7 @@ class ContextBuilder:
                     excluded_genres=set(prefs.get("excluded_genres") or []),
                     row_name_template=prefs.get("row_name_tpl"),
                     prompt=self._resolve_prompt(store, prefs),
-                    request_tag=(user.request_tag or "").strip(),
+                    request_tag=request_tag,
                     row_overrides=overrides.get(user.id, {}),
                 )
             )

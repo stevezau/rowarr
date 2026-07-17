@@ -173,3 +173,38 @@ class TestBuildRequests:
         cfg = ContextBuilder._build_requests(store)
         assert cfg.radarr is None  # no key -> not built, rather than erroring mid-run
         assert cfg.sonarr is not None
+
+
+class TestAutoUserTag:
+    """requests.auto_user_tag: fill an untagged user's request tag with their slug automatically."""
+
+    def _users(self, sessions, tmp_path, *, auto: bool) -> dict[str, str]:
+        with sessions() as session:
+            session.add_all(
+                [
+                    User(username="MooHouse", slug="moohouse", plex_account_id=1, user_type="shared", enabled=True),
+                    User(
+                        username="Sarah",
+                        slug="sarah",
+                        plex_account_id=2,
+                        user_type="shared",
+                        enabled=True,
+                        request_tag="vip",
+                    ),
+                ]
+            )
+            SettingsStore(session, SecretBox(tmp_path)).set("requests.auto_user_tag", auto)
+            session.commit()
+        builder = ContextBuilder(sessions, SecretBox(tmp_path), EventBus())
+        with sessions() as session:
+            return {p.username: p.request_tag for p in builder.enabled_profiles(session)}
+
+    def test_on_fills_the_slug_only_when_the_user_has_no_tag(self, sessions, tmp_path):
+        tags = self._users(sessions, tmp_path, auto=True)
+        assert tags["MooHouse"] == "moohouse"  # no tag of their own -> their slug
+        assert tags["Sarah"] == "vip"  # a manual tag always wins
+
+    def test_off_leaves_untagged_users_blank(self, sessions, tmp_path):
+        tags = self._users(sessions, tmp_path, auto=False)
+        assert tags["MooHouse"] == ""
+        assert tags["Sarah"] == "vip"

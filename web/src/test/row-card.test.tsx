@@ -24,6 +24,7 @@ function collection(patch: Partial<Collection> = {}): Collection {
     id: 1,
     slug: "hidden-gems",
     name: "Hidden Gems",
+    last_run_id: null,
     build: "per_person",
     audience: "everyone",
     audience_user_ids: [],
@@ -40,7 +41,8 @@ function collection(patch: Partial<Collection> = {}): Collection {
     freshness: null,
     placement: "both",
     pin_top: false,
-    hub_anchor: {},    prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style
+    hub_anchor: {},
+    prompt: { tone: "", guidance: "", template: "" }, // blank = inherit the global style
     ...patch,
   } as Collection;
 }

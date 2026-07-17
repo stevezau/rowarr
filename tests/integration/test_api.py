@@ -594,6 +594,33 @@ class TestCollectionsSeed:
                 True,
             )
 
+    def test_collection_reports_its_last_run(self, client: TestClient):
+        """The Rows UI links a row to its last run — last_run_id is the newest run that delivered it."""
+        from shortlist.server.db.models import PickRow, Run, User
+
+        with client.app.state.sessions() as session:
+            uid = session.query(User).order_by(User.id).first().id
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            run_id = run.id
+            session.add(
+                PickRow(
+                    run_id=run_id,
+                    user_id=uid,
+                    tmdb_id=9,
+                    media_type="movie",
+                    rating_key=1,
+                    rank=1,
+                    collection_slug="picked",
+                    title="X",
+                )
+            )
+            session.commit()
+
+        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
+        assert picked["last_run_id"] == run_id
+
     def test_default_rows_serialized_name_is_the_global_template_not_the_stale_column(self, client: TestClient):
         """The Rows UI must show the ACTUAL default title (the global template it delivers), not the
         seeded 'name' column — so the {library_name} default is visible in the editor and list."""

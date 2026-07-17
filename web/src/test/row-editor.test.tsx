@@ -31,6 +31,7 @@ function row(patch: Partial<Collection> = {}): Collection {
     id: 1,
     slug: "hidden-gems",
     name: "Hidden Gems",
+    last_run_id: null,
     build: "per_person",
     audience: "everyone",
     audience_user_ids: [],

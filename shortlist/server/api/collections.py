@@ -12,7 +12,7 @@ from shortlist.engine.candidates import KNOWN_SOURCES
 from shortlist.engine.curator.base import TONE_PRESETS
 from shortlist.engine.models import dedupe_slug, slugify
 from shortlist.server.auth import require_owner
-from shortlist.server.db.models import DEFAULT_SLUG, Collection, CollectionAudience, User
+from shortlist.server.db.models import DEFAULT_SLUG, Collection, CollectionAudience, PickRow, User
 from shortlist.server.scheduler import rebuild_schedule
 from shortlist.server.services import collection_reconcile as reconcile
 from shortlist.server.settings_store import SettingsStore
@@ -112,10 +112,14 @@ def _serialize(session, collection: Collection) -> dict:
     name = collection.name
     if collection.slug == DEFAULT_SLUG:
         name = SettingsStore(session).get("row.name_template") or collection.name
+    # The most recent run that delivered picks for THIS row — so the Rows UI can link straight to what
+    # happened (the run detail groups its results by row). None until the row has ever built.
+    last_run_id = session.query(func.max(PickRow.run_id)).filter(PickRow.collection_slug == collection.slug).scalar()
     return {
         "id": collection.id,
         "slug": collection.slug,
         "name": name,
+        "last_run_id": last_run_id,
         "build": collection.build,
         "audience": collection.audience,
         "audience_user_ids": audience_ids,

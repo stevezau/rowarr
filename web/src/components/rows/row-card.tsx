@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { Eraser, Trash2, UserCheck, Users as UsersIcon } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { MutationAlert } from "@/components/mutation-alert";
 import { Badge } from "@/components/ui/badge";
@@ -91,6 +92,17 @@ export function RowCard({
             {collection.media === "both"
               ? "movies & shows"
               : `${collection.media}s`}
+            {collection.last_run_id !== null && (
+              <>
+                {" · "}
+                <Link
+                  to={`/runs/${collection.last_run_id}`}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  last run
+                </Link>
+              </>
+            )}
           </p>
           {overrides.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">

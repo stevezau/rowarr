@@ -30,6 +30,8 @@ export interface Collection {
   id: number;
   slug: string;
   name: string;
+  /** The most recent run that built this row, for a "last run" link; null until it's ever run. */
+  last_run_id: number | null;
   build: "per_person" | "shared";
   audience: "everyone" | "subset";
   audience_user_ids: number[];

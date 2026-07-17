@@ -1,6 +1,9 @@
 repos:
+  # Keep this rev in step with the ruff CI installs (ci.yml runs `ruff check .` + `ruff format
+  # --check .`) and the `ruff>=0.5` dev dep — a stale pin here would format differently than CI and
+  # the guard would pass while GitHub fails.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.15.21
     hooks:
       - id: ruff
         args: [--fix]

@@ -177,7 +177,7 @@ class TestEveryAccountOnTheServerIsCovered:
         assert "Shortlist_sarah" in fields["filterMovies"]["after"]
 
     def test_a_completed_run_is_visible_on_the_run_page(self, page: Page, app: ShortlistApp, reset_fake_plex):
-        """"What changed on whose share at 03:31" must be answerable from the UI, not just the
+        """ "What changed on whose share at 03:31" must be answerable from the UI, not just the
         database — so every real run has its own page."""
         run = build_real_rows(app)
 

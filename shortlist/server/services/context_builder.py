@@ -325,9 +325,7 @@ class ContextBuilder:
         if collection.audience != "subset":
             return None
         return {
-            account_by_user[uid]
-            for uid in audience_by_collection.get(collection.id, set())
-            if uid in account_by_user
+            account_by_user[uid] for uid in audience_by_collection.get(collection.id, set()) if uid in account_by_user
         }
 
     def _build_rows(self, session: Session, store: SettingsStore) -> list[RowSpec]:

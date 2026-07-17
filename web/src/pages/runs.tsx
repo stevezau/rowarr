@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
+import { RunRowsDialog } from "@/components/runs/run-rows-dialog";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -94,13 +95,19 @@ export function RunsPage() {
         title="Runs"
         subtitle="Every time Shortlist rebuilt rows, and how it went."
         actions={
-          <Button
-            onClick={() => startRun.mutate({})}
-            loading={startRun.isPending}
-          >
-            {!startRun.isPending && <Play aria-hidden="true" />}
-            Run all users now
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <RunRowsDialog
+              onRun={(collection_ids) => startRun.mutate({ collection_ids })}
+              isPending={startRun.isPending}
+            />
+            <Button
+              onClick={() => startRun.mutate({})}
+              loading={startRun.isPending}
+            >
+              {!startRun.isPending && <Play aria-hidden="true" />}
+              Run all rows now
+            </Button>
+          </div>
         }
       />
 

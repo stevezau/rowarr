@@ -13,6 +13,9 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(require_
 
 class RunRequest(BaseModel):
     user_ids: list[int] | None = None
+    # Scope the run to specific rows (None = every row). Privacy is unaffected: build_only only narrows
+    # the delivery loop; the sweep, share-filter merge, and promotion still see every row (plex-safety).
+    collection_ids: list[int] | None = None
     dry_run: bool = False
 
 
@@ -79,6 +82,6 @@ async def get_run_log(run_id: int, request: Request) -> list[dict]:
 @router.post("", status_code=202)
 async def trigger_run(body: RunRequest, request: Request) -> dict:
     run_id = await request.app.state.run_service.start_run(
-        trigger="manual", dry_run=body.dry_run, user_ids=body.user_ids
+        trigger="manual", dry_run=body.dry_run, user_ids=body.user_ids, collection_ids=body.collection_ids
     )
     return {"run_id": run_id}

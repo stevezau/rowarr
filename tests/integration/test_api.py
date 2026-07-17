@@ -238,6 +238,21 @@ class TestRunsApi:
         detail = client.get(f"/api/runs/{run_id}")
         assert detail.status_code == 200
 
+    def test_trigger_forwards_row_scope_to_the_run(self, client: TestClient, monkeypatch):
+        """A manual run can target specific rows — collection_ids must reach start_run (the engine's
+        build_only scope), not be silently dropped."""
+        captured: dict = {}
+
+        async def fake_start_run(*, trigger, dry_run, user_ids, collection_ids):
+            captured.update(trigger=trigger, dry_run=dry_run, user_ids=user_ids, collection_ids=collection_ids)
+            return 123
+
+        monkeypatch.setattr(client.app.state.run_service, "start_run", fake_start_run)
+        r = client.post("/api/runs", json={"collection_ids": [4, 7], "dry_run": True})
+        assert r.status_code == 202 and r.json()["run_id"] == 123
+        assert captured["collection_ids"] == [4, 7]
+        assert captured["dry_run"] is True and captured["trigger"] == "manual"
+
     def test_unknown_run_404(self, client: TestClient):
         assert client.get("/api/runs/424242").status_code == 404
 

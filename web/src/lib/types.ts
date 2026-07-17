@@ -286,6 +286,8 @@ export interface RunDetail extends Run {
 /** POST /api/runs body. */
 export interface RunRequest {
   user_ids?: number[];
+  /** Scope the run to specific rows (omit = every row). */
+  collection_ids?: number[];
   dry_run?: boolean;
 }
 

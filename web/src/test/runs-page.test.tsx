@@ -55,7 +55,7 @@ describe("RunsPage", () => {
     await screen.findByText(/No runs yet/i);
 
     await userEvent.click(
-      screen.getByRole("button", { name: /Run all users now/i }),
+      screen.getByRole("button", { name: /Run all rows now/i }),
     );
 
     // The failure used to be swallowed: the button just stopped, as if nothing had happened.
@@ -71,7 +71,7 @@ describe("RunsPage", () => {
     await screen.findByText(/No runs yet/i);
 
     await userEvent.click(
-      screen.getByRole("button", { name: /Run all users now/i }),
+      screen.getByRole("button", { name: /Run all rows now/i }),
     );
 
     expect(startRun).toHaveBeenCalledWith({});

@@ -157,8 +157,10 @@ export function UninstallPage() {
                     className="h-4 w-4 shrink-0 animate-spin"
                     aria-hidden="true"
                   />
-                  Uninstalling — Plex allows about one write per second, so this
-                  can take a minute or two. Stay on this page.
+                  Uninstalling — restoring each user&rsquo;s share filters goes
+                  through plex.tv, which Shortlist throttles to ~1 write/second
+                  (to stay under plex.tv&rsquo;s rate limits), so with a lot of
+                  users this takes a minute or two. Every step streams below.
                 </p>
                 <LogBox lines={log.length ? log : ["Starting…"]} />
               </div>

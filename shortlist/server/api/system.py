@@ -168,11 +168,17 @@ async def uninstall(body: UninstallRequest, request: Request) -> dict:
             users = {u.id: u for u in session.query(User).all()}
             snapshots = session.query(RestrictionSnapshotRow).filter_by(reason="initial").all()
             total = len(snapshots)
-            emit(f"Restoring {total} user share filter{'' if total == 1 else 's'} (Plex allows ~1/sec)…")
+            emit(
+                f"Restoring share filters for {total} user{'' if total == 1 else 's'} via plex.tv "
+                f"(throttled to ~1 write/sec to stay under plex.tv's limits)…"
+            )
+            i = 0
             for row in snapshots:
                 user = users.get(row.user_id)
                 if user is None:
                     continue
+                i += 1
+                emit(f"[{i}/{total}] Restoring {user.username}'s share filter on plex.tv…")
                 snapshot = FilterSnapshot(
                     plex_account_id=user.plex_account_id,
                     username=user.username,
@@ -184,15 +190,16 @@ async def uninstall(body: UninstallRequest, request: Request) -> dict:
                     per_user_events.append(
                         {"user": user.username, "restored_to": row.filters_before, "dry_run": body.dry_run}
                     )
-                    emit(f"Restored {user.username}'s share filter", done=restored, total=total)
+                    emit(f"    ✓ {user.username} restored", done=restored, total=total)
+        emit("Reading your Plex libraries to find Shortlist collections…")
         deleted = []
         for section in ctx.plex.sections():
             for collection in section.collections():
                 if any(label.tag.lower().startswith("shortlist_") for label in collection.labels):
                     deleted.append(collection.title)
                     if not body.dry_run:
+                        emit(f"Deleting collection “{collection.title}” from Plex…")
                         ctx.plex.delete_owned_collection(collection, "shortlist")
-                        emit(f"Deleted collection “{collection.title}”")
         # Disable every row too — otherwise the next scheduled run would rebuild the collections we
         # just removed and re-apply the restrictions we just undid, silently "reinstalling" Shortlist.
         with state.sessions() as session:

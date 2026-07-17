@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel
 
 import shortlist
 from shortlist.server.auth import require_owner
-from shortlist.server.db.models import Collection, Event, RestrictionSnapshotRow, User
+from shortlist.server.db.models import Collection, Event, RestrictionSnapshotRow, User, iso_utc
 from shortlist.server.scheduler import rebuild_schedule
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -25,6 +28,63 @@ async def health() -> dict:
 @router.get("/version", dependencies=[Depends(require_owner)])
 async def version() -> dict:
     return {"version": shortlist.__version__}
+
+
+@router.get("/debug", dependencies=[Depends(require_owner)], response_class=PlainTextResponse)
+async def debug_bundle(request: Request) -> str:
+    """A pasteable diagnostics bundle for bug reports: version, DB migration head, scheduler jobs,
+    connection status, and record counts. Deliberately plain text and secrets-free — every connection
+    is reported as a yes/no, never a token or key (plex-safety rule 9)."""
+    from sqlalchemy import func, text
+
+    from shortlist.server.db.models import PickRow, RequestCandidate, Run
+    from shortlist.server.settings_store import SettingsStore
+
+    lines: list[str] = ["=== Shortlist debug bundle ===", f"version: {shortlist.__version__}"]
+    lines.append(f"python: {platform.python_version()} on {platform.system()} {platform.machine()}")
+    lines.append(f"time: {datetime.now(UTC).isoformat()}  TZ={os.environ.get('TZ', '(unset)')}")
+
+    with request.app.state.sessions() as session:
+        store = SettingsStore(session)
+        head = session.execute(text("select version_num from alembic_version")).scalar()
+        lines.append(f"db migration head: {head}")
+
+        counts = {
+            "users": session.query(func.count(User.id)).scalar(),
+            "rows": session.query(func.count(Collection.id)).scalar(),
+            "runs": session.query(func.count(Run.id)).scalar(),
+            "picks": session.query(func.count(PickRow.id)).scalar(),
+            "requests": session.query(func.count(RequestCandidate.id)).scalar(),
+            "restriction snapshots": session.query(func.count(RestrictionSnapshotRow.user_id)).scalar(),
+        }
+        lines.append("counts: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+
+        # Connections — configured yes/no ONLY, never the value; the sole exception is the curator
+        # PROVIDER NAME ("anthropic"/"openai"/…), which is non-secret and useful in a bug report (the
+        # curator API key is never read here).
+        conns = {
+            "plex": bool(store.get("plex.url")),
+            "tautulli": bool(store.get("tautulli.url")),
+            "tmdb": bool(store.get("tmdb.apikey")),
+            "curator": store.get("curator.provider"),
+            "requests": bool(store.get("requests.enabled")),
+            "radarr": bool(store.get("requests.radarr.url")),
+            "sonarr": bool(store.get("requests.sonarr.url")),
+        }
+        lines.append("connections: " + ", ".join(f"{k}={v}" for k, v in conns.items()))
+        lines.append(f"paused: {bool(store.get('paused_all'))}  log level: {store.get('log.level')}")
+
+        last = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
+        if last:
+            lines.append(f"last run: #{last.id} {last.status} at {iso_utc(last.finished_at)} ({last.stats or {}})")
+
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None:
+        jobs = [f"{j.id}→{iso_utc(j.next_run_time)}" for j in scheduler.get_jobs()]
+        lines.append("scheduled jobs: " + (", ".join(jobs) if jobs else "(none)"))
+
+    lines.append("=== end ===")
+    return "\n".join(lines)
 
 
 @router.get("/libraries", dependencies=[Depends(require_owner)])

@@ -483,6 +483,16 @@ export interface PlexServer {
 
 /** GET /api/requests — one wanted-but-missing title in the Sonarr/Radarr approval inbox. */
 /** The dashboard effectiveness report — did delivered picks get watched? */
+export interface AppNotification {
+  id: string;
+  severity: "info" | "warning" | "error";
+  title: string;
+  body: string;
+  action_url: string;
+  action_label: string;
+  dismissable: boolean;
+}
+
 export interface RunsSummary {
   total: number;
   ok: number;

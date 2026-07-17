@@ -17,6 +17,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { Wordmark } from "@/components/brand";
 import { ActivityPill } from "@/components/layout/activity-pill";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { SettingsSubNav } from "@/components/settings/settings-nav";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -179,16 +180,19 @@ export function AppShell() {
       {/* Mobile top bar: wordmark + hamburger. Hidden once the sidebar appears at md. */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-card/80 px-4 py-3 backdrop-blur md:hidden">
         <Wordmark />
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Open menu"
-          aria-expanded={menuOpen}
-          aria-controls="mobile-nav"
-          onClick={() => setMenuOpen(true)}
-        >
-          <Menu aria-hidden="true" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <NotificationBell align="right" />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Open menu"
+            aria-expanded={menuOpen}
+            aria-controls="mobile-nav"
+            onClick={() => setMenuOpen(true)}
+          >
+            <Menu aria-hidden="true" />
+          </Button>
+        </div>
       </header>
 
       {/* Mobile slide-out drawer. A backdrop + a left panel; any link tap, the backdrop, Escape, or
@@ -232,8 +236,9 @@ export function AppShell() {
 
       {/* Desktop sidebar. Hidden on mobile (the drawer replaces it). */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-card/40 backdrop-blur md:flex">
-        <div className="px-5 py-5">
+        <div className="flex items-center justify-between px-5 py-5">
           <Wordmark />
+          <NotificationBell align="left" />
         </div>
         <NavBody />
       </aside>

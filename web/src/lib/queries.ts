@@ -275,6 +275,25 @@ export function useRequests() {
   return useQuery({ queryKey: queryKeys.requests, queryFn: api.listRequests });
 }
 
+export function useNotifications() {
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: api.getNotifications,
+    // Poll so a failed run / new release surfaces without a manual refresh.
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+}
+
+export function useDismissUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (version: string) => api.dismissUpdate(version),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
 export function useVersion() {
   return useQuery({
     queryKey: ["version"],

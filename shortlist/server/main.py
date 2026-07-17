@@ -18,7 +18,18 @@ from starlette.responses import FileResponse
 import shortlist
 from shortlist.logging_config import configure_logging, normalize_level
 from shortlist.server import auth
-from shortlist.server.api import collections, events, report, requests, runs, setup, system, user_rows, users
+from shortlist.server.api import (
+    collections,
+    events,
+    notifications,
+    report,
+    requests,
+    runs,
+    setup,
+    system,
+    user_rows,
+    users,
+)
 from shortlist.server.api import settings as settings_api
 from shortlist.server.db.models import Run, Server
 from shortlist.server.db.session import make_engine, make_session_factory, run_migrations
@@ -146,7 +157,19 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
     )
 
     app.include_router(auth.router, prefix="/api")
-    for module in (setup, users, user_rows, runs, collections, requests, settings_api, system, events, report):
+    for module in (
+        setup,
+        users,
+        user_rows,
+        runs,
+        collections,
+        requests,
+        settings_api,
+        system,
+        events,
+        report,
+        notifications,
+    ):
         app.include_router(module.router, prefix="/api")
 
     if WEB_DIST.exists():

@@ -1754,3 +1754,66 @@ class TestUninstall:
     def test_owned_collections_audit_409_when_plex_not_connected(self, client: TestClient):
         # No plex.url/token configured on a fresh app -> a clear 409, not a crash.
         assert client.get("/api/system/owned-collections").status_code == 409
+
+
+class TestNotifications:
+    def test_surface_paused_and_failed_run_most_severe_first(self, client: TestClient, monkeypatch):
+        import shortlist.server.notifications as notif
+        from shortlist.server.db.models import Run
+        from shortlist.server.settings_store import SettingsStore
+
+        monkeypatch.setattr(notif, "check_for_update", lambda _v: None)  # never touch GitHub in a test
+        with client.app.state.sessions() as session:
+            SettingsStore(session).set("paused_all", True)
+            session.add(Run(trigger="manual", status="error"))
+            session.commit()
+
+        items = client.get("/api/notifications").json()["notifications"]
+        ids = {n["id"] for n in items}
+        assert "runs-paused" in ids
+        assert any(i.startswith("run-failed-") for i in ids)
+        order = {"error": 0, "warning": 1, "info": 2}
+        severities = [order[n["severity"]] for n in items]
+        assert severities == sorted(severities)  # error before warning before info
+
+    def test_a_partial_run_and_recent_errors_surface_as_warnings(self, client: TestClient, monkeypatch):
+        import shortlist.server.notifications as notif
+        from shortlist.server.db.models import Event, Run
+
+        monkeypatch.setattr(notif, "check_for_update", lambda _v: None)
+        with client.app.state.sessions() as session:
+            session.add(Run(trigger="manual", status="ok", stats={"users_ok": 1, "users_error": 2}))
+            session.add(Event(scope="requests.send", level="error", message={"detail": "arr down"}))
+            session.commit()
+
+        items = client.get("/api/notifications").json()["notifications"]
+        by_id = {n["id"]: n for n in items}
+        partial = next(n for k, n in by_id.items() if k.startswith("run-partial-"))
+        assert "2 people failed" in partial["title"]  # pluralized
+        assert "recent-errors" in by_id and by_id["recent-errors"]["severity"] == "warning"
+
+    def test_update_notification_can_be_dismissed_per_version(self, client: TestClient, monkeypatch):
+        import shortlist.server.notifications as notif
+
+        monkeypatch.setattr(notif, "check_for_update", lambda _v: {"latest": "9.9.9", "url": "https://example/rel"})
+        first = client.get("/api/notifications").json()["notifications"]
+        assert any(n["id"] == "update-9.9.9" and n["dismissable"] for n in first)
+
+        assert client.post("/api/notifications/dismiss-update", json={"version": "9.9.9"}).json() == {"ok": True}
+        after = client.get("/api/notifications").json()["notifications"]
+        assert not any(n["id"] == "update-9.9.9" for n in after)  # dismissed for this version
+
+    def test_debug_bundle_reports_facts_but_never_a_secret(self, client: TestClient):
+        from shortlist.server.settings_store import SettingsStore
+
+        with client.app.state.sessions() as session:
+            SettingsStore(session, client.app.state.secrets).set("plex.token", "SUPERSECRETTOKEN")
+            SettingsStore(session).set("plex.url", "http://pms")
+            session.commit()
+
+        r = client.get("/api/system/debug")
+        assert r.status_code == 200
+        text = r.text
+        assert "Shortlist debug bundle" in text and "db migration head:" in text
+        assert "plex=True" in text  # connection reported as configured...
+        assert "SUPERSECRETTOKEN" not in text  # ...but the token itself is never in the bundle

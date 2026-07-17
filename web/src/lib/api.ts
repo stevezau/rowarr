@@ -1,4 +1,5 @@
 import type {
+  AppNotification,
   ArrOptions,
   EffectivenessReport,
   OwnedCollectionsAudit,
@@ -258,6 +259,30 @@ export const api = {
   /** The running app version (for the footer + prefilled bug reports). */
   getVersion: (): Promise<{ version: string }> =>
     request("/api/system/version"),
+
+  /** The owner's current notifications (update available, failed/paused run, errors). */
+  getNotifications: (): Promise<{ notifications: AppNotification[] }> =>
+    request("/api/notifications"),
+
+  /** Dismiss the "update available" note for a version (a newer release re-surfaces). */
+  dismissUpdate: (version: string): Promise<{ ok: boolean }> =>
+    request("/api/notifications/dismiss-update", {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    }),
+
+  /** The plain-text diagnostics bundle for bug reports (secrets-free). */
+  getDebugBundle: async (): Promise<string> => {
+    const response = await fetch(apiUrl("/api/system/debug"), {
+      headers: { Accept: "text/plain" },
+    });
+    if (!response.ok)
+      throw new ApiError(
+        response.status,
+        "Couldn't build the diagnostics bundle.",
+      );
+    return response.text();
+  },
 
   /** The effectiveness report: delivered-vs-watched hit rates + a recent-watches feed. */
   getReport: (): Promise<EffectivenessReport> => request("/api/report"),

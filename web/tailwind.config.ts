@@ -82,10 +82,16 @@ export default {
           "0%": { opacity: "0", transform: "translateY(6px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        // The mobile nav drawer sliding in from the left edge.
+        "slide-in-left": {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(0)" },
+        },
       },
       animation: {
         "row-in": "row-in 7s ease-in-out infinite",
         "fade-in": "fade-in 0.3s ease-out",
+        "slide-in-left": "slide-in-left 0.2s ease-out",
       },
     },
   },

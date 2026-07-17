@@ -238,6 +238,38 @@ class TestRunsApi:
         detail = client.get(f"/api/runs/{run_id}")
         assert detail.status_code == 200
 
+    def test_runs_can_be_filtered_to_one_row(self, client: TestClient):
+        """?collection=<slug> narrows the list to runs that actually built that row (their picks carry
+        its slug), so the Rows page can link a row to its own run history."""
+        from shortlist.server.db.models import PickRow, Run, User
+
+        with client.app.state.sessions() as session:
+            uid = session.query(User).first().id
+            built, other = Run(trigger="manual", status="ok"), Run(trigger="manual", status="ok")
+            session.add_all([built, other])
+            session.flush()
+            # Only `built` produced a pick in the "hidden_gems" row.
+            session.add(
+                PickRow(
+                    run_id=built.id,
+                    user_id=uid,
+                    tmdb_id=1,
+                    media_type="movie",
+                    rating_key=1,
+                    rank=1,
+                    collection_slug="hidden_gems",
+                    title="Dune",
+                )
+            )
+            session.commit()
+            built_id, other_id = built.id, other.id
+
+        filtered = client.get("/api/runs?collection=hidden_gems").json()
+        assert [r["id"] for r in filtered] == [built_id]  # only the run that built it
+        all_ids = {r["id"] for r in client.get("/api/runs").json()}
+        assert {built_id, other_id} <= all_ids  # unfiltered still shows both
+        assert client.get("/api/runs?collection=nonexistent").json() == []
+
     def test_trigger_forwards_row_scope_to_the_run(self, client: TestClient, monkeypatch):
         """A manual run can target specific rows — collection_ids must reach start_run (the engine's
         build_only scope), not be silently dropped."""

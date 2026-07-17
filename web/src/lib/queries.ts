@@ -48,8 +48,13 @@ export function useUsers() {
   return useQuery({ queryKey: queryKeys.users, queryFn: api.getUsers });
 }
 
-export function useRuns() {
-  return useQuery({ queryKey: queryKeys.runs, queryFn: api.getRuns });
+export function useRuns(collection?: string) {
+  return useQuery({
+    queryKey: collection
+      ? ([...queryKeys.runs, { collection }] as const)
+      : queryKeys.runs,
+    queryFn: () => api.getRuns(collection),
+  });
 }
 
 export function useRun(id: number, enabled = true) {

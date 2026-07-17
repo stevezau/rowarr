@@ -1,5 +1,5 @@
-import { ListChecks, Play } from "lucide-react";
-import { Link } from "react-router-dom";
+import { ListChecks, Play, X } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
@@ -23,7 +23,7 @@ import {
   timeAgo,
   triggerLabel,
 } from "@/lib/format";
-import { useRuns, useStartRun } from "@/lib/queries";
+import { useCollections, useRuns, useStartRun } from "@/lib/queries";
 import type { Run } from "@/lib/types";
 
 function RunsSkeleton() {
@@ -85,8 +85,16 @@ function RunRow({ run }: { run: Run }) {
 }
 
 export function RunsPage() {
-  const runsQuery = useRuns();
+  // A row links here as /runs?row=<slug> to show only the runs that built it.
+  const [params] = useSearchParams();
+  const rowSlug = params.get("row") ?? undefined;
+  const runsQuery = useRuns(rowSlug);
+  const collections = useCollections();
   const startRun = useStartRun();
+  const rowName =
+    rowSlug && collections.data
+      ? collections.data.find((c) => c.slug === rowSlug)?.name
+      : undefined;
 
   return (
     <div>
@@ -121,14 +129,34 @@ export function RunsPage() {
         />
       )}
 
+      {/* Filtered to one row (linked from the Rows page) — say so, and offer a way back to all runs. */}
+      {rowSlug && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Showing runs that built</span>
+          <Badge variant="secondary" className="font-normal">
+            {rowName ?? rowSlug}
+          </Badge>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/runs">
+              <X aria-hidden="true" />
+              Show all runs
+            </Link>
+          </Button>
+        </div>
+      )}
+
       <QueryBoundary
         query={runsQuery}
         skeleton={<RunsSkeleton />}
         isEmpty={(runs) => runs.length === 0}
         empty={
           <EmptyState
-            title="No runs yet"
-            hint="Shortlist hasn't built any rows so far. Start one with the button above, or wait for the nightly schedule."
+            title={rowSlug ? "No runs for this row yet" : "No runs yet"}
+            hint={
+              rowSlug
+                ? "This row hasn't been built in any recorded run yet. It'll show up here after its next run."
+                : "Shortlist hasn't built any rows so far. Start one with the button above, or wait for the nightly schedule."
+            }
           />
         }
       >

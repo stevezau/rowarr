@@ -103,6 +103,13 @@ export function RowCard({
                 </Link>
               </>
             )}
+            {" · "}
+            <Link
+              to={`/runs?row=${encodeURIComponent(collection.slug)}`}
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              all runs
+            </Link>
           </p>
           {overrides.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">

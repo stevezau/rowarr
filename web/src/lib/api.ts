@@ -207,7 +207,13 @@ export const api = {
     request(`/api/users/${id}/history`),
 
   // --- Runs ---
-  getRuns: (): Promise<Run[]> => request("/api/runs"),
+  /** Recent runs; pass a row slug to get only the runs that built that row. */
+  getRuns: (collection?: string): Promise<Run[]> =>
+    request(
+      collection
+        ? `/api/runs?collection=${encodeURIComponent(collection)}`
+        : "/api/runs",
+    ),
 
   getRun: (id: number): Promise<RunDetail> => request(`/api/runs/${id}`),
 

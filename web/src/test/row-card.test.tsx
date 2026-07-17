@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { RowCard } from "@/components/rows/row-card";
@@ -53,7 +54,9 @@ function renderCard(value: Collection) {
   });
   render(
     <QueryClientProvider client={client}>
-      <RowCard collection={value} users={USERS} onEdit={() => {}} />
+      <MemoryRouter>
+        <RowCard collection={value} users={USERS} onEdit={() => {}} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

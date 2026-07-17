@@ -32,9 +32,15 @@ def _run_summary(run: Run) -> dict:
 
 
 @router.get("")
-async def list_runs(request: Request, limit: int = 50) -> list[dict]:
+async def list_runs(request: Request, limit: int = 50, collection: str | None = None) -> list[dict]:
+    """Recent runs, newest first. `collection` (a row slug) narrows to runs that actually built that
+    row — the ones whose picks carry its slug — so the Rows page can link a row to its own history."""
     with request.app.state.sessions() as session:
-        runs = session.query(Run).order_by(Run.id.desc()).limit(min(limit, 200)).all()
+        query = session.query(Run).order_by(Run.id.desc())
+        if collection:
+            built_in = session.query(PickRow.run_id).filter(PickRow.collection_slug == collection).distinct()
+            query = query.filter(Run.id.in_(built_in))
+        runs = query.limit(min(limit, 200)).all()
         return [_run_summary(r) for r in runs]
 
 

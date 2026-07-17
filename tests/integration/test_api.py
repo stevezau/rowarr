@@ -303,10 +303,16 @@ class TestRunsApi:
             session.commit()
 
         body = client.get("/api/report").json()
-        assert body["overall"] == {"delivered": 3, "watched": 2, "hit_rate": round(2 / 3, 3)}
+        assert body["overall"]["delivered"] == 3
+        assert body["overall"]["watched"] == 2
+        assert body["overall"]["hit_rate"] == round(2 / 3, 3)
+        assert body["overall"]["watched_last_7d"] == 2  # both watched just now
         assert body["per_row"][0]["slug"] == "picked" and body["per_row"][0]["watched"] == 2
         assert any(u["watched"] == 2 for u in body["per_user"])
         assert len(body["recent"]) == 2 and body["recent"][0]["row"]
+        assert body["coverage"]["users_with_picks"] == 1
+        assert {t["title"] for t in body["top_titles"]} == {"A", "B"}  # the two watched titles
+        assert body["runs"]["total"] >= 1
 
     def test_unknown_run_404(self, client: TestClient):
         assert client.get("/api/runs/424242").status_code == 404

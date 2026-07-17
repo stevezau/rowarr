@@ -24,8 +24,30 @@ function renderReport() {
   );
 }
 
+const EMPTY = {
+  coverage: {
+    users_enabled: 2,
+    users_total: 2,
+    users_with_picks: 1,
+    rows_enabled: 1,
+  },
+  runs: { total: 3, last_finished: null, last_status: "ok", errors_last: 0 },
+  requests: { sent: 2, pending: 1, watched_after_sent: 1 },
+  top_titles: [] as EffectivenessReport["top_titles"],
+};
+
 const REPORT: EffectivenessReport = {
-  overall: { delivered: 10, watched: 4, hit_rate: 0.4 },
+  overall: {
+    delivered: 10,
+    watched: 4,
+    hit_rate: 0.4,
+    watched_last_7d: 2,
+    avg_days_to_watch: 3.5,
+  },
+  ...EMPTY,
+  top_titles: [
+    { tmdb_id: 1, media_type: "movie", title: "Dune: Part Two", watchers: 3 },
+  ],
   trend: [{ week: "2026-28", watched: 4 }],
   per_user: [
     {
@@ -60,21 +82,29 @@ const REPORT: EffectivenessReport = {
 describe("ImpactReport", () => {
   beforeEach(() => getReport.mockReset());
 
-  it("shows the overall hit rate, per-person/row, and the recent-watches feed", async () => {
+  it("shows the headline metrics, breakdowns, requests, and recent-watches feed", async () => {
     getReport.mockResolvedValue(REPORT);
     renderReport();
 
-    expect(
-      await screen.findByText(/4 of 10 titles/i), // the overall headline
-    ).toBeTruthy();
+    expect(await screen.findByText("Hit rate")).toBeTruthy();
     expect(screen.getAllByText("40%").length).toBeGreaterThan(0); // overall + row hit rate
-    expect(screen.getAllByText("sarah").length).toBeGreaterThan(0); // per-person + recent feed
-    expect(screen.getByText("Dune: Part Two")).toBeTruthy(); // recent feed
+    expect(screen.getByText(/of 10 delivered/i)).toBeTruthy(); // Watched tile hint
+    expect(screen.getByText(/sent to Sonarr\/Radarr/i)).toBeTruthy(); // requests impact
+    expect(screen.getAllByText("sarah").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Dune: Part Two").length).toBeGreaterThan(0); // top titles + recent
   });
 
   it("explains the empty state before anything is delivered", async () => {
     getReport.mockResolvedValue({
-      overall: { delivered: 0, watched: 0, hit_rate: null },
+      overall: {
+        delivered: 0,
+        watched: 0,
+        hit_rate: null,
+        watched_last_7d: 0,
+        avg_days_to_watch: null,
+      },
+      ...EMPTY,
+      requests: { sent: 0, pending: 0, watched_after_sent: 0 },
       trend: [],
       per_user: [],
       per_row: [],

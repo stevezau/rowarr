@@ -314,7 +314,39 @@ class RunService:
             if report.error:
                 self._add_event(session, "run", "error", run_id, error=report.error)
             self._finalize_run(run, report, status, error, ok, errors)
+            from shortlist.server.settings_store import SettingsStore
+
+            self._prune_runs(session, int(SettingsStore(session).get("runs.retention")))
             session.commit()
+
+    @staticmethod
+    def _prune_runs(session: Session, keep: int) -> None:
+        """Keep the newest `keep` runs (and their picks + per-user rows), deleting the rest. 0 = keep
+        everything. The just-finalized run has the highest id, so it's always kept.
+
+        A run beyond `keep` is ONLY pruned once it's also older than the hit-window: `_reconcile_watched`
+        credits a watch to a pick whose run started within `HIT_WINDOW_DAYS`, so deleting such a run
+        early would silently drop hits the report still owes. The scheduler fires one run per row-cron,
+        so a low `keep` can span far less than the window — the time floor closes that gap. Picks and
+        run_users aren't ORM-cascaded off Run (and a bulk delete bypasses the cascade anyway), so both
+        are deleted explicitly."""
+        if keep <= 0:
+            return
+        cutoff = datetime.now(UTC) - timedelta(days=HIT_WINDOW_DAYS)
+
+        def _older_than_window(started_at: datetime | None) -> bool:
+            if started_at is None:
+                return True
+            aware = started_at if started_at.tzinfo else started_at.replace(tzinfo=UTC)
+            return aware < cutoff
+
+        beyond_keep = session.query(Run.id, Run.started_at).order_by(Run.id.desc()).offset(keep).all()
+        old_ids = [rid for rid, started_at in beyond_keep if _older_than_window(started_at)]
+        if not old_ids:
+            return
+        session.query(PickRow).filter(PickRow.run_id.in_(old_ids)).delete(synchronize_session=False)
+        session.query(RunUser).filter(RunUser.run_id.in_(old_ids)).delete(synchronize_session=False)
+        session.query(Run).filter(Run.id.in_(old_ids)).delete(synchronize_session=False)
 
     @staticmethod
     def _add_event(session: Session, scope: str, level: str, run_id: int, *, dry_run: bool | None = None, **fields):

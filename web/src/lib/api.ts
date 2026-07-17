@@ -22,6 +22,7 @@ import type {
   RunDetail,
   RunLogEntry,
   RunRequest,
+  RunsSummary,
   RowOverridePatch,
   Session,
   Settings,
@@ -216,6 +217,13 @@ export const api = {
     ),
 
   getRun: (id: number): Promise<RunDetail> => request(`/api/runs/${id}`),
+
+  /** Totals for the Runs page header (count, succeeded/failed, last run). */
+  getRunsSummary: (): Promise<RunsSummary> => request("/api/runs/summary"),
+
+  /** Delete ALL run history (runs, per-user rows, picks — and thus the report). Irreversible. */
+  clearRuns: (): Promise<{ deleted: number }> =>
+    request("/api/runs", { method: "DELETE" }),
 
   getRunLog: (id: number): Promise<RunLogEntry[]> =>
     request(`/api/runs/${id}/log`),

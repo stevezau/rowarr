@@ -10,6 +10,7 @@ const LEVELS = ["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"] as const;
 type Level = (typeof LEVELS)[number];
 
 const CONCURRENCY = [1, 2, 4, 8] as const;
+const RETENTION = [0, 50, 100, 250] as const; // 0 = keep every run
 
 /** Power-user knobs: log verbosity + run concurrency. Both auto-save and apply live — no restart. */
 export function AdvancedSection({ settings }: { settings: Settings }) {
@@ -23,6 +24,9 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
   ) as Level;
   const concurrency = String(
     (settings["run.concurrency"] as number | undefined) ?? 4,
+  );
+  const retention = String(
+    (settings["runs.retention"] as number | undefined) ?? 100,
   );
 
   // Every change auto-saves — but with the same Saving…/Saved/failed feedback the other sections
@@ -73,6 +77,25 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
               label: String(n),
             }))}
             onChange={(value) => save({ "run.concurrency": Number(value) })}
+          />
+          <div className="border-t pt-4">
+            <p className="font-medium">Runs kept</p>
+            <p className="text-sm text-muted-foreground">
+              How many past runs to keep. After each run, older ones (and the
+              picks they recorded) are cleared automatically.{" "}
+              <strong>All</strong> keeps everything. A run is never cleared
+              while it&rsquo;s still inside the dashboard&rsquo;s 30-day watch
+              window, so a low number can&rsquo;t cost you tracking.
+            </p>
+          </div>
+          <Segmented<string>
+            value={retention}
+            ariaLabel="Runs kept"
+            options={RETENTION.map((n) => ({
+              value: String(n),
+              label: n === 0 ? "All" : String(n),
+            }))}
+            onChange={(value) => save({ "runs.retention": Number(value) })}
           />
           <div className="pt-1">
             <SaveStatus

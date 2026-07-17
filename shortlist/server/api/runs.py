@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 
 from shortlist.server.auth import require_owner
-from shortlist.server.db.models import PickRow, Run, iso_utc
+from shortlist.server.db.models import PickRow, Run, RunUser, iso_utc
 
 router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(require_owner)])
 
@@ -42,6 +43,38 @@ async def list_runs(request: Request, limit: int = 50, collection: str | None = 
             query = query.filter(Run.id.in_(built_in))
         runs = query.limit(min(limit, 200)).all()
         return [_run_summary(r) for r in runs]
+
+
+@router.get("/summary")
+async def runs_summary(request: Request) -> dict:
+    """Totals for the Runs page header: how many runs, how many succeeded/failed, and the last one."""
+    with request.app.state.sessions() as session:
+        total = session.query(func.count(Run.id)).scalar() or 0
+        ok = session.query(func.count(Run.id)).filter(Run.status == "ok").scalar() or 0
+        error = session.query(func.count(Run.id)).filter(Run.status == "error").scalar() or 0
+        last = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
+        return {
+            "total": total,
+            "ok": ok,
+            "error": error,
+            "last_finished": iso_utc(last.finished_at) if last else None,
+            "last_status": last.status if last else None,
+        }
+
+
+@router.delete("")
+async def clear_runs(request: Request) -> dict:
+    """Delete ALL run history: every run, its per-user rows, and its picks. This also clears the
+    effectiveness report (it's built from picks). Irreversible; it changes nothing on Plex."""
+    with request.app.state.sessions() as session:
+        deleted = session.query(func.count(Run.id)).scalar() or 0
+        # Picks aren't ORM-cascaded off Run, and a bulk delete bypasses the RunUser cascade too, so
+        # clear all three tables explicitly (order doesn't matter — no DB-level FK enforcement here).
+        session.query(PickRow).delete(synchronize_session=False)
+        session.query(RunUser).delete(synchronize_session=False)
+        session.query(Run).delete(synchronize_session=False)
+        session.commit()
+    return {"deleted": deleted}
 
 
 @router.get("/{run_id}")

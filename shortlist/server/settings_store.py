@@ -60,6 +60,10 @@ DEFAULTS: dict[str, Any] = {
     # read-only, only our rows move.
     "rows.hub_anchor": {},
     "staleness_runs": 3,
+    # How many past runs to keep. After each run, older ones (and their picks) are pruned to this
+    # count — but a run is never pruned while it's still inside the 30-day watch-credit window, so a
+    # low value can't cost the report a hit. 0 = keep everything.
+    "runs.retention": 100,
     # Which candidate sources feed recommendations (engine/candidates.py). More = wider recall.
     "candidates.sources": ["tmdb_similar", "tmdb_discover"],
     # How the "AI — web search" (llm_web) source searches the web: 'native' (the curator provider's

@@ -57,6 +57,25 @@ export function useRuns(collection?: string) {
   });
 }
 
+export function useRunsSummary() {
+  return useQuery({
+    queryKey: [...queryKeys.runs, "summary"] as const,
+    queryFn: api.getRunsSummary,
+  });
+}
+
+export function useClearRuns() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.clearRuns,
+    // Clearing runs also empties picks, so the dashboard report resets too — refresh both.
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs });
+      queryClient.invalidateQueries({ queryKey: ["report"] });
+    },
+  });
+}
+
 export function useRun(id: number, enabled = true) {
   return useQuery({
     queryKey: queryKeys.run(id),

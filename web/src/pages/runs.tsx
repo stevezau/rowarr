@@ -1,12 +1,30 @@
-import { ListChecks, Play, X } from "lucide-react";
+import {
+  CalendarClock,
+  CircleCheck,
+  CircleX,
+  ListChecks,
+  Play,
+  Trash2,
+  X,
+} from "lucide-react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { MutationAlert } from "@/components/mutation-alert";
 import { PageHeader } from "@/components/page-header";
 import { RunRowsDialog } from "@/components/runs/run-rows-dialog";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
+import { StatTile } from "@/components/stat-tile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -23,8 +41,14 @@ import {
   timeAgo,
   triggerLabel,
 } from "@/lib/format";
-import { useCollections, useRuns, useStartRun } from "@/lib/queries";
-import type { Run } from "@/lib/types";
+import {
+  useClearRuns,
+  useCollections,
+  useRuns,
+  useRunsSummary,
+  useStartRun,
+} from "@/lib/queries";
+import type { Run, RunsSummary } from "@/lib/types";
 
 function RunsSkeleton() {
   return (
@@ -84,13 +108,50 @@ function RunRow({ run }: { run: Run }) {
   );
 }
 
+/** The headline totals above the runs table: how many, how many worked, and when the last one ran. */
+function RunsStats({ summary }: { summary: RunsSummary }) {
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatTile
+        icon={ListChecks}
+        label="Runs"
+        value={summary.total}
+        hint="recorded"
+      />
+      <StatTile
+        icon={CircleCheck}
+        label="Succeeded"
+        value={summary.ok}
+        hint="finished cleanly"
+        tone="success"
+      />
+      <StatTile
+        icon={CircleX}
+        label="Failed"
+        value={summary.error}
+        hint="ended in error"
+        tone={summary.error > 0 ? "destructive" : "default"}
+      />
+      <StatTile
+        icon={CalendarClock}
+        label="Last run"
+        value={summary.last_finished ? timeAgo(summary.last_finished) : "never"}
+        hint={summary.last_status ? runStatusLabel(summary.last_status) : "—"}
+      />
+    </div>
+  );
+}
+
 export function RunsPage() {
   // A row links here as /runs?row=<slug> to show only the runs that built it.
   const [params] = useSearchParams();
   const rowSlug = params.get("row") ?? undefined;
   const runsQuery = useRuns(rowSlug);
+  const summary = useRunsSummary();
   const collections = useCollections();
   const startRun = useStartRun();
+  const clearRuns = useClearRuns();
+  const [clearOpen, setClearOpen] = useState(false);
   const rowName =
     rowSlug && collections.data
       ? collections.data.find((c) => c.slug === rowSlug)?.name
@@ -104,6 +165,16 @@ export function RunsPage() {
         subtitle="Every time Shortlist rebuilt rows, and how it went."
         actions={
           <div className="flex flex-wrap gap-2">
+            {!rowSlug && (summary.data?.total ?? 0) > 0 && (
+              <Button
+                variant="ghost"
+                className="text-muted-foreground"
+                onClick={() => setClearOpen(true)}
+              >
+                <Trash2 aria-hidden="true" />
+                Clear runs
+              </Button>
+            )}
             <RunRowsDialog
               onRun={(collection_ids) => startRun.mutate({ collection_ids })}
               isPending={startRun.isPending}
@@ -118,6 +189,48 @@ export function RunsPage() {
           </div>
         }
       />
+
+      {/* Page-level stats, but not while filtered to one row (they'd describe every run, not this row). */}
+      {!rowSlug && summary.data && summary.data.total > 0 && (
+        <RunsStats summary={summary.data} />
+      )}
+
+      <Dialog open={clearOpen} onOpenChange={setClearOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear all run history?</DialogTitle>
+            <DialogDescription>
+              This deletes every recorded run and the picks they produced. It
+              changes nothing on Plex — your rows stay exactly as they are — but
+              it also resets the dashboard’s watch tracking, which is built from
+              those picks. This can’t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {clearRuns.isError && (
+            <MutationAlert
+              error={clearRuns.error}
+              fallback="Couldn’t clear the runs. Try again."
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearOpen(false)}>
+              Keep them
+            </Button>
+            <Button
+              variant="destructive"
+              loading={clearRuns.isPending}
+              onClick={() =>
+                clearRuns.mutate(undefined, {
+                  onSuccess: () => setClearOpen(false),
+                })
+              }
+            >
+              {!clearRuns.isPending && <Trash2 aria-hidden="true" />}
+              Clear run history
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* A refused or failed run says why in plain English (e.g. PMS too old, Plex unreachable).
           Swallowing that left the button looking like it had done nothing at all. */}

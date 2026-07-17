@@ -13,7 +13,11 @@ import type { Settings } from "@/lib/types";
 /** The default row name template and row size applied to the "Picked for You" row. */
 export function DefaultsSection({ settings }: { settings: Settings }) {
   const [rowNameTpl, setRowNameTpl] = useState(
-    settingString(settings, "row.name_template", "✨ Picked for You"),
+    settingString(
+      settings,
+      "row.name_template",
+      "✨ {library_name} Picked for You",
+    ),
   );
   const [rowSize, setRowSize] = useState(
     settingNumber(settings, "row.size", ROW_SIZE_DEFAULT),
@@ -40,11 +44,15 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
               onChange={(event) => setRowNameTpl(event.target.value)}
             />
             <p className="text-sm text-muted-foreground">
-              Use <span className="font-mono">{"{user}"}</span> for each
-              person's name (e.g.{" "}
-              <span className="font-mono">✨ Picked for {"{user}"}</span>) or{" "}
-              <span className="font-mono">{"{top_seed}"}</span> for their top
-              watched title.
+              Use <span className="font-mono">{"{library_name}"}</span> for the
+              library's name (e.g.{" "}
+              <span className="font-mono">
+                ✨ {"{library_name}"} Picked for You
+              </span>{" "}
+              becomes “✨ Movies Picked for You”),{" "}
+              <span className="font-mono">{"{user}"}</span> for each person's
+              name, or <span className="font-mono">{"{top_seed}"}</span> for
+              their top watched title.
             </p>
             <div className="rounded-md border bg-card p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">

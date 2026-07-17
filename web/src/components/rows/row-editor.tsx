@@ -97,10 +97,11 @@ export function RowEditor({
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Use <span className="font-mono">{"{user}"}</span> for each
-                person’s name or{" "}
-                <span className="font-mono">{"{top_seed}"}</span> for their top
-                watched title.
+                Use <span className="font-mono">{"{library_name}"}</span> for
+                the library’s name,{" "}
+                <span className="font-mono">{"{user}"}</span> for each person’s
+                name, or <span className="font-mono">{"{top_seed}"}</span> for
+                their top watched title.
               </p>
             )}
           </div>

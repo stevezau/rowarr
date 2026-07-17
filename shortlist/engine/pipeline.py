@@ -26,7 +26,13 @@ from shortlist.engine.clients.search import WebSearchProvider
 from shortlist.engine.clients.tmdb import Cache, NullCache, TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import Curator
-from shortlist.engine.delivery import render_row_name, resolve_row_template, row_marker, sweep_broken_rows
+from shortlist.engine.delivery import (
+    render_row_name,
+    resolve_row_template,
+    row_marker,
+    sweep_broken_rows,
+    target_sections,
+)
 from shortlist.engine.history import HistorySource
 from shortlist.engine.models import (
     CollectionDiff,
@@ -530,7 +536,11 @@ def _promote_phase(
                 continue
             title_template = resolve_row_template(spec, user, ctx.config)
             if "{top_seed}" not in title_template:
-                placements.setdefault(render_row_name(title_template, user, []) + marker, spec)
+                # A {library_name} title differs per library, so map one per library the row targets;
+                # setdefault leaves the recorded per-library titles (placement_titles) winning.
+                for section in target_sections(ctx.delivery_sections, spec):
+                    name = render_row_name(title_template, user, [], library_name=getattr(section, "title", "") or "")
+                    placements.setdefault(name + marker, spec)
         try:
             # Every row the user has, in every library — they can have several rows (all sharing
             # their label), and promoting only one would leave the others invisible to the one

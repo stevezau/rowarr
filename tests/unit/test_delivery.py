@@ -78,6 +78,22 @@ class TestRenderRowName:
         cold = [Pick(1, 1, "X", 1, "r", MediaType.MOVIE)]
         assert render_row_name("{top_seed}", make_profile(), cold) == DEFAULT_ROW_NAME
 
+    def test_library_name_substitution_fills_the_delivering_library(self):
+        tpl = "✨ {library_name} Picked for You"
+        assert render_row_name(tpl, make_profile(), picks(), library_name="Movies") == "✨ Movies Picked for You"
+        assert render_row_name(tpl, make_profile(), picks(), library_name="TV Shows") == "✨ TV Shows Picked for You"
+
+    def test_library_name_with_no_library_collapses_to_the_generic_default(self):
+        # A preview or a row-level summary has no single library, so the empty placeholder is collapsed
+        # away rather than leaving a double space — and lands exactly on the generic default title.
+        tpl = "✨ {library_name} Picked for You"
+        assert render_row_name(tpl, make_profile(), picks(), library_name="") == DEFAULT_ROW_NAME
+        assert render_row_name(tpl, make_profile(), picks()) == "✨ Picked for You"
+
+    def test_a_template_without_the_placeholder_keeps_its_exact_spacing(self):
+        # Non-{library_name} templates take the untouched .strip() path — spacing is preserved byte-for-byte.
+        assert render_row_name("✨  Custom  Row", make_profile(), picks(), library_name="Movies") == "✨  Custom  Row"
+
 
 class TestColdStartRowName:
     """A cold-start user has no seed — the row must not read 'Because you watched'."""
@@ -149,10 +165,11 @@ class TestDeliverRows:
         create = plex.create_collection.call_args
         assert create.args[0] is movies
         # The title Plex is given carries an INVISIBLE per-account marker. Without it every user's
-        # row is the same collection tag in that library, holding everyone's picks.
-        assert create.args[1] == "✨ Picked for You" + row_marker(make_profile().plex_account_id)
-        assert create.args[1].startswith("✨ Picked for You"), "what a human reads must not change"
-        # The report shows the human title — the marker is Plex's business, not the owner's.
+        # row is the same collection tag in that library, holding everyone's picks. The default
+        # template fills {library_name} from the delivering library ("Movies" here).
+        assert create.args[1] == "✨ Movies Picked for You" + row_marker(make_profile().plex_account_id)
+        assert create.args[1].startswith("✨ Movies Picked for You"), "what a human reads is a clean title"
+        # The row-level report title renders library-less (no single library) -> the generic default.
         assert diff.collection_title == "✨ Picked for You"
         assert plex.stored_label.call_args.args[1] == "shortlist_sarah"
         # Promotion is the pipeline's job, AFTER filters are merged — never delivery's.
@@ -225,7 +242,7 @@ class TestDeliverRows:
         assert diff.removed == ["Stale Movie"]
         assert diff.kept == ["Movie 1"]
         plex.delete_owned_collection.assert_not_called()  # its tag is not shared: no rebuild needed
-        existing.editTitle.assert_called_once_with("✨ Picked for You" + row_marker(profile.plex_account_id))
+        existing.editTitle.assert_called_once_with("✨ Movies Picked for You" + row_marker(profile.plex_account_id))
         # The items actually pushed, not just "set_items happened": feeding one library's picks
         # into the other library's collection would otherwise pass this test.
         plex.fetch_items.assert_called_once_with([1001, 1002])

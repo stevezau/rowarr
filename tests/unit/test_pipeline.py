@@ -20,6 +20,7 @@ def ctx(engine_config: EngineConfig, mock_plextv, mock_tmdb, mock_curator) -> En
     plex = MagicMock()
     movie_section = MagicMock()
     movie_section.type = "movie"
+    movie_section.title = "Movies"  # fills {library_name} in the default row title
     plex.sections.return_value = [movie_section]
     plex.sections_by_type.return_value = {MediaType.MOVIE: movie_section}
     movie_section.collections.return_value = []
@@ -387,9 +388,11 @@ class TestPerRowOverrides:
         lib1 = MagicMock()
         lib1.type = "movie"
         lib1.key = "1"
+        lib1.title = "Movies"
         lib2 = MagicMock()
         lib2.type = "movie"
         lib2.key = "2"  # the SECOND movie library — never returned by sections_by_type()
+        lib2.title = "4K Movies"
         ctx.plex.sections.return_value = [lib1, lib2]
         ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: lib1}  # lowest-key only
         ctx.plex.build_library_index.side_effect = lambda s, ep=None: (
@@ -427,9 +430,11 @@ class TestPerRowOverrides:
         lib1 = MagicMock()
         lib1.type = "movie"
         lib1.key = "1"
+        lib1.title = "Movies"
         lib2 = MagicMock()
         lib2.type = "movie"
         lib2.key = "2"
+        lib2.title = "4K Movies"
         ctx.plex.sections.return_value = [lib1, lib2]
         ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: lib1}
         # Candidate 10 is in BOTH libraries; candidate 20 lives only in lib1.
@@ -460,9 +465,11 @@ class TestPerRowOverrides:
         movie_section = MagicMock()
         movie_section.type = "movie"
         movie_section.key = "1"
+        movie_section.title = "Movies"
         show_section = MagicMock()
         show_section.type = "show"
         show_section.key = "2"
+        show_section.title = "TV Shows"
         ctx.plex.sections.return_value = [movie_section, show_section]
         ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movie_section, MediaType.SHOW: show_section}
         ctx.config.candidates_pre_rank = 5  # a tiny cut, so crowding-out is easy to trigger
@@ -583,9 +590,11 @@ class TestPerRowOverrides:
         movie_section = MagicMock()
         movie_section.type = "movie"
         movie_section.key = "1"
+        movie_section.title = "Movies"
         show_section = MagicMock()
         show_section.type = "show"
         show_section.key = "2"
+        show_section.title = "TV Shows"
         ctx.plex.sections.return_value = [movie_section, show_section]
         ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movie_section, MediaType.SHOW: show_section}
         movies = {900: 999, **{i: 1000 + i for i in range(1, 40)}}
@@ -624,8 +633,8 @@ class TestPerRowOverrides:
         titles that library holds — not one recommendation split between them. This is what makes a
         row 'per library': a server with a Movies and a 4K library fills both, from their own shelves.
         """
-        movies = MagicMock(type="movie", key="1")
-        movies_4k = MagicMock(type="movie", key="2")
+        movies = MagicMock(type="movie", key="1", title="Movies")
+        movies_4k = MagicMock(type="movie", key="2", title="4K Movies")
         ctx.plex.sections.return_value = [movies, movies_4k]
         ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
         # Disjoint catalogues: Movies holds tmdb 10-15, 4K holds tmdb 50-55 (seed 900 in both).
@@ -796,19 +805,21 @@ class TestPerRowOverrides:
         assert 900 not in ids, "the seed itself is always excluded"
 
     def test_muting_removes_an_already_delivered_row(self, ctx: EngineContext, mock_plextv):
-        from shortlist.engine.delivery import row_marker
+        from shortlist.engine.delivery import render_row_name, row_marker
 
         sarah = make_profile("sarah", account_id=100, row_overrides={"picked": RowOverride(muted=True)})
         mock_plextv.users = [plextv_user(100, "sarah")]
-        # A collection already on the server for this row (title = display + the account's marker).
+        # A collection already on the server for this row (title = display + the account's marker). The
+        # default template renders {library_name} from the delivering library ("Movies" in this ctx).
+        display = render_row_name(ctx.config.row_name_template, sarah, [], library_name="Movies")
         existing = MagicMock()
-        existing.title = ctx.config.row_name_template + row_marker(100)
+        existing.title = display + row_marker(100)
         ctx.plex.find_owned_collections.return_value = [existing]
 
         report = pipeline_mod.run(ctx, [sarah])
 
         ctx.plex.delete_owned_collection.assert_called_once()
-        assert ctx.config.row_name_template in report.users[0].diff.deleted
+        assert display in report.users[0].diff.deleted
         ctx.plex.create_collection.assert_not_called()  # muted -> nothing rebuilt
 
     def test_a_disabled_rows_collection_is_removed_from_its_owners_home(self, ctx: EngineContext, mock_plextv):
@@ -998,7 +1009,7 @@ class TestPlacement:
         user = UserProfile(username="sarah", plex_account_id=100, user_type=UserType.SHARED, slug="sarah")
         ctx.config.rows = [RowSpec(slug="gems", name_template="Hidden Gems", size=10, placement="library")]
         ctx.config.dry_run = False
-        section = MagicMock()
+        section = MagicMock(type="movie", key="1", title="Movies")
         ctx.delivery_sections = [section]
         coll = MagicMock(title=render_row_name("Hidden Gems", user, []) + row_marker(100))  # exists, no picks
         ctx.plex.find_owned_collections.side_effect = lambda s, label: [coll] if s is section else []
@@ -1012,6 +1023,37 @@ class TestPlacement:
             "recommended": True,
             "pin_top": False,
         }
+
+    def test_undelivered_library_name_row_maps_each_library_to_its_spec(self, ctx: EngineContext):
+        """The default {library_name} row renders a DIFFERENT title per library, so an undelivered but
+        still-lingering copy must map to its spec in EACH library — not fall to the everywhere-visible
+        default in the libraries the fallback didn't render. Both keep the row's library-only placement."""
+        from datetime import UTC, datetime
+
+        from shortlist.engine.delivery import render_row_name, row_marker
+        from shortlist.engine.models import RowSpec, RunReport, UserProfile, UserRunReport, UserType
+        from shortlist.engine.pipeline import _promote_phase
+
+        tpl = "✨ {library_name} Picked for You"
+        user = UserProfile(username="sarah", plex_account_id=100, user_type=UserType.SHARED, slug="sarah")
+        ctx.config.rows = [RowSpec(slug="picked", name_template=tpl, size=10, placement="library")]
+        ctx.config.dry_run = False
+        movies = MagicMock(type="movie", key="1", title="Movies")
+        shows = MagicMock(type="show", key="2", title="TV Shows")
+        ctx.delivery_sections = [movies, shows]
+        colls = {
+            movies: MagicMock(title=render_row_name(tpl, user, [], library_name="Movies") + row_marker(100)),
+            shows: MagicMock(title=render_row_name(tpl, user, [], library_name="TV Shows") + row_marker(100)),
+        }
+        ctx.plex.find_owned_collections.side_effect = lambda s, label: [colls[s]] if s in colls else []
+        report = RunReport(started_at=datetime.now(UTC), users=[UserRunReport(username="sarah", slug="sarah")])
+
+        _promote_phase(ctx, [user], [], filters_ok=True, report=report)
+
+        assert ctx.plex.promote.call_count == 2  # each library's lingering row mapped to its spec
+        for call in ctx.plex.promote.call_args_list:
+            # placement="library" -> hidden from Home, shown only in the library's Recommended shelf.
+            assert call.kwargs == {"shared": False, "home": False, "recommended": True, "pin_top": False}
 
     def test_undelivered_dynamic_titled_row_keeps_the_safe_everywhere_fallback(self, ctx: EngineContext):
         """A {top_seed} row's title can't be predicted without picks, so an un-delivered one keeps the
@@ -1092,8 +1134,8 @@ class TestPlacement:
         its own contents), so promotion must know both — not just the first. The recorded titles must
         match what the collections are actually delivered as, or every library but the first would fall
         back to the legacy everywhere-visible placement."""
-        movies = MagicMock(type="movie", key="1")
-        movies_4k = MagicMock(type="movie", key="2")
+        movies = MagicMock(type="movie", key="1", title="Movies")
+        movies_4k = MagicMock(type="movie", key="2", title="4K Movies")
         ctx.plex.sections.return_value = [movies, movies_4k]
         ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
         # Two seeds; each library holds candidates from a DIFFERENT seed, so its {top_seed} differs:

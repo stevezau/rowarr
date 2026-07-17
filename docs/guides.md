@@ -34,6 +34,10 @@ together. To skip a person entirely, pause them on their detail page.
 A row's name can be plain text ("Hidden Gems") or use a placeholder that fills in per person when
 the row is built:
 
+- `{library_name}` — the library the row is built in. `✨ {library_name} Picked for You` becomes
+  "✨ Movies Picked for You" in your Movies library and "✨ TV Shows Picked for You" in your TV
+  library. This is the default row name, so a server with several libraries gets distinct titles
+  instead of two identical "Picked for You" rows.
 - `{user}` — the person's name. `{user}'s picks` becomes "Sarah's picks".
 - `{top_seed}` — the title that most drove their recommendations. `Because you watched {top_seed}`
   becomes "Because you watched The Bear".

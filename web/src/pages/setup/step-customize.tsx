@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 import type { StepProps } from "./step-props";
 
-const STATIC_TPL = "✨ Picked for You";
+const STATIC_TPL = "✨ {library_name} Picked for You";
 const DYNAMIC_TPL = "Because you watched {top_seed}";
 const EMOJI_CHOICES = ["✨", "🍿", "🎬", "⭐", "🔥", "❤️"];
 
@@ -52,7 +52,11 @@ export function StepCustomize({ update, next }: StepProps) {
 
   const templateOptions: { id: TemplateChoice; label: string; hint: string }[] =
     [
-      { id: "static", label: STATIC_TPL, hint: "Classic, always the same." },
+      {
+        id: "static",
+        label: renderRowName(STATIC_TPL),
+        hint: "Classic — uses each library's own name.",
+      },
       {
         id: "dynamic",
         label: DYNAMIC_TPL,
@@ -119,9 +123,11 @@ export function StepCustomize({ update, next }: StepProps) {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            Tip: <span className="font-mono">{"{user}"}</span> becomes each
-            person's name, and <span className="font-mono">{"{top_seed}"}</span>{" "}
-            their top watched title, fresh every night.
+            Tip: <span className="font-mono">{"{library_name}"}</span> becomes
+            each library's name (Movies, TV Shows…),{" "}
+            <span className="font-mono">{"{user}"}</span> each person's name,
+            and <span className="font-mono">{"{top_seed}"}</span> their top
+            watched title, fresh every night.
           </p>
         </div>
       )}

@@ -1001,6 +1001,39 @@ class TestCollectionsApi:
             assert by_user[uslug]["old"] == "Old Gems" and by_user[uslug]["new"] == "Buried Treasure"
             assert by_user[uslug]["libraries"] == ["Movies"]
 
+    def test_renaming_to_a_library_name_template_retitles_per_library(self, client: TestClient, monkeypatch):
+        """A {library_name} rename renders in the SAME library the old title was delivered in — the
+        library is read from the run breakdown, so 'Movies' fills the placeholder with that name."""
+        from shortlist.engine.delivery import row_marker
+        from shortlist.server.db.models import Run, RunUser, User
+
+        created = client.post("/api/collections", json={"name": "Old Gems"})
+        cid, slug = created.json()["id"], created.json()["slug"]
+        with client.app.state.sessions() as session:
+            user = session.query(User).order_by(User.id).first()
+            uslug, acct = user.slug, user.plex_account_id
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            session.add(
+                RunUser(
+                    run_id=run.id,
+                    user_id=user.id,
+                    status="ok",
+                    breakdown=[{"row_slug": slug, "row_title": "Old Gems", "library_title": "Movies"}],
+                )
+            )
+            session.commit()
+
+        renames = self._fake_rename_ctx(
+            monkeypatch, client, titles_by_label={f"shortlist_{uslug}": "Old Gems" + row_marker(acct)}
+        )
+
+        r = client.patch(f"/api/collections/{cid}", json={"name": "✨ {library_name} Fresh"})
+        assert r.status_code == 200
+        # The Movies library's name fills {library_name}, so the old row is retitled to its Movies form.
+        assert renames == [("Old Gems" + row_marker(acct), "✨ Movies Fresh" + row_marker(acct))]
+
     def test_renaming_via_a_static_name_template_also_reconciles(self, client: TestClient, monkeypatch):
         """A name_template-only change (name untouched) is a rename too — the effective title is the
         template, so changing it must retitle the collection in place."""

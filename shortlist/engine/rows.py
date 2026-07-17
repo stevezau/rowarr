@@ -457,6 +457,10 @@ def _run_user(
                     row_name = row_template.replace("{user}", user.username).replace(
                         "{top_seed}", seed_title or "your favourites"
                     )
+                    # A request spans every library the row's pool drew from, so there's no single
+                    # {library_name} — drop it and tidy the gap ("✨  Picked for You" -> "✨ Picked for You").
+                    if "{library_name}" in row_name:
+                        row_name = " ".join(row_name.replace("{library_name}", "").split())
                     entry = RequestWhy(
                         user=user.username,
                         row=row_name,
@@ -551,13 +555,16 @@ def _run_user(
         # Stamp each pick with the row it belongs to, so the user page can group picks per row.
         section_picks = {key: [replace(p, collection_slug=spec.slug) for p in sp] for key, sp in section_picks.items()}
         # Record the exact title delivery will write for EACH library, so the promote phase can apply
-        # this row's placement/pin. Per library, because a {top_seed} title differs library to library
-        # (each was curated from its own contents). Matches delivery's `render_row_name(...) + marker`.
+        # this row's placement/pin. Per library, because a {top_seed} OR {library_name} title differs
+        # library to library. Must match delivery's `render_row_name(..., library_name) + marker` — same
+        # section title in, or promote would look for a row delivery never wrote (it'd stay unhidden).
         title_template = resolve_row_template(spec, user, cfg)
         marker = row_marker(user.plex_account_id)
-        for sp in section_picks.values():
+        library_names = {section.key: getattr(section, "title", "") or "" for section in targets}
+        for section_key, sp in section_picks.items():
             if sp:
-                user_report.placement_titles[render_row_name(title_template, user, sp) + marker] = spec.slug
+                title = render_row_name(title_template, user, sp, library_name=library_names.get(section_key, ""))
+                user_report.placement_titles[title + marker] = spec.slug
         picks = [pick for sp in section_picks.values() for pick in sp]
         all_picks.extend(picks)
         _pipeline._emit(ctx, user.slug, "delivering", {"picks": len(picks)})

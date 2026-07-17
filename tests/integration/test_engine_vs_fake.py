@@ -371,8 +371,9 @@ def test_two_per_person_rows_share_one_label_and_are_both_hidden(fakes, tmp_path
     owned = plex.owned_collections()
     assert owned["sarah"].label == "Shortlist_sarah"  # one label for all of a user's rows
     sarah_titles = {_strip_marker(state.collections[k].title) for k in owned["sarah"].rating_keys}
-    # Sarah watched movies AND shows, so each of her two rows lands in both libraries.
-    assert sarah_titles == {"✨ Picked for You", "Hidden Gems"}
+    # Sarah watched movies AND shows, so each of her two rows lands in both libraries. The default
+    # 'picked' row renders {library_name} per library, so its title differs (Movies vs TV Shows).
+    assert sarah_titles == {"✨ Movies Picked for You", "✨ TV Shows Picked for You", "Hidden Gems"}
     assert len(owned["sarah"].rating_keys) == 4  # 2 rows x 2 libraries
     for rating_key in owned["sarah"].rating_keys:
         collection = state.collections[rating_key]
@@ -514,7 +515,8 @@ def test_a_per_person_row_only_builds_for_its_audience(fakes, tmp_path):
     mike_titles = {_strip_marker(state.collections[k].title) for k in owned["mike"].rating_keys}
     assert "Hidden Gems" in sarah_titles  # sarah is in the audience
     assert "Hidden Gems" not in mike_titles  # mike is not -> no such row was built for him
-    assert "✨ Picked for You" in mike_titles  # the everyone row is still his
+    # mike watched only shows, so his default row lands in TV Shows -> the library-named title.
+    assert "✨ TV Shows Picked for You" in mike_titles  # the everyone row is still his
 
 
 def test_a_run_heals_the_leaking_rows_a_previous_version_left_behind(fakes, tmp_path):

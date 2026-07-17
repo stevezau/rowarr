@@ -57,8 +57,16 @@ def strip_marker(title: str) -> str:
     return title
 
 
-def render_row_name(template: str, profile: UserProfile, picks: list[Pick]) -> str:
+def render_row_name(template: str, profile: UserProfile, picks: list[Pick], library_name: str = "") -> str:
     """Render the row title as a HUMAN reads it — no marker. Used for reports and the UI.
+
+    ``library_name`` fills the ``{library_name}`` placeholder with the delivering library's own name,
+    so the same row gets a distinct title per library (a privacy requirement: per-person rows share one
+    label and are told apart only by title). Every caller that renders a title to MATCH a collection on
+    the PMS — deliver, promote, mute/retire, rename — must pass the SAME library name delivery used, or
+    it would look for a title delivery never wrote and silently no-op (a row could stay unhidden). With
+    no library (a preview, or the row-level combined summary), the empty placeholder is collapsed away
+    ("✨  Picked for You" -> "✨ Picked for You" == DEFAULT_ROW_NAME).
 
     A cold-start user has no seed, so a `{top_seed}` template would otherwise render the
     dangling half-sentence "Because you watched" onto a real Plex Home screen.
@@ -66,7 +74,14 @@ def render_row_name(template: str, profile: UserProfile, picks: list[Pick]) -> s
     top_seed = picks[0].seed_title if picks and picks[0].seed_title else ""
     if "{top_seed}" in template and not top_seed:
         return DEFAULT_ROW_NAME
-    rendered = template.replace("{top_seed}", top_seed).replace("{user}", profile.username).strip()
+    rendered = (
+        template.replace("{top_seed}", top_seed)
+        .replace("{user}", profile.username)
+        .replace("{library_name}", library_name)
+    )
+    # A {library_name} title with no (or a padding-adjacent) library leaves double spaces where the
+    # placeholder was — collapse runs of whitespace so the human title reads clean either way.
+    rendered = " ".join(rendered.split()) if "{library_name}" in template else rendered.strip()
     return rendered or DEFAULT_ROW_NAME
 
 
@@ -265,12 +280,14 @@ def remove_row(
     wanted_label = spec.label or f"{config.label_prefix}_{profile.slug}"
     marker = row_marker(0) if spec.shared else row_marker(profile.plex_account_id)
     template = resolve_row_template(spec, profile, config)
-    display = render_row_name(template, profile, [])
-    title = display + marker
     # Look in every library, not just the row's current targets: if its library_keys changed, an
     # earlier copy may linger in a library it no longer targets, and a muted row must leave them all.
     scan = sections if sections is not None else list(plex.sections_by_type().values())
     for section in scan:
+        # Render the title with THIS library's name so a {library_name} row matches its own per-library
+        # collection (delivery wrote "✨ Movies Picked for You" in Movies, "✨ TV Shows …" in TV).
+        display = render_row_name(template, profile, [], library_name=getattr(section, "title", "") or "")
+        title = display + marker
         for collection in plex.find_owned_collections(section, wanted_label):
             if collection.title != title:
                 continue
@@ -436,7 +453,9 @@ def _deliver_one(
     is unsafe (which row was renamed?), so a mismatch builds a fresh row and the stale one, still
     labelled, stays hidden. Foreign (e.g. Kometa) collections never carry our label, so are untouched.
     """
-    display = render_row_name(template, profile, picks)
+    # This library's own name fills {library_name}; every match/promote/retire caller renders with the
+    # same section title, so the titles stay in lockstep (a mismatch would leave a row unhidden).
+    display = render_row_name(template, profile, picks, library_name=getattr(section, "title", "") or "")
     # What Plex is told to call it: the same thing, plus an invisible marker that makes it unique
     # in this library. Without it, every user's row is the same collection tag and holds everyone's
     # picks. Users see `display`; only the PMS ever sees the marker.

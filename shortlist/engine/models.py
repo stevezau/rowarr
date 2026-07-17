@@ -384,12 +384,20 @@ class HubAnchor:
     to_top: bool = False
 
 
+# The seeded default row title. ``{library_name}`` renders each library's own name at delivery, so a
+# multi-library server gets "✨ Movies Picked for You" / "✨ TV Shows Picked for You" — distinct titles,
+# which per-person rows REQUIRE (they share one label and are told apart only by title). With no library
+# (a preview or a row-level summary) it collapses to DEFAULT_ROW_NAME. Kept in lockstep with
+# settings_store's ``row.name_template`` default and web's DEFAULT_ROW_TEMPLATE.
+DEFAULT_ROW_TEMPLATE = "✨ {library_name} Picked for You"
+
+
 @dataclass
 class EngineConfig:
     """Static configuration for one engine run (adapters build this from settings)."""
 
     row_size: int = 15
-    row_name_template: str = "✨ Picked for You"
+    row_name_template: str = DEFAULT_ROW_TEMPLATE
     label_prefix: str = "shortlist"
     candidates_pre_rank: int = 40  # heuristic pre-rank keeps this many for the curator
     min_history: int = 10  # below this -> cold-start row

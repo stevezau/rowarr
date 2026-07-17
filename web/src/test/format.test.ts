@@ -145,4 +145,22 @@ describe("small formatters", () => {
       "Sarah: because you watched Fargo",
     );
   });
+
+  it("renderRowName fills {library_name} with a sample library and collapses an empty one", () => {
+    expect(renderRowName("✨ {library_name} Picked for You")).toBe(
+      "✨ Movies Picked for You",
+    );
+    expect(
+      renderRowName(
+        "✨ {library_name} Picked for You",
+        "Fargo",
+        "Sarah",
+        "TV Shows",
+      ),
+    ).toBe("✨ TV Shows Picked for You");
+    // An empty library collapses the gap so the preview never shows a double space.
+    expect(
+      renderRowName("✨ {library_name} Picked for You", "Fargo", "Sarah", ""),
+    ).toBe("✨ Picked for You");
+  });
 });

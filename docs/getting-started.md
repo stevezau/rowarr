@@ -38,8 +38,9 @@ The wizard then walks:
    Keys are yours, stored encrypted, redacted after save.
 4. **Pick your users** — everyone you share with, with history-depth and new-viewer badges.
 5. **Make it yours** — row name, row size, schedule. The name can be plain text or use a
-   placeholder: `{user}` (the person's name — e.g. "Sarah's picks") or `{top_seed}` (their
-   current favourite — e.g. "Because you watched {top_seed}").
+   placeholder: `{library_name}` (the library — the default `✨ {library_name} Picked for You`
+   becomes "✨ Movies Picked for You"), `{user}` (the person's name — e.g. "Sarah's picks"), or
+   `{top_seed}` (their current favourite — e.g. "Because you watched {top_seed}").
 6. **First run** — live per-user progress; when it finishes, each user has their private row.
 
 Every row is kept private automatically: it's a labeled collection excluded on every other

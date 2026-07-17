@@ -27,16 +27,23 @@ from shortlist.engine.models import SHARED_LABEL_PREFIX, UserProfile, UserType
 from shortlist.server.db.models import Event, Run, User
 
 
-def _delivered_titles_by_user(session, slug: str) -> dict[int, set[str]]:
-    """{user_id → the Plex titles the last run delivered for THIS row}, from the persisted breakdown.
+def _delivered_titles_by_user(session, slug: str) -> dict[int, dict[str, str]]:
+    """{user_id → {delivered Plex title → the library it was delivered in}} for THIS row, from the
+    persisted breakdown.
 
     Both reconcile paths (remove/rename) find a user's collection by the exact title the last run
-    wrote for the row, scoped to that user — never by a foreign (Kometa) or another user's row.
+    wrote for the row, scoped to that user — never by a foreign (Kometa) or another user's row. The
+    library is carried so rename can re-render a per-library ({library_name}) title in the SAME library
+    it was delivered in; removal ignores it and matches on the titles alone.
     """
     latest = session.query(Run).filter(Run.status.in_(("ok", "error"))).order_by(Run.id.desc()).first()
-    result: dict[int, set[str]] = {}
+    result: dict[int, dict[str, str]] = {}
     for ru in latest.users if latest else []:
-        titles = {e["row_title"] for e in (ru.breakdown or []) if e.get("row_slug") == slug and e.get("row_title")}
+        titles = {
+            e["row_title"]: e.get("library_title", "")
+            for e in (ru.breakdown or [])
+            if e.get("row_slug") == slug and e.get("row_title")
+        }
         if titles:
             result[ru.user_id] = titles
     return result
@@ -78,7 +85,7 @@ def _reconcile_row_removal(
     for user in users:
         if only_user_ids is not None and user.id not in only_user_ids:
             continue
-        displays = titles_by_user.get(user.id, set())
+        displays = set(titles_by_user.get(user.id, {}))  # the delivered titles; the library is only for rename
         if not displays:
             continue
         removed.extend(
@@ -116,9 +123,11 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
     Each user's collection is found by the exact title the last run delivered for THIS row (its
     persisted breakdown), scoped to that user's own label, and renamed to the freshly-rendered new
     title (same account marker). Privacy-neutral, so gate-exempt (the hiding filter is keyed on the
-    label, which never changes here). STATIC titles only: a ``{top_seed}`` template renders to the
-    default row's name with no picks, so a dynamic new template is skipped — its title changes every
-    run anyway, and the next run's delivery already renames the sole-row case. Runs in an executor.
+    label, which never changes here). A ``{library_name}`` template IS renamed here — it renders to a
+    stable per-library title, and the breakdown records which library each old title came from, so the
+    new title is re-rendered in that SAME library. Only titles that render to the default with no picks
+    (a ``{top_seed}`` template, or a blank one) are skipped — their title changes every run anyway, and
+    the next run's delivery already renames the sole-row case. Runs in an executor.
 
     Accumulates one ``{user, old, new, libraries}`` entry per user actually renamed into ``entries``,
     so the audit can answer "whose row went from what to what, in which libraries" (rule 10)."""
@@ -127,7 +136,7 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
         users = session.query(User).all()
     ctx = state.run_service.build_context(dry_run=False)
     for user in users:
-        old_titles = titles_by_user.get(user.id, set())
+        old_titles = titles_by_user.get(user.id, {})  # {delivered title -> library it was delivered in}
         if not old_titles:
             continue
         profile = UserProfile(
@@ -136,12 +145,16 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
             user_type=UserType(user.user_type),
             slug=user.slug,
         )
-        new_display = render_row_name(new_template, profile, [])
-        if new_display == DEFAULT_ROW_NAME:
-            logger.debug("rename reconcile: '{}' renders to the default title with no picks — left for a run", slug)
-            continue
         marker = row_marker(user.plex_account_id)
-        for old_display in old_titles:
+        for old_display, library_title in old_titles.items():
+            # Re-render in the SAME library the old title was delivered in, so a {library_name} row's
+            # "✨ Movies Picked for You" is renamed to its new Movies title, not to some other library's.
+            new_display = render_row_name(new_template, profile, [], library_name=library_title)
+            if new_display == DEFAULT_ROW_NAME:
+                # A {top_seed}/blank template renders to the default with no picks — its title changes
+                # every run anyway, so the next run's delivery renames the sole-row case. Skip here.
+                logger.debug("rename reconcile: '{}' renders to the default title with no picks — left for a run", slug)
+                continue
             if old_display == new_display:
                 continue  # this user's title didn't actually change (e.g. a {user} template)
             libraries = rename_row_collections(

@@ -173,13 +173,21 @@ export function timeFromCron(cron: string): { time: string; weekly: boolean } {
   return { time: "03:30", weekly: false };
 }
 
-/** Row-name templates render {top_seed} from each user's history nightly. */
+/** Row-name templates render {top_seed} from each user's history and {library_name} per library nightly. */
 export function renderRowName(
   template: string,
   topSeed = "Fargo",
   user = "Sarah",
+  libraryName = "Movies",
 ): string {
-  // Fill BOTH placeholders with sample values so the "on Plex this looks like" preview shows what
-  // {user}/{top_seed} actually become — leaving {user} literal made the placeholder look broken.
-  return template.replaceAll("{top_seed}", topSeed).replaceAll("{user}", user);
+  // Fill EVERY placeholder with a sample value so the "on Plex this looks like" preview shows what
+  // {user}/{top_seed}/{library_name} actually become — leaving any literal made the field look broken.
+  const rendered = template
+    .replaceAll("{top_seed}", topSeed)
+    .replaceAll("{user}", user)
+    .replaceAll("{library_name}", libraryName);
+  // A {library_name} title collapses its gap when the sample is empty, matching the backend renderer.
+  return template.includes("{library_name}")
+    ? rendered.replace(/\s+/g, " ").trim()
+    : rendered;
 }

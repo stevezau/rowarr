@@ -104,6 +104,13 @@ class RunService:
     def user_history(self, user_id: int, *, limit: int = 25) -> list[dict] | None:
         return self._ctx.user_history(user_id, limit=limit)
 
+    def sync_watched_background(self) -> None:
+        """Fire sync_watched as a tracked background task (the reference is kept so it isn't GC'd) —
+        for the dashboard's manual 'Sync now'."""
+        task = asyncio.create_task(self.sync_watched())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
     async def sync_watched(self) -> None:
         """Refresh every enabled user's ``watched_at`` from their current watch history WITHOUT
         rebuilding rows or writing to Plex — a read-only reconcile so the effectiveness report stays
@@ -115,6 +122,8 @@ class RunService:
         loop = asyncio.get_running_loop()
 
         def work() -> int:
+            from shortlist.server.settings_store import SettingsStore
+
             ctx = self.build_context(dry_run=True)  # dry: builds clients, writes nothing to Plex
             with self._sessions() as session:
                 profiles = self.enabled_profiles(session)
@@ -124,6 +133,9 @@ class RunService:
                 except Exception as e:
                     logger.warning("watch-sync: history fetch failed for {}: {}", profile.slug, type(e).__name__)
             self._reconcile_watched(profiles)
+            with self._sessions() as session:
+                # Stamp the sync so the dashboard can show "watch status synced N ago".
+                SettingsStore(session).set("report.watch_synced_at", datetime.now(UTC).isoformat())
             return len(profiles)
 
         async with self._lock:

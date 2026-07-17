@@ -19,7 +19,7 @@ _JOB_PREFIX = "row-schedule::"
 # A fixed daily reconcile of every user's watch status, independent of any row's cron — so the
 # effectiveness report stays fresh (hit rate, recent watches) even for rows that only run weekly, or
 # users with no scheduled row. Read-only: fetches history and marks hits, never writes to Plex.
-_WATCH_SYNC_JOB_ID = "watch-sync"
+WATCH_SYNC_JOB_ID = "watch-sync"
 _WATCH_SYNC_CRON = "17 4 * * *"  # 04:17 local daily — a quiet hour, offset off the top of the hour
 
 
@@ -66,7 +66,7 @@ def _register_watch_sync(scheduler: AsyncIOScheduler, app) -> None:
     async def fire() -> None:
         await app.state.run_service.sync_watched()
 
-    scheduler.add_job(fire, CronTrigger.from_crontab(_WATCH_SYNC_CRON), id=_WATCH_SYNC_JOB_ID, replace_existing=True)
+    scheduler.add_job(fire, CronTrigger.from_crontab(_WATCH_SYNC_CRON), id=WATCH_SYNC_JOB_ID, replace_existing=True)
 
 
 def build_scheduler(app) -> AsyncIOScheduler:

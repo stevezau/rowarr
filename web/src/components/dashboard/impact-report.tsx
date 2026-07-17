@@ -2,6 +2,7 @@ import {
   CalendarClock,
   Clock,
   Play,
+  RefreshCw,
   Send,
   Target,
   TrendingUp,
@@ -11,11 +12,36 @@ import {
 import { QueryBoundary } from "@/components/query-boundary";
 import { StatTile } from "@/components/stat-tile";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { timeAgo } from "@/lib/format";
-import { useReport } from "@/lib/queries";
+import { formatDate, timeAgo } from "@/lib/format";
+import { useReport, useSyncWatched } from "@/lib/queries";
 import type { EffectivenessReport } from "@/lib/types";
+
+/** Shows when the daily watch-status sync last ran and next fires, with a manual "Sync now". */
+function WatchSyncLine({ sync }: { sync: EffectivenessReport["watch_sync"] }) {
+  const syncNow = useSyncWatched();
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span>
+        Watch status{" "}
+        {sync.last ? `synced ${timeAgo(sync.last)}` : "not synced yet"}
+        {sync.next && ` · next check ${formatDate(sync.next)}`}. It also
+        refreshes on every run.
+      </span>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => syncNow.mutate()}
+        disabled={syncNow.isPending || syncNow.isSuccess}
+      >
+        <RefreshCw aria-hidden="true" />
+        {syncNow.isSuccess ? "Syncing…" : "Sync now"}
+      </Button>
+    </div>
+  );
+}
 
 function pct(rate: number | null): string {
   return rate === null ? "—" : `${Math.round(rate * 100)}%`;
@@ -149,6 +175,8 @@ function ReportBody({ report }: { report: EffectivenessReport }) {
           tone={runs.errors_last ? "destructive" : "default"}
         />
       </div>
+
+      <WatchSyncLine sync={report.watch_sync} />
 
       <Section title="Watches per week">
         <Trend trend={report.trend} />

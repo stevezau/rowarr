@@ -491,6 +491,8 @@ export interface EffectivenessReport {
     watched_last_7d: number;
     avg_days_to_watch: number | null;
   };
+  /** The daily watch-status sync: when it last ran and next fires (ISO), so the report reads as live. */
+  watch_sync: { last: string | null; next: string | null };
   coverage: {
     users_enabled: number;
     users_total: number;

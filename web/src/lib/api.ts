@@ -244,6 +244,10 @@ export const api = {
   /** The effectiveness report: delivered-vs-watched hit rates + a recent-watches feed. */
   getReport: (): Promise<EffectivenessReport> => request("/api/report"),
 
+  /** Run the daily watch-status sync on demand (fires in the background). */
+  syncWatched: (): Promise<{ started: boolean }> =>
+    request("/api/report/sync", { method: "POST" }),
+
   /** A library's managed collections — the candidate anchors for placing rows in the shelf. */
   getLibraryCollections: (key: string): Promise<{ title: string }[]> =>
     request(`/api/system/libraries/${encodeURIComponent(key)}/collections`),

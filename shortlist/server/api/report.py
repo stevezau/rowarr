@@ -16,8 +16,18 @@ from sqlalchemy import String, cast, func
 
 from shortlist.server.auth import require_owner
 from shortlist.server.db.models import Collection, PickRow, RequestCandidate, Run, RunUser, User, iso_utc
+from shortlist.server.scheduler import WATCH_SYNC_JOB_ID
+from shortlist.server.settings_store import SettingsStore
 
 router = APIRouter(prefix="/report", tags=["report"], dependencies=[Depends(require_owner)])
+
+
+@router.post("/sync", status_code=202)
+async def trigger_sync(request: Request) -> dict:
+    """Run the daily watch-status sync on demand — refresh every user's watched picks now. Fires in
+    the background (it fetches history for all users); the report refreshes once it lands."""
+    request.app.state.run_service.sync_watched_background()
+    return {"started": True}
 
 
 def _rate(watched: int, delivered: int) -> float | None:
@@ -60,10 +70,20 @@ async def effectiveness(request: Request) -> dict:
             .scalar()
             or 0
         )
-        # Average days from delivery to watch, over the picks that were watched (SQLite julianday()).
+        # Average days from FIRST delivery to FIRST watch, per (user, title) — not per delivery row, so
+        # a title re-recommended nightly is one data point measured from when it was first added (MIN
+        # created_at over all its rows) to when it was first watched (MIN watched_at). SQLite julianday.
+        firsts = (
+            session.query(
+                func.min(PickRow.created_at).label("added"),
+                func.min(PickRow.watched_at).label("watched"),
+            )
+            .group_by(PickRow.user_id, PickRow.tmdb_id, PickRow.media_type)
+            .subquery()
+        )
         avg_days = (
-            session.query(func.avg(func.julianday(PickRow.watched_at) - func.julianday(PickRow.created_at)))
-            .filter(PickRow.watched_at.isnot(None))
+            session.query(func.avg(func.julianday(firsts.c.watched) - func.julianday(firsts.c.added)))
+            .filter(firsts.c.watched.isnot(None))
             .scalar()
         )
 
@@ -75,6 +95,7 @@ async def effectiveness(request: Request) -> dict:
             .all()
         )
 
+        last_watch_sync = SettingsStore(session).get("report.watch_synced_at")  # when the daily job last ran
         users = {u.id: u for u in session.query(User).all()}
         row_names = {c.slug: c.name for c in session.query(Collection).all()}
 
@@ -160,6 +181,11 @@ async def effectiveness(request: Request) -> dict:
             .all()
         ]
 
+    # When the daily watch-sync last ran and next fires (so the owner can see the report is live).
+    scheduler = getattr(request.app.state, "scheduler", None)
+    job = scheduler.get_job(WATCH_SYNC_JOB_ID) if scheduler else None
+    next_watch_sync = iso_utc(job.next_run_time) if job and job.next_run_time else None
+
     return {
         "overall": {
             "delivered": delivered_total,
@@ -168,6 +194,7 @@ async def effectiveness(request: Request) -> dict:
             "watched_last_7d": watched_last_7d,
             "avg_days_to_watch": round(avg_days, 1) if avg_days is not None else None,
         },
+        "watch_sync": {"last": last_watch_sync, "next": next_watch_sync},
         "coverage": {
             "users_enabled": users_enabled,
             "users_total": len(users),

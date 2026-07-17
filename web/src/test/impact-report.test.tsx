@@ -6,11 +6,17 @@ import { ImpactReport } from "@/components/dashboard/impact-report";
 import type * as ApiModule from "@/lib/api";
 import type { EffectivenessReport } from "@/lib/types";
 
-const { getReport } = vi.hoisted(() => ({ getReport: vi.fn() }));
+const { getReport, syncWatched } = vi.hoisted(() => ({
+  getReport: vi.fn(),
+  syncWatched: vi.fn(() => Promise.resolve({ started: true })),
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiModule>();
-  return { ...actual, api: { getReport: () => getReport() } };
+  return {
+    ...actual,
+    api: { getReport: () => getReport(), syncWatched: () => syncWatched() },
+  };
 });
 
 function renderReport() {
@@ -25,6 +31,7 @@ function renderReport() {
 }
 
 const EMPTY = {
+  watch_sync: { last: null, next: null },
   coverage: {
     users_enabled: 2,
     users_total: 2,

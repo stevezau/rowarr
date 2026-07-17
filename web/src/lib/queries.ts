@@ -259,6 +259,21 @@ export function useReport() {
   });
 }
 
+export function useSyncWatched() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.syncWatched,
+    // The sync runs in the background; give it a moment, then refresh the report to pick up the new
+    // "last synced" time and any freshly-credited watches.
+    onSuccess: () => {
+      setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: ["report"] }),
+        4000,
+      );
+    },
+  });
+}
+
 export function useSendRequests() {
   const queryClient = useQueryClient();
   return useMutation({

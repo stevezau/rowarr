@@ -254,8 +254,8 @@ class TestSyncWatched:
 def test_build_scheduler_registers_the_daily_watch_sync(sessions):
     from types import SimpleNamespace
 
-    from shortlist.server.scheduler import _WATCH_SYNC_JOB_ID, build_scheduler
+    from shortlist.server.scheduler import WATCH_SYNC_JOB_ID, build_scheduler
 
     app = SimpleNamespace(state=SimpleNamespace(sessions=sessions, run_service=None))
     scheduler = build_scheduler(app)
-    assert scheduler.get_job(_WATCH_SYNC_JOB_ID) is not None  # daily, independent of any row's cron
+    assert scheduler.get_job(WATCH_SYNC_JOB_ID) is not None  # daily, independent of any row's cron

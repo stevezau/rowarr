@@ -131,11 +131,14 @@ export function StepUsers() {
         {(users) => (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
+              {/* Gate each button on the ACTUAL state (from the optimistic cache), not on isPending:
+                  disabling everyone triggers slow per-user Plex cleanup, and gating on isPending left
+                  "Select all" dead the whole time. Now each is disabled only when it's already a no-op. */}
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setAll.mutate(true)}
-                disabled={setAll.isPending}
+                disabled={users.length > 0 && users.every((u) => u.enabled)}
               >
                 Select all
               </Button>
@@ -143,7 +146,7 @@ export function StepUsers() {
                 variant="outline"
                 size="sm"
                 onClick={() => setAll.mutate(false)}
-                disabled={setAll.isPending}
+                disabled={users.every((u) => !u.enabled)}
               >
                 Select none
               </Button>

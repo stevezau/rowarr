@@ -252,12 +252,14 @@ class TestSettingsValidation:
     """PUT /api/settings validated the KEY but never the VALUE, so any non-UI client could push a
     value the engine then choked on — or, worse, one that quietly disabled a safety rule."""
 
-    def test_a_throttle_below_one_write_per_second_is_refused(self, client: TestClient):
-        # plex-safety rule 6: <=1 write/s to plex.tv. 0 removed the throttle entirely.
-        r = client.put("/api/settings", json={"values": {"plextv.throttle_s": 0}})
-        assert r.status_code == 422
-        assert "plextv.throttle_s" in r.json()["detail"]
+    def test_the_plextv_throttle_floor_accepts_zero_and_rejects_out_of_range(self, client: TestClient):
+        # `plextv.throttle_s` is now the FLOOR (min seconds) between plex.tv writes: 0 = as fast as
+        # plex.tv accepts, safe because the client backs off adaptively on a 429 (rule 6). So 0 is
+        # valid now — it's no longer an "off switch". Out-of-range values are still refused.
+        assert client.put("/api/settings", json={"values": {"plextv.throttle_s": 0}}).status_code == 200
         assert client.put("/api/settings", json={"values": {"plextv.throttle_s": 2.5}}).status_code == 200
+        assert client.put("/api/settings", json={"values": {"plextv.throttle_s": -1}}).status_code == 422
+        assert client.put("/api/settings", json={"values": {"plextv.throttle_s": 61}}).status_code == 422
 
     def test_a_non_numeric_row_size_is_refused(self, client: TestClient):
         # "abc" was stored happily, then raised ValueError inside every run and 500'd two endpoints.

@@ -86,12 +86,13 @@ def _known_sources(value: object) -> str | None:
 
 
 # Values the UI already constrains — but the API accepted anything, so a bad value from any other
-# client reached the engine. `plextv.throttle_s: 0` silently REMOVED the <=1 write/s plex.tv throttle
-# (plex-safety rule 6); `row.size: "abc"` crashed every run and 500'd two endpoints.
+# client reached the engine (`row.size: "abc"` crashed every run and 500'd two endpoints).
 VALIDATORS = {
     "row.size": _bounded_int(5, 40),  # ceiling = candidates_pre_rank (per-media pool cap)
     "staleness_runs": _bounded_int(0, 50),
-    "plextv.throttle_s": _bounded_float(1.0, 60.0),  # never below the 1 write/s rule
+    # The FLOOR (minimum seconds) between plex.tv writes. 0 = fire as fast as plex.tv accepts; the
+    # client backs off adaptively on 429 (rule 6), so 0 is safe, not an "off switch" like it once was.
+    "plextv.throttle_s": _bounded_float(0.0, 60.0),
     "run.concurrency": _bounded_int(1, 16),  # 1 = sequential; writes stay serial regardless
     "paused_all": _is_bool,
     "requests.enabled": _is_bool,

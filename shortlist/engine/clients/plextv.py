@@ -3,7 +3,9 @@
 plex.tv quirks encoded here (all live-verified in Phase 0, 2026-07-12):
 - Share filters are attributes of ``<User>`` in ``GET /api/users``; ``PUT /api/users/{id}``
   persists them verbatim.
-- Writes are throttled to >=1/s with exponential backoff on 429 (plex-safety rule 6).
+- Writes are ADAPTIVELY throttled (plex-safety rule 6): fire at a floor pace (default 0 = as fast
+  as plex.tv accepts), and on a 429 grow the spacing (to >=1s, then x2, capped 30s), easing back
+  toward the floor on each clean write.
 - A Home-user switch token gets 401 on the PMS; it must be exchanged for the server-scoped
   ``accessToken`` via ``GET /api/v2/resources`` as the switched user.
 """
@@ -41,12 +43,29 @@ class PlexTvUser:
 class PlexTvClient:
     """Thin plex.tv API client for the surfaces plexapi doesn't cover well."""
 
-    def __init__(self, token: str, machine_id: str, *, min_write_interval: float = 1.0, timeout: float = 30.0):
+    # Adaptive write throttle (rule 6): plex.tv is shared infra, but a fixed 1/s is needlessly slow on
+    # a healthy server. Instead fire at the FLOOR pace, and only slow down when plex.tv actually pushes
+    # back — a 429 grows the spacing (to at least _SLOW_TO, then exponentially, capped at _MAX_PACE),
+    # and clean writes decay it back toward the floor. Fast in the common case, self-limiting under load.
+    _SLOW_TO = 1.0  # the first 429 jumps the pace to at least this (the old conservative rate)
+    _MAX_PACE = 30.0  # never space writes further apart than this, even after repeated 429s
+
+    def __init__(self, token: str, machine_id: str, *, min_write_interval: float = 0.0, timeout: float = 30.0):
         self._token = token
         self._machine_id = machine_id
-        self._min_write_interval = min_write_interval
+        self._floor = max(0.0, min_write_interval)  # fastest allowed spacing between writes
+        self._pace = self._floor  # current adaptive spacing; grows on 429, decays on success
         self._timeout = timeout
         self._last_write = 0.0
+
+    def _slow_down(self) -> None:
+        """A 429 means we're going too fast — widen the spacing for the writes that follow."""
+        self._pace = min(self._MAX_PACE, max(self._SLOW_TO, self._pace * 2))
+
+    def _speed_up(self) -> None:
+        """A clean write means there's headroom — ease the spacing back toward the floor."""
+        if self._pace > self._floor:
+            self._pace = max(self._floor, self._pace / 2)
 
     def _headers(self, token: str | None = None, json: bool = False) -> dict[str, str]:
         h = {"X-Plex-Token": token or self._token, "X-Plex-Client-Identifier": CLIENT_ID}
@@ -55,11 +74,11 @@ class PlexTvClient:
         return h
 
     def _throttle(self) -> None:
-        # The ≤1 write/s plex.tv throttle (rule 6) is the hard-serial part of the privacy sync;
-        # surfacing the wait makes "why did the sync take W seconds" answerable from the log.
+        # Space writes by the CURRENT adaptive pace (0 when healthy). Surfacing the wait makes
+        # "why did the sync take W seconds" answerable from the log.
         self._last_write = http_retry.throttle(
             self._last_write,
-            self._min_write_interval,
+            self._pace,
             on_wait=lambda w: logger.debug("plex.tv throttle: waiting {:.2f}s before next write", w),
         )
 
@@ -100,10 +119,15 @@ class PlexTvClient:
         raise LookupError(f"plex.tv account {plex_account_id} not found in users list")
 
     def update_user_filters(self, plex_account_id: int, fields: dict[str, str]) -> None:
-        """PUT only the given filter fields, throttled, with 429 backoff (never rebuilds)."""
+        """PUT only the given filter fields (never rebuilds), adaptively throttled with 429 backoff.
+
+        Fires at the current pace (0 when healthy). A 429 widens the pace via ``_slow_down`` and
+        retries — the next ``_throttle`` at the loop top enforces the new, larger spacing, so repeated
+        429s back off exponentially. A clean write eases the pace back toward the floor.
+        """
         url = f"{PLEXTV}/api/users/{plex_account_id}"
-        backoff = 5.0
-        for attempt in range(4):
+        net_backoff = 2.0
+        for attempt in range(6):
             self._throttle()
             try:
                 r = httpx.put(url, params=fields, headers=self._headers(), timeout=self._timeout)
@@ -112,19 +136,21 @@ class PlexTvClient:
                 # is safe (it's a full-value PUT, not a delta — rule 3's merge already happened). A
                 # read timeout is deliberately NOT retried here: the write may have applied.
                 logger.warning("plex.tv unreachable on filter write (attempt {}): {}", attempt + 1, type(e).__name__)
-                time.sleep(backoff)
-                backoff *= 2
+                time.sleep(net_backoff)
+                net_backoff = min(net_backoff * 2, 30.0)
                 continue
             if r.status_code in (200, 201):
                 logger.debug("PUT {} {} -> {}", url, sorted(fields), r.status_code)
+                self._speed_up()
                 return
             if r.status_code == 429:
-                logger.warning("plex.tv 429 on filter write (attempt {}); backing off {}s", attempt + 1, backoff)
-                time.sleep(backoff)
-                backoff *= 2
-                continue
+                self._slow_down()
+                logger.warning(
+                    "plex.tv 429 on filter write (attempt {}); slowing to {:.1f}s/write", attempt + 1, self._pace
+                )
+                continue  # the loop-top _throttle now waits the new, larger pace before retrying
             raise RuntimeError(f"plex.tv rejected filter update for {plex_account_id}: HTTP {r.status_code}")
-        raise RuntimeError(f"plex.tv still unreachable/throttling filter update for {plex_account_id} after retries")
+        raise RuntimeError(f"plex.tv still throttling filter update for {plex_account_id} after retries")
 
     def home_users(self) -> list[dict]:
         r = http_retry.get(f"{PLEXTV}/api/v2/home/users", headers=self._headers(json=True), timeout=self._timeout)

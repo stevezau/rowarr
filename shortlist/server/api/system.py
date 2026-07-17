@@ -170,7 +170,7 @@ async def uninstall(body: UninstallRequest, request: Request) -> dict:
             total = len(snapshots)
             emit(
                 f"Restoring share filters for {total} user{'' if total == 1 else 's'} via plex.tv "
-                f"(throttled to ~1 write/sec to stay under plex.tv's limits)…"
+                f"(as fast as plex.tv accepts; backs off only if rate-limited)…"
             )
             i = 0
             for row in snapshots:

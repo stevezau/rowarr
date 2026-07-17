@@ -69,7 +69,7 @@ DEFAULTS: dict[str, Any] = {
     # How much rows vary day to day: 0.0 = stable (same strong picks), 1.0 = fresh (rotate + reach
     # deep for variety). Per-row overridable.
     "recommendations.freshness": 0.0,
-    "plextv.throttle_s": 1.0,
+    "plextv.throttle_s": 0.0,  # FLOOR between plex.tv writes; 0 = as fast as plex.tv accepts (adaptive 429 backoff)
     # How many users a run processes concurrently. Only their reads + AI curation overlap; every Plex
     # and plex.tv write stays strictly serial. 1 = fully sequential; higher = faster big runs at the
     # cost of more concurrent load on Plex + the AI provider. 4 is a safe default.

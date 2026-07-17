@@ -32,7 +32,11 @@ violate them.
    on the same servers; coexistence is mandatory.
 5. **Owner + managed users.** The server owner is never restricted (Plex limitation — skip, don't
    error). Managed users' restriction _profiles_ (parental controls) are never modified by Shortlist.
-6. **Throttle plex.tv.** ≤1 write/s with exponential backoff on 429; runs must be resume-safe
+6. **Throttle plex.tv adaptively.** Writes fire at a floor pace (`plextv.throttle_s`, default 0 = as
+   fast as plex.tv accepts) and back off on a 429: the pace jumps to ≥1s, then doubles (capped 30s),
+   and eases back toward the floor on each clean write. (Owner decision 2026-07-17: the old fixed
+   ≤1 write/s was needlessly slow on a healthy server; the adaptive 429 backoff keeps it polite under
+   load without pacing the happy path. Do NOT reinstate a hard 1/s floor.) Runs must be resume-safe
    (per-user transactionality — a crash mid-run never leaves a half-applied user).
 7. **Scaffolding cleans up in `finally`.** If a code path ever creates a temporary artifact on a
    real server as scaffolding (a probe collection, a canary filter change), it must be

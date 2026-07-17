@@ -158,9 +158,9 @@ export function UninstallPage() {
                     aria-hidden="true"
                   />
                   Uninstalling — restoring each user&rsquo;s share filters goes
-                  through plex.tv, which Shortlist throttles to ~1 write/second
-                  (to stay under plex.tv&rsquo;s rate limits), so with a lot of
-                  users this takes a minute or two. Every step streams below.
+                  through plex.tv, as fast as plex.tv accepts; Shortlist only
+                  slows down if plex.tv rate-limits it. Every step streams
+                  below.
                 </p>
                 <LogBox lines={log.length ? log : ["Starting…"]} />
               </div>

@@ -26,8 +26,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
-const REFUSAL =
-  "Refused: this Plex server is too old. Update to 1.43.2 or newer, then try again.";
+const START_FAILURE =
+  "Service temporarily unavailable — try again in a moment.";
 
 function renderPage() {
   const client = new QueryClient({
@@ -48,9 +48,9 @@ describe("RunsPage", () => {
     startRun.mockReset();
   });
 
-  it("shows the write gate's reason when a run is refused", async () => {
+  it("surfaces the server's reason when a run can't start", async () => {
     getRuns.mockResolvedValue([]);
-    startRun.mockRejectedValue(new ApiError(409, REFUSAL));
+    startRun.mockRejectedValue(new ApiError(503, START_FAILURE));
     renderPage();
     await screen.findByText(/No runs yet/i);
 
@@ -58,9 +58,9 @@ describe("RunsPage", () => {
       screen.getByRole("button", { name: /Run all users now/i }),
     );
 
-    // The refusal used to be swallowed: the button just stopped, as if nothing had happened.
+    // The failure used to be swallowed: the button just stopped, as if nothing had happened.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /this Plex server is too old/i,
+      /Service temporarily unavailable/i,
     );
   });
 

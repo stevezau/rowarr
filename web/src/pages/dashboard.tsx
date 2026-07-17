@@ -122,9 +122,9 @@ export function DashboardPage() {
     <div>
       <PageHeader icon={Gauge} title="Dashboard" subtitle={scheduleSubtitle} />
 
-      {/* A refused run (the write gate says why) must be readable, not just a card that stops
-          spinning. Same for a rejected enable/disable — the Switch snaps back to the server's
-          answer, which without this reads as the click never landing. */}
+      {/* A run that fails to start must say why, not just leave a card that stops spinning. Same
+          for a rejected enable/disable — the Switch snaps back to the server's answer, which
+          without this reads as the click never landing. */}
       {startRun.isError && (
         <MutationAlert
           className="mb-4"

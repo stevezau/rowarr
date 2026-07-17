@@ -2,8 +2,9 @@
 
 ## Requirements
 
-- **Plex Media Server ≥ 1.43.2.10687** — earlier versions leak labeled collections on
-  Home/Recommended/Related. Shortlist checks this and refuses to write on older servers.
+- **Plex Media Server ≥ 1.43.2.10687** — earlier versions ignore the label exclusion that hides
+  each row, so a private row could leak onto other accounts' Home/Recommended/Related. The wizard
+  shows your server's version up front so you can confirm it before you start.
 - **Plex Pass** on the server owner's account (label restrictions are a Pass feature).
 - A **TMDB API key** (free: themoviedb.org → Settings → API).
 - Optional: **Tautulli** for deeper watch history; **an LLM API key** (Anthropic/OpenAI/Google)
@@ -44,7 +45,8 @@ The wizard then walks:
 Every row is kept private automatically: it's a labeled collection excluded on every other
 account's share, delivered hidden and only promoted once those exclusions are in place. Your share
 filters are snapshotted before the first change, so **Uninstall** (Settings → Danger Zone) puts them
-back exactly as they were. This needs a PMS ≥ 1.43.2.10687 — the wizard checks your version up front.
+back exactly as they were. This hiding relies on a PMS ≥ 1.43.2.10687 — older builds ignore the
+label exclusion, which is why the wizard surfaces your version before you begin.
 
 ## The one honest caveat
 

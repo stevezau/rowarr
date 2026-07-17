@@ -88,7 +88,7 @@ export function UserDetailHeader({ user }: { user: User }) {
         </p>
       )}
 
-      {/* A run the write gate refuses says exactly why; it used to be dropped, leaving the button
+      {/* A run that fails to start says exactly why; it used to be dropped, leaving the button
           simply stopping. */}
       {startRun.isError && (
         <MutationAlert

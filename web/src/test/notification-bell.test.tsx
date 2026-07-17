@@ -9,7 +9,7 @@ import type { AppNotification } from "@/lib/types";
 
 const { getNotifications, dismissUpdate } = vi.hoisted(() => ({
   getNotifications: vi.fn(),
-  dismissUpdate: vi.fn(() => Promise.resolve({ ok: true })),
+  dismissUpdate: vi.fn((_version: string) => Promise.resolve({ ok: true })),
 }));
 
 vi.mock("@/lib/api", () => ({

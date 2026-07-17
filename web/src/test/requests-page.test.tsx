@@ -52,13 +52,14 @@ function candidate(
   };
 }
 
-function renderPage() {
+function renderPage(initialEntry = "/requests") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter
+        initialEntries={[initialEntry]}
         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       >
         <RequestsPage />
@@ -104,27 +105,94 @@ describe("RequestsPage", () => {
       }),
     ]);
     renderPage();
+    // The inbox opens on Waiting; the sent title lives behind the "Sent" tab (labelled with its count).
     expect(await screen.findByText("Dune: Part Two")).toBeTruthy();
+    expect(screen.queryByText("Shogun")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Sent (1)" }));
     expect(screen.getByText("Shogun")).toBeTruthy();
-    // The send log is its own section, headed with a count, and each entry carries the app's answer.
+    // The log is its own section, and each entry carries the app's answer (the outcome).
     expect(
-      screen.getByRole("heading", { name: /Sent to Sonarr\/Radarr \(1\)/ }),
+      screen.getByRole("heading", { name: "Sent to Sonarr/Radarr" }),
     ).toBeTruthy();
     expect(screen.getByText(/added to Sonarr/i)).toBeTruthy();
   });
 
-  it("shows the send log with a findable empty state when nothing has been sent yet", async () => {
-    // The section is always present (not gated on sent.length) so the log is findable before the
-    // first send — with no count suffix and a plain-English "nothing sent yet" explainer.
+  it("shows the send log on the Sent tab with a findable empty state before the first send", async () => {
+    // The Sent tab is always offered so the log is reachable before anything's gone out — it
+    // explains itself ("Nothing sent yet") rather than looking broken or missing.
     listRequests.mockResolvedValue([
       candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
     ]);
     renderPage();
     await screen.findByText("Dune: Part Two");
+    await userEvent.click(screen.getByRole("button", { name: "Sent" }));
     expect(
       screen.getByRole("heading", { name: "Sent to Sonarr/Radarr" }),
     ).toBeTruthy();
     expect(screen.getByText(/Nothing sent yet/i)).toBeTruthy();
+  });
+
+  it("opens straight on the send log when deep-linked with ?tab=sent", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
+      candidate({
+        id: 2,
+        tmdb_id: 200,
+        title: "Shogun",
+        status: "sent",
+        detail: "added to Sonarr",
+      }),
+    ]);
+    renderPage("/requests?tab=sent");
+    // The dashboard's "View the full send log" lands here; the sent title is visible without a click.
+    expect(await screen.findByText("Shogun")).toBeTruthy();
+    expect(screen.queryByText("Dune: Part Two")).toBeNull();
+  });
+
+  it("opens on the Dismissed tab when deep-linked and there are dismissed titles", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
+      candidate({
+        id: 2,
+        tmdb_id: 200,
+        title: "Old Reject",
+        status: "rejected",
+      }),
+    ]);
+    renderPage("/requests?tab=dismissed");
+    expect(await screen.findByText("Old Reject")).toBeTruthy();
+    expect(screen.queryByText("Dune: Part Two")).toBeNull();
+  });
+
+  it("falls back to Waiting when the deep-linked tab has no items to show", async () => {
+    // The Dismissed tab isn't even offered when nothing's dismissed, so a stale `?tab=dismissed`
+    // link must land on Waiting rather than a blank view — the same guard that self-heals when a
+    // selected tab's items age out.
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
+    ]);
+    renderPage("/requests?tab=dismissed");
+    expect(await screen.findByText("Dune: Part Two")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Dismissed/ })).toBeNull();
+  });
+
+  it("keeps dismissed titles on their own tab, offered only once something is dismissed", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
+      candidate({
+        id: 2,
+        tmdb_id: 200,
+        title: "Old Reject",
+        status: "rejected",
+      }),
+    ]);
+    renderPage();
+    await screen.findByText("Dune: Part Two");
+    expect(screen.queryByText("Old Reject")).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Dismissed (1)" }),
+    );
+    expect(screen.getByText("Old Reject")).toBeTruthy();
   });
 
   it("explains where a request came from: which person, which row, and why", async () => {

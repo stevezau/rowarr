@@ -3,10 +3,11 @@ import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, QueryBoundary } from "@/components/query-boundary";
+import { Segmented } from "@/components/segmented";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate, settingBool, settingString } from "@/lib/format";
@@ -248,12 +249,24 @@ function DismissedRow({ item }: { item: RequestCandidate }) {
   );
 }
 
+/** Which slice of the inbox is on screen: the actionable queue, the send log, or dismissed titles. */
+type RequestView = "waiting" | "sent" | "dismissed";
+
 export function RequestsPage() {
   const requestsQuery = useRequests();
   const settingsQuery = useSettings();
   const send = useSendRequests();
   const reject = useRejectRequests();
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Opens on Waiting, but a `?tab=sent` deep-link (e.g. the dashboard's "View the full send log")
+  // lands straight on that view.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [view, setView] = useState<RequestView>(
+    initialTab === "sent" || initialTab === "dismissed"
+      ? initialTab
+      : "waiting",
+  );
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -333,128 +346,165 @@ export function RequestsPage() {
                 )
               }
             >
-              {() => (
-                <div className="space-y-8">
-                  {!requestsEnabled && <RequestsOffBanner />}
+              {() => {
+                // Tabs, not a long stack: with a big queue the send log used to sit far below the
+                // fold and read as missing. Waiting + Sent are always offered; Dismissed appears
+                // only once something's been dismissed.
+                const tabs: { value: RequestView; label: string }[] = [
+                  {
+                    value: "waiting",
+                    label: `Waiting${pending.length ? ` (${pending.length})` : ""}`,
+                  },
+                  {
+                    value: "sent",
+                    label: `Sent${sent.length ? ` (${sent.length})` : ""}`,
+                  },
+                ];
+                if (dismissed.length > 0) {
+                  tabs.push({
+                    value: "dismissed",
+                    label: `Dismissed (${dismissed.length})`,
+                  });
+                }
+                // A tab can vanish (e.g. the last dismissed item ages out) while it's selected —
+                // fall back to Waiting so the view is never blank.
+                const active = tabs.some((t) => t.value === view)
+                  ? view
+                  : "waiting";
 
-                  {pending.length > 0 ? (
-                    <section className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-                          <input
-                            type="checkbox"
-                            checked={allChecked}
-                            disabled={!requestsEnabled}
-                            onChange={toggleAll}
-                            className="h-4 w-4 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
-                          />
-                          {selectedPending.length > 0
-                            ? `${selectedPending.length} selected`
-                            : `${pending.length} waiting`}
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={
-                              !requestsEnabled ||
-                              selectedPending.length === 0 ||
-                              busy
-                            }
-                            onClick={() =>
-                              act(() => reject.mutate(selectedPending))
-                            }
-                          >
-                            <X aria-hidden="true" />
-                            Reject
-                          </Button>
-                          <Button
-                            size="sm"
-                            loading={send.isPending}
-                            disabled={
-                              !requestsEnabled ||
-                              selectedPending.length === 0 ||
-                              busy
-                            }
-                            onClick={() =>
-                              act(() => send.mutate({ ids: selectedPending }))
-                            }
-                          >
-                            {!send.isPending && <Send aria-hidden="true" />}
-                            Send{" "}
-                            {selectedPending.length > 0
-                              ? selectedPending.length
-                              : ""}{" "}
-                            to Sonarr/Radarr
-                          </Button>
-                        </div>
-                      </div>
+                return (
+                  <div className="space-y-6">
+                    {!requestsEnabled && <RequestsOffBanner />}
 
-                      {(send.isError || reject.isError) && (
-                        <p role="alert" className="text-sm text-destructive">
-                          {apiErrorMessage(
-                            send.error ?? reject.error,
-                            "That didn't go through. Check the server log and try again.",
-                          )}
-                        </p>
-                      )}
-
-                      <div className="space-y-2">
-                        {pending.map((item) => (
-                          <PendingRow
-                            key={item.id}
-                            item={item}
-                            checked={selected.has(item.id)}
-                            onToggle={toggle}
-                            globalTag={globalTag}
-                            disabled={!requestsEnabled}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  ) : (
-                    <EmptyState
-                      title="Inbox clear"
-                      hint="Nothing is waiting on you right now. New missing picks will show up here after the next run."
+                    <Segmented
+                      value={active}
+                      options={tabs}
+                      onChange={setView}
+                      ariaLabel="Which requests to show"
                     />
-                  )}
 
-                  {/* Always shown so the send log is findable — even before anything's gone out. */}
-                  <section className="space-y-3">
-                    <h2 className="text-sm font-medium text-muted-foreground">
-                      Sent to Sonarr/Radarr
-                      {sent.length > 0 && ` (${sent.length})`}
-                    </h2>
-                    {sent.length > 0 ? (
-                      <div className="space-y-2">
-                        {sent.map((item) => (
-                          <SentRow key={item.id} item={item} />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-                        Nothing sent yet. When a run auto-sends a strong pick,
-                        or you approve one above, it&rsquo;s logged here — the
-                        title, when it went, the app&rsquo;s answer, and who it
-                        was for.
-                      </p>
+                    {active === "waiting" &&
+                      (pending.length > 0 ? (
+                        <section className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                              <input
+                                type="checkbox"
+                                checked={allChecked}
+                                disabled={!requestsEnabled}
+                                onChange={toggleAll}
+                                className="h-4 w-4 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+                              />
+                              {selectedPending.length > 0
+                                ? `${selectedPending.length} selected`
+                                : `${pending.length} waiting`}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={
+                                  !requestsEnabled ||
+                                  selectedPending.length === 0 ||
+                                  busy
+                                }
+                                onClick={() =>
+                                  act(() => reject.mutate(selectedPending))
+                                }
+                              >
+                                <X aria-hidden="true" />
+                                Reject
+                              </Button>
+                              <Button
+                                size="sm"
+                                loading={send.isPending}
+                                disabled={
+                                  !requestsEnabled ||
+                                  selectedPending.length === 0 ||
+                                  busy
+                                }
+                                onClick={() =>
+                                  act(() =>
+                                    send.mutate({ ids: selectedPending }),
+                                  )
+                                }
+                              >
+                                {!send.isPending && <Send aria-hidden="true" />}
+                                Send{" "}
+                                {selectedPending.length > 0
+                                  ? selectedPending.length
+                                  : ""}{" "}
+                                to Sonarr/Radarr
+                              </Button>
+                            </div>
+                          </div>
+
+                          {(send.isError || reject.isError) && (
+                            <p
+                              role="alert"
+                              className="text-sm text-destructive"
+                            >
+                              {apiErrorMessage(
+                                send.error ?? reject.error,
+                                "That didn't go through. Check the server log and try again.",
+                              )}
+                            </p>
+                          )}
+
+                          <div className="space-y-2">
+                            {pending.map((item) => (
+                              <PendingRow
+                                key={item.id}
+                                item={item}
+                                checked={selected.has(item.id)}
+                                onToggle={toggle}
+                                globalTag={globalTag}
+                                disabled={!requestsEnabled}
+                              />
+                            ))}
+                          </div>
+                        </section>
+                      ) : (
+                        <EmptyState
+                          title="Inbox clear"
+                          hint="Nothing is waiting on you right now. New missing picks will show up here after the next run."
+                        />
+                      ))}
+
+                    {active === "sent" && (
+                      <section className="space-y-3">
+                        <h2 className="text-sm font-medium text-muted-foreground">
+                          Sent to Sonarr/Radarr
+                        </h2>
+                        {sent.length > 0 ? (
+                          <div className="space-y-2">
+                            {sent.map((item) => (
+                              <SentRow key={item.id} item={item} />
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                            Nothing sent yet. When a run auto-sends a strong
+                            pick, or you approve one in Waiting, it&rsquo;s
+                            logged here — the title, when it went, the
+                            app&rsquo;s answer, and who it was for.
+                          </p>
+                        )}
+                      </section>
                     )}
-                  </section>
 
-                  {dismissed.length > 0 && (
-                    <section className="space-y-3">
-                      <h2 className="text-sm font-medium text-muted-foreground">
-                        Dismissed
-                      </h2>
-                      <div className="space-y-2">
-                        {dismissed.map((item) => (
-                          <DismissedRow key={item.id} item={item} />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                </div>
-              )}
+                    {active === "dismissed" && dismissed.length > 0 && (
+                      <section className="space-y-3">
+                        <div className="space-y-2">
+                          {dismissed.map((item) => (
+                            <DismissedRow key={item.id} item={item} />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                );
+              }}
             </QueryBoundary>
           );
         }}

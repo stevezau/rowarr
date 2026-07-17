@@ -252,7 +252,7 @@ function ReportBody({ report }: { report: EffectivenessReport }) {
               </span>
             </div>
             <Link
-              to="/requests"
+              to="/requests?tab=sent"
               className="text-xs text-primary underline-offset-4 hover:underline"
             >
               View the full send log →

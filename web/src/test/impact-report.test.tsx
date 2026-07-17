@@ -102,7 +102,7 @@ describe("ImpactReport", () => {
     expect(screen.getByText(/sent to Sonarr\/Radarr/i)).toBeTruthy(); // requests impact
     expect(
       screen.getByRole("link", { name: /full send log/i }),
-    ).toHaveAttribute("href", "/requests"); // deep-links to the Requests inbox
+    ).toHaveAttribute("href", "/requests?tab=sent"); // deep-links to the send-log tab
     expect(screen.getAllByText("sarah").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Dune: Part Two").length).toBeGreaterThan(0); // top titles + recent
   });

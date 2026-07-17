@@ -251,6 +251,14 @@ export function useRequests() {
   return useQuery({ queryKey: queryKeys.requests, queryFn: api.listRequests });
 }
 
+export function useReport() {
+  return useQuery({
+    queryKey: ["report"],
+    queryFn: api.getReport,
+    staleTime: 60_000,
+  });
+}
+
 export function useSendRequests() {
   const queryClient = useQueryClient();
   return useMutation({

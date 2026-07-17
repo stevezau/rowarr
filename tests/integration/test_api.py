@@ -253,6 +253,61 @@ class TestRunsApi:
         assert captured["collection_ids"] == [4, 7]
         assert captured["dry_run"] is True and captured["trigger"] == "manual"
 
+    def test_effectiveness_report_counts_hits(self, client: TestClient):
+        from datetime import UTC, datetime
+
+        from shortlist.server.db.models import PickRow, Run, User
+
+        with client.app.state.sessions() as session:
+            uid = session.query(User).order_by(User.id).first().id
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            now = datetime.now(UTC)
+            session.add_all(
+                [
+                    PickRow(
+                        run_id=run.id,
+                        user_id=uid,
+                        tmdb_id=1,
+                        media_type="movie",
+                        rating_key=1,
+                        rank=1,
+                        collection_slug="picked",
+                        title="A",
+                        watched_at=now,
+                    ),
+                    PickRow(
+                        run_id=run.id,
+                        user_id=uid,
+                        tmdb_id=2,
+                        media_type="movie",
+                        rating_key=2,
+                        rank=2,
+                        collection_slug="picked",
+                        title="B",
+                        watched_at=now,
+                    ),
+                    PickRow(
+                        run_id=run.id,
+                        user_id=uid,
+                        tmdb_id=3,
+                        media_type="movie",
+                        rating_key=3,
+                        rank=3,
+                        collection_slug="picked",
+                        title="C",
+                    ),
+                ]
+            )
+            session.commit()
+
+        body = client.get("/api/report").json()
+        assert body["overall"] == {"delivered": 3, "watched": 2, "hit_rate": round(2 / 3, 3)}
+        assert body["per_row"][0]["slug"] == "picked" and body["per_row"][0]["watched"] == 2
+        assert any(u["watched"] == 2 for u in body["per_user"])
+        assert len(body["recent"]) == 2 and body["recent"][0]["row"]
+
     def test_unknown_run_404(self, client: TestClient):
         assert client.get("/api/runs/424242").status_code == 404
 

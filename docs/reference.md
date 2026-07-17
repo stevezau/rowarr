@@ -82,6 +82,7 @@ GET  /api/events (SSE) · GET /api/events/log (audit feed)
 GET/PUT /api/settings · POST /api/settings/test/{plex|tautulli|tmdb|llm|radarr|sonarr|omdb|trakt|exa}
 GET  /api/settings/arr/{radarr|sonarr}/options -> {quality_profiles, root_folders}
 GET  /api/settings/curator/models -> {provider, models[]} (available models for the saved AI provider; [] = free-text)
+GET  /api/report -> {overall, trend[], per_user[], per_row[], recent[]} (delivered-vs-watched hit rates, from picks.watched_at)
 POST /api/settings/prompt-preview {tone?, guidance?, template?, shared?} -> {system, user}
 GET  /api/system/health · GET /api/system/version · POST /api/system/uninstall {confirm: "UNINSTALL"}
 GET  /api/setup/servers (Plex server picker during onboarding) · GET /api/setup/state

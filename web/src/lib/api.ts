@@ -1,5 +1,6 @@
 import type {
   ArrOptions,
+  EffectivenessReport,
   OwnedCollectionsAudit,
   PlexLibrary,
   ConnectionTestResult,
@@ -239,6 +240,9 @@ export const api = {
 
   /** The server's Plex libraries, for the Rows editor's per-row delivery-target picker. */
   getLibraries: (): Promise<PlexLibrary[]> => request("/api/system/libraries"),
+
+  /** The effectiveness report: delivered-vs-watched hit rates + a recent-watches feed. */
+  getReport: (): Promise<EffectivenessReport> => request("/api/report"),
 
   /** A library's managed collections — the candidate anchors for placing rows in the shelf. */
   getLibraryCollections: (key: string): Promise<{ title: string }[]> =>

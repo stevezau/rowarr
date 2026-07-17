@@ -10,6 +10,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { MutationAlert } from "@/components/mutation-alert";
+import { ImpactReport } from "@/components/dashboard/impact-report";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { StatTile } from "@/components/stat-tile";
@@ -165,6 +166,10 @@ export function DashboardPage() {
           ))}
         </div>
       )}
+
+      <div className="mb-6">
+        <ImpactReport />
+      </div>
 
       <div className="relative mb-4 max-w-xs">
         <Search

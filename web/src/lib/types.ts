@@ -480,6 +480,34 @@ export interface PlexServer {
 }
 
 /** GET /api/requests — one wanted-but-missing title in the Sonarr/Radarr approval inbox. */
+/** The dashboard effectiveness report — did delivered picks get watched? */
+export interface EffectivenessReport {
+  overall: { delivered: number; watched: number; hit_rate: number | null };
+  trend: { week: string; watched: number }[];
+  per_user: {
+    username: string;
+    slug: string;
+    delivered: number;
+    watched: number;
+    hit_rate: number | null;
+  }[];
+  per_row: {
+    slug: string;
+    name: string;
+    delivered: number;
+    watched: number;
+    hit_rate: number | null;
+  }[];
+  recent: {
+    username: string;
+    title: string;
+    media_type: string;
+    row: string;
+    seed_title: string;
+    watched_at: string | null;
+  }[];
+}
+
 export interface RequestCandidate {
   id: number;
   tmdb_id: number;

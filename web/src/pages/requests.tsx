@@ -252,6 +252,9 @@ function DismissedRow({ item }: { item: RequestCandidate }) {
 /** Which slice of the inbox is on screen: the actionable queue, the send log, or dismissed titles. */
 type RequestView = "waiting" | "sent" | "dismissed";
 
+/** A missing title is exactly one media type, so the list can be split by the library it'd land in. */
+type MediaFilter = "all" | "movie" | "show";
+
 export function RequestsPage() {
   const requestsQuery = useRequests();
   const settingsQuery = useSettings();
@@ -267,6 +270,7 @@ export function RequestsPage() {
       ? initialTab
       : "waiting",
   );
+  const [media, setMedia] = useState<MediaFilter>("all");
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -289,17 +293,34 @@ export function RequestsPage() {
     [rows],
   );
 
-  // Only pending rows are selectable, so an id lingering in the set after a send/reject is harmless,
-  // but clearing keeps the count honest.
-  const selectedPending = pending
+  // The media filter (Movies/Shows) narrows whichever list is on screen — and select-all/counts
+  // follow what's visible, not the whole queue. It only applies to a list that actually mixes both
+  // types: once a list is single-type its filter control is hidden, so a stale "Shows" (e.g. after
+  // the shows were all sent) must fall back to "all" rather than strand the remaining movies.
+  const applyMedia = <T extends { media_type: string }>(list: T[]): T[] => {
+    if (media === "all") return list;
+    const mixed =
+      list.some((r) => r.media_type === "movie") &&
+      list.some((r) => r.media_type === "show");
+    return mixed ? list.filter((r) => r.media_type === media) : list;
+  };
+  const pendingShown = applyMedia(pending);
+  const sentShown = applyMedia(sent);
+  const dismissedShown = applyMedia(dismissed);
+
+  // Only visible pending rows are selectable, so an id lingering in the set after a send/reject or a
+  // filter change is harmless, but scoping to what's shown keeps the count honest.
+  const selectedPending = pendingShown
     .filter((r) => selected.has(r.id))
     .map((r) => r.id);
   const allChecked =
-    pending.length > 0 && selectedPending.length === pending.length;
+    pendingShown.length > 0 && selectedPending.length === pendingShown.length;
   const busy = send.isPending || reject.isPending;
 
   const toggleAll = () =>
-    setSelected(allChecked ? new Set() : new Set(pending.map((r) => r.id)));
+    setSelected(
+      allChecked ? new Set() : new Set(pendingShown.map((r) => r.id)),
+    );
 
   const act = (mutate: () => void) => {
     mutate();
@@ -372,16 +393,52 @@ export function RequestsPage() {
                   ? view
                   : "waiting";
 
+                // The Movies/Shows split, scoped to the active tab's list — only offered when that list
+                // actually mixes both types (splitting an all-movies queue helps no one).
+                const activeFull =
+                  active === "waiting"
+                    ? pending
+                    : active === "sent"
+                      ? sent
+                      : dismissed;
+                const movieCount = activeFull.filter(
+                  (r) => r.media_type === "movie",
+                ).length;
+                const showCount = activeFull.length - movieCount;
+                const showMediaFilter = movieCount > 0 && showCount > 0;
+
                 return (
                   <div className="space-y-6">
                     {!requestsEnabled && <RequestsOffBanner />}
 
-                    <Segmented
-                      value={active}
-                      options={tabs}
-                      onChange={setView}
-                      ariaLabel="Which requests to show"
-                    />
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <Segmented
+                        value={active}
+                        options={tabs}
+                        // Switching tabs clears the media filter so a stale "Movies" can't hide a
+                        // shows-only list with no visible control to reset it.
+                        onChange={(next) => {
+                          setView(next);
+                          setMedia("all");
+                        }}
+                        ariaLabel="Which requests to show"
+                      />
+                      {showMediaFilter && (
+                        <Segmented
+                          value={media}
+                          onChange={setMedia}
+                          ariaLabel="Filter by library"
+                          options={[
+                            {
+                              value: "all",
+                              label: `All (${activeFull.length})`,
+                            },
+                            { value: "movie", label: `Movies (${movieCount})` },
+                            { value: "show", label: `Shows (${showCount})` },
+                          ]}
+                        />
+                      )}
+                    </div>
 
                     {active === "waiting" &&
                       (pending.length > 0 ? (
@@ -397,7 +454,7 @@ export function RequestsPage() {
                               />
                               {selectedPending.length > 0
                                 ? `${selectedPending.length} selected`
-                                : `${pending.length} waiting`}
+                                : `${pendingShown.length} waiting`}
                             </label>
                             <div className="flex items-center gap-2">
                               <Button
@@ -452,7 +509,7 @@ export function RequestsPage() {
                           )}
 
                           <div className="space-y-2">
-                            {pending.map((item) => (
+                            {pendingShown.map((item) => (
                               <PendingRow
                                 key={item.id}
                                 item={item}
@@ -476,9 +533,9 @@ export function RequestsPage() {
                         <h2 className="text-sm font-medium text-muted-foreground">
                           Sent to Sonarr/Radarr
                         </h2>
-                        {sent.length > 0 ? (
+                        {sentShown.length > 0 ? (
                           <div className="space-y-2">
-                            {sent.map((item) => (
+                            {sentShown.map((item) => (
                               <SentRow key={item.id} item={item} />
                             ))}
                           </div>
@@ -496,7 +553,7 @@ export function RequestsPage() {
                     {active === "dismissed" && dismissed.length > 0 && (
                       <section className="space-y-3">
                         <div className="space-y-2">
-                          {dismissed.map((item) => (
+                          {dismissedShown.map((item) => (
                             <DismissedRow key={item.id} item={item} />
                           ))}
                         </div>

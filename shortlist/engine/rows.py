@@ -445,6 +445,12 @@ def _run_user(
                 # The row's own name (the same one the user sees), so the inbox can say WHICH row a
                 # request came from. Fill the placeholders the template may carry.
                 row_template = resolve_row_template(spec, user, cfg)
+                # A missing title still has a media type, so {library_name} renders as the library that
+                # type would land in ("TV Shows" for a missing show). Keyed by media type; the first
+                # library of that type wins when the row spans several.
+                media_library: dict[MediaType, str] = {}
+                for section in target_sections(ctx.delivery_sections, spec):
+                    media_library.setdefault(section_kind(section), getattr(section, "title", "") or "")
                 for c in requests_mod.collect_missing(pools[0], library_index):
                     key = (c.tmdb_id, c.media_type)
                     first_seen.setdefault(key, c)
@@ -460,10 +466,11 @@ def _run_user(
                     row_name = row_template.replace("{user}", user.username).replace(
                         "{top_seed}", seed_title or "your favourites"
                     )
-                    # A request spans every library the row's pool drew from, so there's no single
-                    # {library_name} — drop it and tidy the gap ("✨  Picked for You" -> "✨ Picked for You").
+                    # {library_name} renders as the library this title's media type lands in; blank (an
+                    # unknown media type) collapses the gap ("✨  Picked for You" -> "✨ Picked for You").
                     if "{library_name}" in row_name:
-                        row_name = " ".join(row_name.replace("{library_name}", "").split())
+                        library_name = media_library.get(c.media_type, "")
+                        row_name = " ".join(row_name.replace("{library_name}", library_name).split())
                     entry = RequestWhy(
                         user=user.username,
                         row=row_name,

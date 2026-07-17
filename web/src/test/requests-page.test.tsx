@@ -176,6 +176,35 @@ describe("RequestsPage", () => {
     expect(screen.queryByRole("button", { name: /^Dismissed/ })).toBeNull();
   });
 
+  it("splits the waiting queue by library (Movies / Shows) when both are present", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune", media_type: "movie" }),
+      candidate({ id: 2, tmdb_id: 200, title: "Shogun", media_type: "show" }),
+    ]);
+    renderPage();
+    await screen.findByText("Dune");
+    expect(screen.getByText("Shogun")).toBeTruthy();
+    // The media filter appears (with per-type counts) because the queue mixes both.
+    await userEvent.click(screen.getByRole("button", { name: "Movies (1)" }));
+    expect(screen.getByText("Dune")).toBeTruthy();
+    expect(screen.queryByText("Shogun")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Shows (1)" }));
+    expect(screen.getByText("Shogun")).toBeTruthy();
+    expect(screen.queryByText("Dune")).toBeNull();
+  });
+
+  it("offers no library split when the queue is a single media type", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune", media_type: "movie" }),
+      candidate({ id: 2, tmdb_id: 200, title: "Fallout", media_type: "movie" }),
+    ]);
+    renderPage();
+    await screen.findByText("Dune");
+    // All movies — a Movies/Shows split would be noise, so it isn't rendered.
+    expect(screen.queryByRole("button", { name: /^Movies/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Shows/ })).toBeNull();
+  });
+
   it("keeps dismissed titles on their own tab, offered only once something is dismissed", async () => {
     listRequests.mockResolvedValue([
       candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),

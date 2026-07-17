@@ -908,6 +908,10 @@ class TestRequestsWiring:
         assert (30, MT.MOVIE) in captured["demand"]
         assert (10, MT.MOVIE) not in captured["demand"]
         assert captured["demand"][(30, MT.MOVIE)].demand == 1
+        # Its provenance names the row per library: a missing MOVIE renders {library_name} as the
+        # movie library ("Movies"), so the inbox shows the same name the row is actually called.
+        why = captured["demand"][(30, MT.MOVIE)].why
+        assert why and why[0].row == "✨ Movies Picked for You"
         assert report.requests is sentinel
 
     def test_per_row_pool_attributes_tags_to_the_row_that_surfaced_the_title(

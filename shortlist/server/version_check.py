@@ -8,23 +8,24 @@ times a day, not on every 60-second poll.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 
 import httpx
 from loguru import logger
-from packaging.version import InvalidVersion, Version
 
 _RELEASES_URL = "https://api.github.com/repos/stevezau/shortlist/releases/latest"
 _OK_TTL = timedelta(hours=6)  # a successful check is fresh for 6h
 _FAIL_TTL = timedelta(minutes=30)  # after a failure, retry sooner
 _cache: dict[str, object] = {"at": None, "value": None}
+# Self-contained on purpose: `packaging` isn't in the slim runtime image, and a full PEP 440 parser is
+# overkill for "is the released X.Y.Z newer than ours". Compare leading numeric segments; a pre-release
+# suffix (.dev/.rc) on the SAME release is treated as equal (we won't nag 0.2.0 when on 0.2.0.dev0).
 
 
-def _parse(version: str) -> Version | None:
-    try:
-        return Version(version.lstrip("vV"))
-    except (InvalidVersion, AttributeError):
-        return None
+def _release_tuple(version: str) -> tuple[int, ...] | None:
+    match = re.match(r"v?(\d+(?:\.\d+)*)", version.strip()) if isinstance(version, str) else None
+    return tuple(int(part) for part in match.group(1).split(".")) if match else None
 
 
 def _fetch_latest() -> dict | None:
@@ -61,7 +62,7 @@ def check_for_update(current_version: str) -> dict | None:
     latest = _cache["value"]
     if not isinstance(latest, dict) or not latest.get("tag"):
         return None
-    current, newest = _parse(current_version), _parse(latest["tag"])
+    current, newest = _release_tuple(current_version), _release_tuple(latest["tag"])
     if current is None or newest is None or newest <= current:
         return None
-    return {"latest": newest.public, "url": latest["url"]}
+    return {"latest": str(latest["tag"]).lstrip("vV"), "url": latest["url"]}

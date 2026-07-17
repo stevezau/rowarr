@@ -419,18 +419,27 @@ export function RequestsPage() {
                     />
                   )}
 
-                  {sent.length > 0 && (
-                    <section className="space-y-3">
-                      <h2 className="text-sm font-medium text-muted-foreground">
-                        Sent to Sonarr/Radarr
-                      </h2>
+                  {/* Always shown so the send log is findable — even before anything's gone out. */}
+                  <section className="space-y-3">
+                    <h2 className="text-sm font-medium text-muted-foreground">
+                      Sent to Sonarr/Radarr
+                      {sent.length > 0 && ` (${sent.length})`}
+                    </h2>
+                    {sent.length > 0 ? (
                       <div className="space-y-2">
                         {sent.map((item) => (
                           <SentRow key={item.id} item={item} />
                         ))}
                       </div>
-                    </section>
-                  )}
+                    ) : (
+                      <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                        Nothing sent yet. When a run auto-sends a strong pick,
+                        or you approve one above, it&rsquo;s logged here — the
+                        title, when it went, the app&rsquo;s answer, and who it
+                        was for.
+                      </p>
+                    )}
+                  </section>
 
                   {dismissed.length > 0 && (
                     <section className="space-y-3">

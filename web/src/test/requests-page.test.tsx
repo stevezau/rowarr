@@ -106,11 +106,25 @@ describe("RequestsPage", () => {
     renderPage();
     expect(await screen.findByText("Dune: Part Two")).toBeTruthy();
     expect(screen.getByText("Shogun")).toBeTruthy();
-    // The send log is its own section, and each entry carries the app's answer (the "reason why").
+    // The send log is its own section, headed with a count, and each entry carries the app's answer.
+    expect(
+      screen.getByRole("heading", { name: /Sent to Sonarr\/Radarr \(1\)/ }),
+    ).toBeTruthy();
+    expect(screen.getByText(/added to Sonarr/i)).toBeTruthy();
+  });
+
+  it("shows the send log with a findable empty state when nothing has been sent yet", async () => {
+    // The section is always present (not gated on sent.length) so the log is findable before the
+    // first send — with no count suffix and a plain-English "nothing sent yet" explainer.
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
+    ]);
+    renderPage();
+    await screen.findByText("Dune: Part Two");
     expect(
       screen.getByRole("heading", { name: "Sent to Sonarr/Radarr" }),
     ).toBeTruthy();
-    expect(screen.getByText(/added to Sonarr/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing sent yet/i)).toBeTruthy();
   });
 
   it("explains where a request came from: which person, which row, and why", async () => {

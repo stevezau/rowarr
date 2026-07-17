@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Users as UsersIcon,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { QueryBoundary } from "@/components/query-boundary";
 import { StatTile } from "@/components/stat-tile";
@@ -250,6 +251,12 @@ function ReportBody({ report }: { report: EffectivenessReport }) {
                 awaiting approval
               </span>
             </div>
+            <Link
+              to="/requests"
+              className="text-xs text-primary underline-offset-4 hover:underline"
+            >
+              View the full send log →
+            </Link>
           </Section>
         )}
       </div>

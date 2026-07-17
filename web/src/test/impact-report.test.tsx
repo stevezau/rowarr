@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImpactReport } from "@/components/dashboard/impact-report";
@@ -25,7 +26,9 @@ function renderReport() {
   });
   render(
     <QueryClientProvider client={client}>
-      <ImpactReport />
+      <MemoryRouter>
+        <ImpactReport />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -97,6 +100,9 @@ describe("ImpactReport", () => {
     expect(screen.getAllByText("40%").length).toBeGreaterThan(0); // overall + row hit rate
     expect(screen.getByText(/of 10 delivered/i)).toBeTruthy(); // Watched tile hint
     expect(screen.getByText(/sent to Sonarr\/Radarr/i)).toBeTruthy(); // requests impact
+    expect(
+      screen.getByRole("link", { name: /full send log/i }),
+    ).toHaveAttribute("href", "/requests"); // deep-links to the Requests inbox
     expect(screen.getAllByText("sarah").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Dune: Part Two").length).toBeGreaterThan(0); // top titles + recent
   });

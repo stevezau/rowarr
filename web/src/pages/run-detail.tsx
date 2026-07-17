@@ -471,10 +471,15 @@ export function RunDetailPage() {
                 <p className="text-sm text-muted-foreground">
                   {triggerLabel(run.trigger)} · started{" "}
                   {formatDate(run.started_at)}
+                  {/* Counts are only meaningful once the run finalizes them — while running the
+                      stats are empty, which used to render a bare " · ok, failed". */}
                   {run.finished_at
-                    ? ` · finished ${formatDate(run.finished_at)}`
-                    : " · still running"}{" "}
-                  · {run.stats.users_ok} ok, {run.stats.users_error} failed
+                    ? ` · finished ${formatDate(run.finished_at)} · ${run.stats.users_ok ?? 0} ok${
+                        (run.stats.users_error ?? 0) > 0
+                          ? `, ${run.stats.users_error} failed`
+                          : ""
+                      }`
+                    : " · still running"}
                   {run.stats.titles_requested
                     ? ` · ${run.stats.titles_requested} title${
                         run.stats.titles_requested === 1 ? "" : "s"

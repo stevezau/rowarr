@@ -232,7 +232,11 @@ class TestDeliverRows:
         # A row already in the current format: a dynamic template renamed it, but it still carries
         # this account's marker, so its membership is its own and it can be updated in place.
         existing.title = "Old Name" + row_marker(profile.plex_account_id)
-        existing.items.return_value = [MagicMock(title="Movie 1"), MagicMock(title="Stale Movie")]
+        # Movie 1 (1001) is already present; Stale Movie (1003) will be removed. picks() = 1001, 1002.
+        existing.items.return_value = [
+            MagicMock(title="Movie 1", ratingKey=1001),
+            MagicMock(title="Stale Movie", ratingKey=1003),
+        ]
         plex.find_owned_collections.side_effect = lambda section, label: [existing] if section is movies else []
 
         diff, _ = deliver_rows(plex, profile, picks(), engine_config)
@@ -243,10 +247,16 @@ class TestDeliverRows:
         assert diff.kept == ["Movie 1"]
         plex.delete_owned_collection.assert_not_called()  # its tag is not shared: no rebuild needed
         existing.editTitle.assert_called_once_with("✨ Movies Picked for You" + row_marker(profile.plex_account_id))
-        # The items actually pushed, not just "set_items happened": feeding one library's picks
-        # into the other library's collection would otherwise pass this test.
-        plex.fetch_items.assert_called_once_with([1001, 1002])
-        assert plex.set_items.call_args.args == (existing, plex.fetch_items.return_value)
+        # Only the DELTA is fetched — 1001 is already in the collection, so just 1002 (Movie 2).
+        plex.fetch_items.assert_called_once_with([1002])
+        # set_items gets the pre-read membership, the add-delta, and the full ranked key order.
+        assert plex.set_items.call_args.args == (
+            existing,
+            existing.items.return_value,
+            plex.fetch_items.return_value,
+            [1001, 1002],
+        )
+        existing.items.assert_called_once()  # membership read exactly once, not twice
 
     def test_records_order_work_on_create_for_the_deferred_ordering_pass(
         self, engine_config: EngineConfig, movies, shows

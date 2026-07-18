@@ -630,7 +630,8 @@ def _deliver_one(
         )
         return diff, stored
 
-    current_titles = [i.title for i in collection.items()]
+    existing_items = collection.items()  # ONE read of current membership, reused for the diff AND set_items
+    current_titles = [i.title for i in existing_items]
     diff = CollectionDiff(
         added=[t for t in wanted_titles if t not in current_titles],
         removed=[t for t in current_titles if t not in wanted_titles],
@@ -651,9 +652,16 @@ def _deliver_one(
         return diff, label
     if collection.title != title:
         collection.editTitle(title)
-    plex.set_items(collection, plex.fetch_items([p.rating_key for p in picks]))
+    wanted_keys = [p.rating_key for p in picks]
+    # Fetch ONLY the items being added (the delta), not all N picks — most are already in the
+    # collection on a steady run, so this is a handful of items instead of the whole row. Skip the
+    # fetch entirely when nothing is new (fetch_items([]) raises NotFound on a real PMS).
+    current_keys = {i.ratingKey for i in existing_items}
+    to_add_keys = [k for k in wanted_keys if k not in current_keys]
+    add_items = plex.fetch_items(to_add_keys) if to_add_keys else []
+    plex.set_items(collection, existing_items, add_items, wanted_keys)
     if order_work is not None:
-        order_work.append((collection, [p.rating_key for p in picks]))
+        order_work.append((collection, wanted_keys))
     apply_poster(plex, collection, poster, profile, picks, library_name=section.title, artist=artist, dry_run=False)
 
     stored = plex.stored_label(collection, label)

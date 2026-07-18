@@ -513,18 +513,19 @@ class TestPlexClient:
         it.ratingKey = rating_key
         return it
 
-    def test_set_items_replaces_membership_without_reordering(self, mock_plex: PlexClient):
-        """set_items now only adds/removes + pins custom sort. The expensive moveItem reorder is
-        DEFERRED to order_collection (a post-promote pass), so a slow PMS reorder can never stall the
-        serial delivery write-lock (the 48-user stall, SFLIX 2026-07-18)."""
+    def test_set_items_adds_removes_from_prefetched_membership_without_reading(self, mock_plex: PlexClient):
+        """set_items now takes the caller's already-fetched membership + only the items to add, so it
+        makes ZERO extra PMS reads (no collection.items() here). It adds/removes + pins custom sort;
+        ordering is the deferred order_collection pass, so no moveItem here."""
         item = self._item
-        existing = [item(1), item(2), item(3)]  # 2 will be removed, 4 added
-        wanted = [item(4), item(1), item(3)]
+        existing = [item(1), item(2), item(3)]  # 2 will be removed
+        add_items = [item(4)]  # caller fetched ONLY the delta (item 4)
+        wanted_keys = [4, 1, 3]
         collection = MagicMock()
-        collection.items.return_value = existing  # a single fetch for the diff; no reload, no moves
 
-        mock_plex.set_items(collection, wanted)
+        mock_plex.set_items(collection, existing, add_items, wanted_keys)
 
+        collection.items.assert_not_called()  # no re-read — uses the passed-in membership
         assert [i.ratingKey for i in collection.addItems.call_args.args[0]] == [4]
         assert [i.ratingKey for i in collection.removeItems.call_args.args[0]] == [2]
         collection.sortUpdate.assert_called_once_with(sort="custom")

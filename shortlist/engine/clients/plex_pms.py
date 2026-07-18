@@ -483,27 +483,28 @@ class PlexClient:
         logger.info("hub order: moved {} row(s) {} in {}", len(ours), where, section.title)
         return {"anchor": "top" if to_top else anchor_title, "moved": moved_titles, "skipped": False}
 
-    def set_items(self, collection: Collection, items: list) -> None:
-        """Replace a collection's items (add/remove) and pin it to custom sort — but do NOT order it.
+    def set_items(self, collection: Collection, existing_items: list, add_items: list, wanted_keys: list[int]) -> None:
+        """Add/remove to make the collection exactly ``wanted_keys``, and pin it to custom sort — but do
+        NOT order it (that's the deferred ``order_collection`` pass).
 
-        Ordering is the expensive part: Plex's ``moveItem`` is one PMS round-trip PER item (no bulk
-        "set the whole order" API exists). Doing it here, inside the per-user delivery that holds the
-        serial write-lock, meant one slow PMS move blocked EVERY other user's delivery — which stalled a
-        48-user run outright (SFLIX, 2026-07-18). So delivery now only adds/removes (light), and the
-        move-heavy ordering runs once at the very end via ``order_collection`` — best-effort, so a slow
-        PMS degrades the ordering, never the delivery or the leak-safe promotion.
+        The caller passes the ALREADY-FETCHED current membership (``existing_items``) and ONLY the media
+        items to add (``add_items``), so this makes ZERO extra PMS reads. It used to re-fetch
+        ``collection.items()`` here — a second read of what the caller had just read — and the caller
+        fetched ALL wanted items even when only a few changed. On a slow, single-writer PMS those reads
+        were the dominant per-user delivery cost, serialized across users (SFLIX, 2026-07-18).
+
+        Ordering (Plex's ``moveItem``, one PMS round-trip per item, no bulk API) is deliberately NOT done
+        here: it runs once at the very end via ``order_collection`` — best-effort, so a slow PMS degrades
+        the ordering, never the delivery or the leak-safe promotion.
         """
-        existing = collection.items()
-        current_keys = {i.ratingKey for i in existing}
-        wanted_set = {i.ratingKey for i in items}
-        to_remove = [i for i in existing if i.ratingKey not in wanted_set]
-        to_add = [i for i in items if i.ratingKey not in current_keys]
-        if to_add:
-            collection.addItems(to_add)
+        wanted_set = set(wanted_keys)
+        to_remove = [i for i in existing_items if i.ratingKey not in wanted_set]
+        if add_items:
+            collection.addItems(add_items)
         if to_remove:
             collection.removeItems(to_remove)
         collection.sortUpdate(sort="custom")
-        logger.info("{}: items +{} -{}", collection.title, len(to_add), len(to_remove))
+        logger.info("{}: items +{} -{}", collection.title, len(add_items), len(to_remove))
 
     def order_collection(self, collection: Collection, wanted_keys: list[int]) -> int:
         """Order a collection's visible head to ``wanted_keys`` (ranked) via ``moveItem`` — the expensive

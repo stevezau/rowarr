@@ -213,6 +213,7 @@ def deliver_rows(
     section_picks: dict[str, list[Pick]] | None = None,
     breakdown: list[dict] | None = None,
     poster_artist: PosterArtist | None = None,
+    order_work: list[tuple] | None = None,
 ) -> tuple[CollectionDiff, str | None]:
     """Deliver one row's picks as one collection per targeted library. Returns (diff, stored label).
 
@@ -298,6 +299,7 @@ def deliver_rows(
             dry_run=dry_run,
             poster=spec.poster if spec else None,
             artist=poster_artist,
+            order_work=order_work,
         )
         combined.added += one.added
         combined.removed += one.removed
@@ -504,6 +506,7 @@ def _create_labelled_collection(
     display: str,
     poster: PosterSpec | None = None,
     artist: PosterArtist | None = None,
+    order_work: list[tuple] | None = None,
 ) -> str:
     """Create the collection, apply its label, and delete it if the label doesn't stick.
 
@@ -535,6 +538,8 @@ def _create_labelled_collection(
                 section.title,
             )
         raise
+    if order_work is not None:
+        order_work.append((collection, [p.rating_key for p in picks]))
     apply_poster(plex, collection, poster, profile, picks, library_name=section.title, artist=artist, dry_run=False)
     logger.info(
         "{}: delivered '{}' to '{}' ({} items, label {})",
@@ -560,6 +565,7 @@ def _deliver_one(
     dry_run: bool,
     poster: PosterSpec | None = None,
     artist: PosterArtist | None = None,
+    order_work: list[tuple] | None = None,
 ) -> tuple[CollectionDiff, str]:
     """Upsert one library's collection to exactly `picks`, in order. Returns (diff, stored_label).
 
@@ -611,7 +617,16 @@ def _deliver_one(
             apply_poster(plex, None, poster, profile, picks, library_name=section.title, artist=artist, dry_run=True)
             return diff, label
         stored = _create_labelled_collection(
-            plex, section, profile, picks, title=title, label=label, display=display, poster=poster, artist=artist
+            plex,
+            section,
+            profile,
+            picks,
+            title=title,
+            label=label,
+            display=display,
+            poster=poster,
+            artist=artist,
+            order_work=order_work,
         )
         return diff, stored
 
@@ -637,6 +652,8 @@ def _deliver_one(
     if collection.title != title:
         collection.editTitle(title)
     plex.set_items(collection, plex.fetch_items([p.rating_key for p in picks]))
+    if order_work is not None:
+        order_work.append((collection, [p.rating_key for p in picks]))
     apply_poster(plex, collection, poster, profile, picks, library_name=section.title, artist=artist, dry_run=False)
 
     stored = plex.stored_label(collection, label)

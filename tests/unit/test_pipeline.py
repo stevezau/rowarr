@@ -1434,3 +1434,26 @@ class TestPerUserTimeoutRetry:
         report = pipeline_mod.run(ctx, [sarah])
         assert calls["n"] == 2  # one retry, then give up
         assert next(u for u in report.users if u.slug == "sarah").status == "error"
+
+
+class TestCollectionOrderPhase:
+    """The deferred, post-promote item-ordering pass: best-effort, never fatal to an already-delivered run."""
+
+    def test_orders_every_collection_and_survives_a_per_row_failure(self, ctx: EngineContext):
+        from unittest.mock import MagicMock as MM
+
+        from shortlist.engine.pipeline import _collection_order_phase
+
+        c1, c2, c3 = MM(), MM(), MM()
+        # Middle collection's ordering blows up (slow PMS) — the pass must keep going, not raise.
+        ctx.plex.order_collection.side_effect = [4, RuntimeError("PMS timed out"), 2]
+        _collection_order_phase(ctx, [(c1, [1, 2]), (c2, [3, 4]), (c3, [5, 6])], MM())
+        assert ctx.plex.order_collection.call_count == 3  # all three attempted despite the middle failure
+
+    def test_no_order_work_is_a_noop(self, ctx: EngineContext):
+        from unittest.mock import MagicMock as MM
+
+        from shortlist.engine.pipeline import _collection_order_phase
+
+        _collection_order_phase(ctx, [], MM())
+        ctx.plex.order_collection.assert_not_called()

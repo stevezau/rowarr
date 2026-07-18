@@ -165,9 +165,14 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     requests_on = bool(ctx.config.requests and ctx.config.requests.enabled)
     demand: requests_mod.DemandMap = {}
 
+    # Collection item-ordering is deferred to a best-effort pass AFTER promotion (see
+    # _collection_order_phase): each (collection, ranked_keys) delivery records here, so the expensive
+    # one-move-per-item ordering never runs inside the serial delivery write-lock and can't stall it.
+    order_work: list[tuple] = []
+
     # Deliver every per-person and shared row UNPROMOTED — nothing is on anyone's Home yet.
     to_promote, shared_to_promote = _deliver_phase(
-        ctx, users, seed_index, library_index, stored_labels, report, demand if requests_on else None
+        ctx, users, seed_index, library_index, stored_labels, report, demand if requests_on else None, order_work
     )
 
     # Merge the excludes into every share filter BEFORE anything is promoted.
@@ -179,6 +184,11 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
 
     # Only now, with the exclusions in place, promote rows onto shared Home.
     _promote_phase(ctx, to_promote, shared_to_promote, filters_ok, report)
+
+    # Order each row's items (the expensive one-move-per-item step) as a best-effort pass AFTER
+    # promotion — rows are already delivered, hidden and live, so a slow PMS here degrades only the
+    # ordering, never the run. Privacy-neutral (never touches a label, filter, or promotion).
+    _collection_order_phase(ctx, order_work, report)
 
     # Position the just-promoted rows in each library's Recommended shelf (must run after promotion —
     # a hub has to be promoted to be movable). Best-effort and privacy-neutral.
@@ -363,6 +373,7 @@ def _deliver_phase(
     stored_labels: dict[str, str],
     report: RunReport,
     demand: requests_mod.DemandMap | None,
+    order_work: list[tuple],
 ) -> tuple[list[UserProfile], list[tuple[RowSpec, UserProfile]]]:
     """Deliver every per-person and shared row, all UNPROMOTED. Returns the promotion candidates."""
     to_promote: list[UserProfile] = []
@@ -377,13 +388,17 @@ def _deliver_phase(
         delivered = False
         try:
             try:
-                delivered = rows._run_user(ctx, user, seed_index, library_index, stored_labels, user_report, demand)
+                delivered = rows._run_user(
+                    ctx, user, seed_index, library_index, stored_labels, user_report, demand, order_work
+                )
             except _PMS_TIMEOUTS:
                 # A single slow PMS read (busy server under the reorder load) shouldn't sink a whole
                 # user. Delivery is upsert/idempotent, so retry the user once before giving up. A
                 # persistent outage still fails after the retry.
                 logger.warning("{}: PMS timed out — retrying this user once", user.username)
-                delivered = rows._run_user(ctx, user, seed_index, library_index, stored_labels, user_report, demand)
+                delivered = rows._run_user(
+                    ctx, user, seed_index, library_index, stored_labels, user_report, demand, order_work
+                )
         except Exception as e:
             user_report.status = "error"
             user_report.error = f"{type(e).__name__}: {e}"
@@ -429,7 +444,9 @@ def _deliver_phase(
     shared_to_promote: list[tuple[RowSpec, UserProfile]] = []
     shared_specs = [s for s in ctx.config.shared_rows() if ctx.config.should_build(s)] if users else []
     for spec in shared_specs:
-        _shared_report, agg = rows._run_shared(ctx, spec, users, seed_index, library_index, stored_labels, report)
+        _shared_report, agg = rows._run_shared(
+            ctx, spec, users, seed_index, library_index, stored_labels, report, order_work
+        )
         if agg is not None:
             shared_to_promote.append((spec, agg))
     return to_promote, shared_to_promote
@@ -636,6 +653,24 @@ def _apply_order(ctx: EngineContext, report: RunReport, section, anchor, only_ti
             report.hub_orderings.append({"library": section.title, **result})
     except Exception as e:
         logger.warning("{}: hub ordering failed ({}: {}) — left Plex's order", section.title, type(e).__name__, e)
+
+
+def _collection_order_phase(ctx: EngineContext, order_work: list[tuple], report: RunReport) -> None:
+    """Order each delivered row's items to its ranked list — the expensive one-move-per-item step, run
+    ONCE here, AFTER promotion. Best-effort and privacy-neutral: rows are already delivered, hidden and
+    promoted, so a slow or unresponsive PMS during ordering degrades only the visual order, never the
+    run or the leak-safe guarantee. Serial (never concurrent) so it can't stampede the PMS; a per-row
+    failure is logged and skipped, and the next run re-applies the order."""
+    if ctx.config.dry_run or not order_work:
+        return
+    total = 0
+    for collection, wanted_keys in order_work:
+        try:
+            total += ctx.plex.order_collection(collection, wanted_keys)
+        except Exception as e:  # cosmetic — a stall here must never fail an already-delivered run
+            title = getattr(collection, "title", "?")
+            logger.warning("ordering '{}' failed ({}: {}) — left in delivery order", title, type(e).__name__, e)
+    logger.info("ordered {} collection(s), {} move(s) total", len(order_work), total)
 
 
 def _row_titles_by_slug(report: RunReport) -> dict[str, set[str]]:

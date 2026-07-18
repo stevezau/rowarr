@@ -309,6 +309,7 @@ def _run_user(
     stored_labels: dict[str, str],
     user_report: UserRunReport,
     demand: requests_mod.DemandMap | None = None,
+    order_work: list[tuple] | None = None,
 ) -> bool:
     """Deliver every per-person row this user is in the audience of. Candidates are computed once
     and reused across rows; each row curates and delivers with its own size/media/recipe. Returns
@@ -619,6 +620,7 @@ def _run_user(
                 section_picks=section_picks,
                 breakdown=user_report.breakdown,
                 poster_artist=ctx.poster_artist,
+                order_work=order_work,
             )
         delivered_any = delivered_any or bool(picks)
 
@@ -643,6 +645,7 @@ def _run_shared(
     library_index: dict[MediaType, dict[int, int]],
     stored_labels: dict[str, str],
     report,
+    order_work: list[tuple] | None = None,
 ) -> tuple[UserRunReport, UserProfile | None]:
     """Deliver one shared 'popular on this server' row from AGGREGATE history.
 
@@ -655,7 +658,7 @@ def _run_shared(
     user_report = UserRunReport(username=f"Shared · {spec.slug}", slug=slug)
     report.users.append(user_report)
     try:
-        agg = _shared_row(ctx, spec, users, seed_index, library_index, stored_labels, user_report, slug)
+        agg = _shared_row(ctx, spec, users, seed_index, library_index, stored_labels, user_report, slug, order_work)
     except Exception as e:  # one shared row's failure never stops the next (rule 6 resume-safety)
         user_report.status = "error"
         user_report.error = f"{type(e).__name__}: {e}"
@@ -675,6 +678,7 @@ def _shared_row(
     stored_labels: dict[str, str],
     user_report: UserRunReport,
     slug: str,
+    order_work: list[tuple] | None = None,
 ) -> UserProfile | None:
     """Build and deliver the shared row's picks (the body ``_run_shared`` guards).
 
@@ -807,6 +811,7 @@ def _shared_row(
         section_index=ctx.section_index,
         section_picks=section_picks,
         breakdown=user_report.breakdown,
+        order_work=order_work,
     )
     return agg if picks else None
 

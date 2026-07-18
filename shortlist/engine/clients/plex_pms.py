@@ -469,23 +469,18 @@ class PlexClient:
         return {"anchor": "top" if to_top else anchor_title, "moved": moved_titles, "skipped": False}
 
     def set_items(self, collection: Collection, items: list) -> None:
-        """Replace a collection's items and put them in the given (ranked) order via custom sort.
+        """Replace a collection's items (add/remove) and pin it to custom sort — but do NOT order it.
 
-        Ordering is the expensive part: Plex's ``moveItem`` is one PMS round-trip PER item, so the old
-        "move every item every time" cost N calls per row per library on every run. Here we move ONLY
-        the items that are actually out of place (simulating the live order as we go), so a steady
-        re-run — where most titles keep their rank — costs a handful of calls instead of ~20.
-
-        We also only bother ordering the TOP ``_REORDER_TOP_N`` — the part of the row a viewer actually
-        sees on the Home shelf before "see all". On a first delivery (every item out of place) that's
-        the difference between ~15 move calls and ~30+, and since these writes are strictly serial for
-        privacy it's the dominant cost of a big rollout (SFLIX 48-user rollout, 2026-07-18).
+        Ordering is the expensive part: Plex's ``moveItem`` is one PMS round-trip PER item (no bulk
+        "set the whole order" API exists). Doing it here, inside the per-user delivery that holds the
+        serial write-lock, meant one slow PMS move blocked EVERY other user's delivery — which stalled a
+        48-user run outright (SFLIX, 2026-07-18). So delivery now only adds/removes (light), and the
+        move-heavy ordering runs once at the very end via ``order_collection`` — best-effort, so a slow
+        PMS degrades the ordering, never the delivery or the leak-safe promotion.
         """
-        start = time.monotonic()
-        existing = collection.items()  # one fetch; reused for the diff below
+        existing = collection.items()
         current_keys = {i.ratingKey for i in existing}
-        wanted_keys = [i.ratingKey for i in items]
-        wanted_set = set(wanted_keys)
+        wanted_set = {i.ratingKey for i in items}
         to_remove = [i for i in existing if i.ratingKey not in wanted_set]
         to_add = [i for i in items if i.ratingKey not in current_keys]
         if to_add:
@@ -493,11 +488,19 @@ class PlexClient:
         if to_remove:
             collection.removeItems(to_remove)
         collection.sortUpdate(sort="custom")
+        logger.info("{}: items +{} -{}", collection.title, len(to_add), len(to_remove))
+
+    def order_collection(self, collection: Collection, wanted_keys: list[int]) -> int:
+        """Order a collection's visible head to ``wanted_keys`` (ranked) via ``moveItem`` — the expensive
+        one-call-per-item step, run in a best-effort pass AFTER promotion (never under the delivery
+        write-lock). Moves ONLY items actually out of place, capped to the top ``_REORDER_TOP_N`` (the
+        part a viewer sees before "see all"), so a steady row that barely changed costs a few calls or
+        none. Returns the number of moves made."""
+        start = time.monotonic()
         collection.reload()
-        now = collection.items()  # one fetch of the post-add/remove membership
+        now = collection.items()
         by_key = {i.ratingKey: i for i in now}
         order = [i.ratingKey for i in now]  # our model of the live order, kept in sync as we move
-        # Only order the visible head of the row; the tail keeps its position (below the fold anyway).
         target = [k for k in wanted_keys if k in by_key][:_REORDER_TOP_N]
         moves = 0
         previous: int | None = None  # the ratingKey the current target item must sit right after
@@ -509,15 +512,11 @@ class PlexClient:
                 order.insert(0 if previous is None else order.index(previous) + 1, key)
                 moves += 1
             previous = key
-        logger.info(
-            "{}: items +{} -{}, reordered {}/{} in {:.1f}s",
-            collection.title,
-            len(to_add),
-            len(to_remove),
-            moves,
-            len(target),
-            time.monotonic() - start,
-        )
+        if moves:
+            logger.info(
+                "{}: reordered {}/{} in {:.1f}s", collection.title, moves, len(target), time.monotonic() - start
+            )
+        return moves
 
     def upload_poster(self, collection: Collection, image: bytes) -> None:
         """Set a custom poster on a collection from raw image bytes (cosmetic; our own collection only).

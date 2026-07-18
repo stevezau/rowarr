@@ -604,7 +604,12 @@ def _run_user(
         _pipeline._emit(ctx, user.slug, "delivering", {"picks": len(picks)})
         # write_lock: the Plex collection writes AND the shared stored_labels mutation inside
         # deliver_rows must be serial across users — the leak-safe half of Stage 3 parallelism.
+        # Timed on both sides so a slow run can be split into lock-CONTENTION (waiting behind another
+        # user's write) vs real WORK (this user's own PMS calls) — the two look identical in wall-clock
+        # otherwise, and only the second is fixable by making the writes cheaper (perf diag 2026-07-19).
+        _lock_wait_start = time.monotonic()
         with ctx.write_lock:
+            _work_start = time.monotonic()
             deliver_rows(
                 ctx.plex,
                 user,
@@ -621,6 +626,14 @@ def _run_user(
                 breakdown=user_report.breakdown,
                 poster_artist=ctx.poster_artist,
                 order_work=order_work,
+            )
+            logger.debug(
+                "{}: row '{}' delivery — waited {:.1f}s for write-lock, wrote {} librar(ies) in {:.1f}s",
+                user.username,
+                spec.slug,
+                _work_start - _lock_wait_start,
+                len(section_picks),
+                time.monotonic() - _work_start,
             )
         delivered_any = delivered_any or bool(picks)
 

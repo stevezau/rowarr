@@ -739,3 +739,85 @@ class TestPmsPromoteRetry:
         with pytest.raises(ValueError):
             plex_pms._retry_idempotent(boom, label="row")
         assert calls["n"] == 1  # surfaced immediately, no retry
+
+
+class TestTimingHTTPAdapter:
+    """Every PMS HTTP call is timed so the delivery path isn't a black hole — but the PMS URL carries
+    ``X-Plex-Token`` in its query string, so the log must show the path and NEVER the token (rule 9)."""
+
+    def _real_request(self, method: str):
+        # A REAL PreparedRequest, so the redaction is exercised against how `requests` actually shapes
+        # path_url (the load-bearing rule-9 assumption), not a hand-built string (review, rule 11).
+        import requests
+
+        pr = requests.PreparedRequest()
+        pr.prepare(
+            method=method,
+            url="http://pms:32400/library/collections/9/items?X-Plex-Token=SECRETTOKEN&excludeAllLeaves=1",
+        )
+        return pr
+
+    def test_logs_the_path_and_status_without_leaking_the_token(self, monkeypatch):
+        from requests.adapters import HTTPAdapter
+
+        from shortlist.engine.clients import plex_pms
+
+        monkeypatch.setattr(HTTPAdapter, "send", lambda self, request, **kw: SimpleNamespace(status_code=200))
+        adapter = plex_pms._TimingHTTPAdapter()
+        lines: list[str] = []
+        sink = plex_pms.logger.add(lines.append, level="DEBUG", format="{message}")
+        try:
+            resp = adapter.send(self._real_request("DELETE"))
+        finally:
+            plex_pms.logger.remove(sink)
+
+        assert resp.status_code == 200
+        joined = "\n".join(lines)
+        assert "SECRETTOKEN" not in joined  # rule 9: the token must never reach the log
+        assert "/library/collections/9/items" in joined
+        assert "DELETE" in joined and "200" in joined
+
+    def test_a_slow_call_is_flagged_at_warning(self, monkeypatch):
+        from requests.adapters import HTTPAdapter
+
+        from shortlist.engine.clients import plex_pms
+
+        monkeypatch.setattr(HTTPAdapter, "send", lambda self, request, **kw: SimpleNamespace(status_code=200))
+        ticks = iter([100.0, 100.0 + plex_pms._SLOW_PMS_S + 2.0])  # elapsed > the slow threshold
+        monkeypatch.setattr(plex_pms.time, "monotonic", lambda: next(ticks))
+        adapter = plex_pms._TimingHTTPAdapter()
+        lines: list[str] = []
+        sink = plex_pms.logger.add(lines.append, level="DEBUG", format="{level}|{message}")
+        try:
+            adapter.send(self._real_request("PUT"))
+        finally:
+            plex_pms.logger.remove(sink)
+
+        joined = "\n".join(lines)
+        assert "WARNING|" in joined and "SLOW" in joined
+
+    def test_a_failing_call_still_logs_then_re_raises(self, monkeypatch):
+        """The retry/timeout path is load-bearing: if super().send() raises, the adapter must time+log
+        the attempt (status ERR) and let the ORIGINAL exception propagate unchanged — never swallow it,
+        or a PMS timeout would stop reaching _PMS_TIMEOUTS and the whole-user retry."""
+        import requests
+        from requests.adapters import HTTPAdapter
+
+        from shortlist.engine.clients import plex_pms
+
+        def boom(self, request, **kw):
+            raise requests.exceptions.ConnectionError("dead PMS")
+
+        monkeypatch.setattr(HTTPAdapter, "send", boom)
+        adapter = plex_pms._TimingHTTPAdapter()
+        lines: list[str] = []
+        sink = plex_pms.logger.add(lines.append, level="DEBUG", format="{message}")
+        try:
+            with pytest.raises(requests.exceptions.ConnectionError):
+                adapter.send(self._real_request("GET"))
+        finally:
+            plex_pms.logger.remove(sink)
+
+        joined = "\n".join(lines)
+        assert "ERR" in joined  # the failed attempt is still timed and logged
+        assert "SECRETTOKEN" not in joined

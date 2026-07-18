@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 
 from loguru import logger
@@ -287,6 +288,10 @@ def deliver_rows(
         ]
         if not this_section:
             continue
+        # Per-library timing: this is the one place we can see that (e.g.) a TV row costs 6x a Movies
+        # row, which points straight at removeItems (one DELETE per item) on a full-turnover row. The
+        # PMS timing adapter breaks each of those calls down further (perf diag 2026-07-19).
+        _one_start = time.monotonic()
         one, stored = _deliver_one(
             plex,
             section,
@@ -300,6 +305,15 @@ def deliver_rows(
             poster=spec.poster if spec else None,
             artist=poster_artist,
             order_work=order_work,
+        )
+        logger.debug(
+            "{}: delivered library '{}' (+{} -{} ={}) in {:.1f}s",
+            profile.username,
+            section.title,
+            len(one.added),
+            len(one.removed),
+            len(one.kept),
+            time.monotonic() - _one_start,
         )
         combined.added += one.added
         combined.removed += one.removed

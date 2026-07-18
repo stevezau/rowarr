@@ -44,6 +44,38 @@ def _tmdb_guid(item) -> int | None:
     return None
 
 
+# A PMS call slower than this is logged at WARNING (the rest are DEBUG-timed). Delivery reads on a
+# busy single-writer PMS are the dominant run cost, so making every slow one visible is how we tell
+# lock-wait from real work — see _TimingHTTPAdapter.
+_SLOW_PMS_S = 5.0
+
+
+class _TimingHTTPAdapter(HTTPAdapter):
+    """Times every PMS HTTP call (including its urllib3 retries) so the delivery path is not a black hole.
+
+    plexapi talks to the PMS through ``requests`` DIRECTLY, bypassing the logged ``http_retry`` wrapper
+    that instruments Tautulli/TMDB — so a slow ``collection.items()``/``addItems``/``fetch`` was
+    completely invisible in the logs (SFLIX run 3: 465s per TV row with zero log lines, 2026-07-19).
+    Logs method + path + status + duration; the query string is dropped so the ``X-Plex-Token`` never
+    reaches the log (rule 9).
+    """
+
+    def send(self, request, **kwargs):
+        start = time.monotonic()
+        status: object = "ERR"
+        try:
+            response = super().send(request, **kwargs)
+            status = response.status_code
+            return response
+        finally:
+            duration = time.monotonic() - start
+            path = request.path_url.split("?", 1)[0]  # drop the query string (carries X-Plex-Token)
+            if duration >= _SLOW_PMS_S:
+                logger.warning("PMS SLOW · {} {} -> {} in {:.1f}s", request.method, path, status, duration)
+            else:
+                logger.debug("PMS · {} {} -> {} in {:.2f}s", request.method, path, status, duration)
+
+
 def _retrying_session() -> requests.Session:
     """A requests session that retries transient PMS failures (read/connect timeouts, 429, 5xx).
 
@@ -63,7 +95,7 @@ def _retrying_session() -> requests.Session:
         raise_on_status=False,
     )
     session = requests.Session()
-    adapter = HTTPAdapter(max_retries=retry)
+    adapter = _TimingHTTPAdapter(max_retries=retry)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session

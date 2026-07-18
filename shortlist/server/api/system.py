@@ -30,6 +30,18 @@ async def version() -> dict:
     return {"version": shortlist.__version__}
 
 
+@router.get("/image-provider", dependencies=[Depends(require_owner)])
+async def image_provider(request: Request) -> dict:
+    """Whether the configured AI provider can generate poster images (and a plain-English reason if
+    not) — so the row editor can enable/disable the "Generate" poster option honestly."""
+    from shortlist.server.services.poster_service import image_provider_status
+    from shortlist.server.settings_store import SettingsStore
+
+    with request.app.state.sessions() as session:
+        store = SettingsStore(session, request.app.state.secrets)
+        return image_provider_status(store)
+
+
 @router.get("/debug", dependencies=[Depends(require_owner)], response_class=PlainTextResponse)
 async def debug_bundle(request: Request) -> str:
     """A pasteable diagnostics bundle for bug reports: version, DB migration head, scheduler jobs,

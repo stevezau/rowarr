@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import ClassVar
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -117,6 +117,9 @@ class Collection(Base):
     # {} -> inherit the global default (settings `rows.hub_anchor`). A library absent here inherits too.
     hub_anchor: Mapped[dict] = mapped_column(JSON, default=dict)
     prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig recipe
+    # Custom collection poster for this row. {} -> Plex's own artwork. Shape:
+    # {"mode": "upload"|"generate", "image": <filename under /config/posters>, "title", "subtitle", "style"}.
+    poster: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -128,6 +131,22 @@ class CollectionAudience(Base):
 
     collection_id: Mapped[int] = mapped_column(ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+
+
+class PosterAsset(Base):
+    """Binary image storage for row posters: uploaded originals and cached generated images.
+
+    Kept in the DB (which lives under /config) rather than on the filesystem so a poster survives a
+    container recreate and travels with a config backup. ``key`` namespaces the two kinds:
+    ``upload:<collection_id>`` for a user's uploaded image, ``gen:<prompt_hash>`` for a generated one
+    (so an identical prompt across users/runs is generated once, not every night per person)."""
+
+    __tablename__ = "poster_assets"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    image: Mapped[bytes] = mapped_column(LargeBinary)
+    content_type: Mapped[str] = mapped_column(String(64), default="image/png")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class CollectionUserOverride(Base):

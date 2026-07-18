@@ -200,6 +200,24 @@ SHARED_LABEL_PREFIX = "shortlist__shared_"
 
 
 @dataclass
+class PosterSpec:
+    """How a row's Plex collection poster image is produced. Purely cosmetic — a poster never affects
+    privacy, promotion, or the leak-safe ordering, and failing to make one never fails a run.
+
+    ``mode`` is "upload" (use ``image`` bytes as-is on every collection of the row) or "generate"
+    (compose a prompt from the text fields — which may contain the same ``{user}``/``{library_name}``/
+    ``{top_seed}`` placeholders as a row name — and render it with the injected PosterArtist). An empty
+    ``mode`` means "leave Plex's own artwork alone".
+    """
+
+    mode: str = ""
+    image: bytes | None = None  # upload mode: the raw image bytes (the adapter reads the stored file)
+    title: str = ""  # generate mode: the headline text
+    subtitle: str = ""  # generate mode: secondary text
+    style: str = ""  # generate mode: art-style guidance
+
+
+@dataclass
 class RowSpec:
     """One curated-row definition the engine delivers, built by the adapter from a Collection row.
 
@@ -243,6 +261,8 @@ class RowSpec:
     # HubAnchor. A library absent here inherits the global default (EngineConfig.hub_anchors); empty
     # -> inherit everywhere. Lets one row anchor differently from the rest (global default + override).
     hub_anchors: dict[str, HubAnchor] = field(default_factory=dict)
+    # Optional custom poster for this row's Plex collection(s). None -> leave Plex's own artwork alone.
+    poster: PosterSpec | None = None
 
     @property
     def show_home(self) -> bool:

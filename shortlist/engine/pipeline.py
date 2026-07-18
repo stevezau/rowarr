@@ -22,6 +22,7 @@ import shortlist.engine.rows as rows
 from shortlist.engine import requests as requests_mod
 from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
+from shortlist.engine.clients.poster import PosterArtist
 from shortlist.engine.clients.search import WebSearchProvider
 from shortlist.engine.clients.tmdb import Cache, NullCache, TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
@@ -65,6 +66,9 @@ class EngineContext:
     # Optional external web-search backend for the llm_web source (Exa); None when no key is
     # configured. Native provider web-search tools don't need it; a local Ollama model does.
     search: WebSearchProvider | None = None
+    # Optional image-generation backend for generate-mode row posters, built from the AI curator's
+    # provider/key. None when the curator provider can't make images (Anthropic, Ollama) or none is set.
+    poster_artist: PosterArtist | None = None
     # slug -> {(tmdb_id, media_type)}: the staleness guard. Keyed on the PAIR because TMDB ids
     # are unique only within a namespace — movie 550 and TV 550 are different titles.
     recent_picks: dict[str, set[tuple[int, MediaType]]] = field(default_factory=dict)

@@ -31,6 +31,9 @@ is a labeled collection excluded on every other account's share, so only its own
   model real web search.
 - 💬 **Explainable** — every pick carries "Because you watched X"; every Plex write lands in
   an audit feed you can read.
+- 🎨 **Custom row posters (optional)** — give a row its own artwork: upload an image, or generate one
+  from text (with `{user}`/`{library_name}` placeholders) reusing your AI provider's key. Generated
+  posters are cached and reused across runs.
 - 📥 **Fills its own gaps (optional)** — when a great pick isn't in your library yet, Shortlist can
   ask **Radarr/Sonarr** to grab it. Off by default and deliberately cautious: the strongest picks
   are auto-sent (a few per night, highly rated and widely wanted); everything else waits in a

@@ -7,12 +7,14 @@ from dataclasses import replace
 from loguru import logger
 
 from shortlist.engine.clients.plex_pms import PlexClient
+from shortlist.engine.clients.poster import PosterArtist
 from shortlist.engine.models import (
     SHARED_SLUG_PREFIX,
     CollectionDiff,
     EngineConfig,
     MediaType,
     Pick,
+    PosterSpec,
     RowSpec,
     UserProfile,
 )
@@ -85,6 +87,79 @@ def render_row_name(template: str, profile: UserProfile, picks: list[Pick], libr
     return rendered or DEFAULT_ROW_NAME
 
 
+def build_poster_prompt(poster: PosterSpec, profile: UserProfile, picks: list[Pick], library_name: str) -> str:
+    """Compose an image-generation prompt from a generate-mode poster spec.
+
+    The ``title``/``subtitle`` share the row-name placeholders (``{user}``/``{library_name}``/
+    ``{top_seed}``), rendered here with the same helper delivery uses for titles so a poster reads for
+    the person and library it lands in. ``render_row_name`` would substitute DEFAULT_ROW_NAME for a
+    ``{top_seed}`` template with no seed, so guard each field: an empty/whitespace field is simply
+    dropped rather than turned into "✨ Picked for You".
+    """
+
+    def _text(field_value: str) -> str:
+        field_value = field_value.strip()
+        if not field_value:
+            return ""
+        rendered = render_row_name(field_value, profile, picks, library_name=library_name)
+        return "" if rendered == DEFAULT_ROW_NAME and "{top_seed}" in field_value else rendered
+
+    title, subtitle = _text(poster.title), _text(poster.subtitle)
+    parts = ["A vertical movie/TV streaming collection poster, 2:3 portrait aspect ratio, cinematic, high quality."]
+    if title:
+        parts.append(f'Show the title text exactly: "{title}".')
+    if subtitle:
+        parts.append(f'Show smaller subtitle text exactly: "{subtitle}".')
+    if poster.style.strip():
+        parts.append(f"Art style: {poster.style.strip()}.")
+    parts.append("Any text must be spelled correctly and clearly legible. No watermarks, no borders.")
+    return " ".join(parts)
+
+
+def apply_poster(
+    plex: PlexClient,
+    collection,
+    poster: PosterSpec | None,
+    profile: UserProfile,
+    picks: list[Pick],
+    *,
+    library_name: str,
+    artist: PosterArtist | None,
+    dry_run: bool,
+) -> None:
+    """Set a row's custom poster on its Plex collection — best-effort and cosmetic.
+
+    Only ever touches the artwork of a collection Shortlist owns, does not promote or change any
+    filter, and NEVER raises into delivery: a failed poster leaves the row exactly as it was, just
+    with Plex's own artwork. Generate mode needs an image-capable artist (reuses the AI curator's
+    provider); with none configured it's quietly skipped so the row still delivers.
+    """
+    if poster is None or not poster.mode:
+        return
+    try:
+        if poster.mode == "generate" and artist is None:
+            logger.debug(
+                "{}: no image-capable AI provider — skipping generated poster in '{}'", profile.username, library_name
+            )
+            return
+        if dry_run:
+            logger.info("[dry-run] {}: would set a {} poster on this row", profile.username, poster.mode)
+            return
+        if poster.mode == "upload":
+            image = poster.image
+        elif poster.mode == "generate":
+            image = artist.render(build_poster_prompt(poster, profile, picks, library_name))
+        else:
+            return
+        if not image:
+            logger.debug("{}: {} poster produced no image — leaving Plex artwork", profile.username, poster.mode)
+            return
+        plex.upload_poster(collection, image)
+        logger.info("{}: set a {} poster on this row in '{}'", profile.username, poster.mode, library_name)
+    except Exception as exc:  # cosmetic: a poster must never break delivery
+        logger.warning("{}: couldn't set the poster ({}: {})", profile.username, type(exc).__name__, exc)
+
+
 def resolve_row_template(spec: RowSpec, profile: UserProfile, config: EngineConfig) -> str:
     """The row-name template to render, most-specific wins: the row's own template, else the user's
     per-user override, else the global default.
@@ -142,6 +217,7 @@ def deliver_rows(
     section_index: dict[str, dict[int, int]] | None = None,
     section_picks: dict[str, list[Pick]] | None = None,
     breakdown: list[dict] | None = None,
+    poster_artist: PosterArtist | None = None,
 ) -> tuple[CollectionDiff, str | None]:
     """Deliver one row's picks as one collection per targeted library. Returns (diff, stored label).
 
@@ -216,7 +292,17 @@ def deliver_rows(
         if not this_section:
             continue
         one, stored = _deliver_one(
-            plex, section, profile, this_section, template, wanted_label, marker, sole_row, dry_run=dry_run
+            plex,
+            section,
+            profile,
+            this_section,
+            template,
+            wanted_label,
+            marker,
+            sole_row,
+            dry_run=dry_run,
+            poster=spec.poster if spec else None,
+            artist=poster_artist,
         )
         combined.added += one.added
         combined.removed += one.removed
@@ -390,6 +476,8 @@ def _create_labelled_collection(
     title: str,
     label: str,
     display: str,
+    poster: PosterSpec | None = None,
+    artist: PosterArtist | None = None,
 ) -> str:
     """Create the collection, apply its label, and delete it if the label doesn't stick.
 
@@ -421,6 +509,7 @@ def _create_labelled_collection(
                 section.title,
             )
         raise
+    apply_poster(plex, collection, poster, profile, picks, library_name=section.title, artist=artist, dry_run=False)
     logger.info(
         "{}: delivered '{}' to '{}' ({} items, label {})",
         profile.username,
@@ -443,6 +532,8 @@ def _deliver_one(
     sole_row: bool,
     *,
     dry_run: bool,
+    poster: PosterSpec | None = None,
+    artist: PosterArtist | None = None,
 ) -> tuple[CollectionDiff, str]:
     """Upsert one library's collection to exactly `picks`, in order. Returns (diff, stored_label).
 
@@ -491,8 +582,11 @@ def _deliver_one(
                 section.title,
                 len(picks),
             )
+            apply_poster(plex, None, poster, profile, picks, library_name=section.title, artist=artist, dry_run=True)
             return diff, label
-        stored = _create_labelled_collection(plex, section, profile, picks, title=title, label=label, display=display)
+        stored = _create_labelled_collection(
+            plex, section, profile, picks, title=title, label=label, display=display, poster=poster, artist=artist
+        )
         return diff, stored
 
     current_titles = [i.title for i in collection.items()]
@@ -512,10 +606,12 @@ def _deliver_one(
             len(diff.removed),
             len(diff.kept),
         )
+        apply_poster(plex, collection, poster, profile, picks, library_name=section.title, artist=artist, dry_run=True)
         return diff, label
     if collection.title != title:
         collection.editTitle(title)
     plex.set_items(collection, plex.fetch_items([p.rating_key for p in picks]))
+    apply_poster(plex, collection, poster, profile, picks, library_name=section.title, artist=artist, dry_run=False)
 
     stored = plex.stored_label(collection, label)
     # Promotion is deliberately NOT done here: the pipeline promotes only after every user's

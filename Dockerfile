@@ -22,8 +22,9 @@ COPY pyproject.toml README.md LICENSE ./
 COPY shortlist/ ./shortlist/
 # Bundle every LLM provider SDK — the container is the whole product, so the curator must work
 # for whichever provider the owner picks in setup without them shelling in to pip install extras.
-# (ollama/none need no SDK; posters/pillow isn't wired into the engine yet.)
-RUN pip install --no-cache-dir ".[anthropic,openai,google]"
+# (ollama/none need no SDK.) `posters` (Pillow) powers uploaded-poster normalization; OpenAI/Google
+# also generate poster images, reusing the curator key.
+RUN pip install --no-cache-dir ".[anthropic,openai,google,posters]"
 
 COPY --from=web /build/dist ./web/dist
 COPY docker/entrypoint.sh /entrypoint.sh

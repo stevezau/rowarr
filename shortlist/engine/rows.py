@@ -601,6 +601,7 @@ def _run_user(
                 section_index=ctx.section_index,
                 section_picks=section_picks,
                 breakdown=user_report.breakdown,
+                poster_artist=ctx.poster_artist,
             )
         delivered_any = delivered_any or bool(picks)
 

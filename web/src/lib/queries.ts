@@ -88,6 +88,14 @@ export function useSettings() {
   return useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
 }
 
+/** Whether the AI provider can generate poster images — for the row editor's Generate gate. */
+export function useImageProvider() {
+  return useQuery({
+    queryKey: ["image-provider"],
+    queryFn: api.getImageProvider,
+  });
+}
+
 export function usePatchUser() {
   const queryClient = useQueryClient();
   return useMutation({

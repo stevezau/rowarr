@@ -9,6 +9,9 @@ Plex quirks encoded here (all live-verified in Phase 0, 2026-07-12):
 
 from __future__ import annotations
 
+import contextlib
+import os
+import tempfile
 import time
 from collections.abc import Callable
 
@@ -512,6 +515,23 @@ class PlexClient:
             len(target),
             time.monotonic() - start,
         )
+
+    def upload_poster(self, collection: Collection, image: bytes) -> None:
+        """Set a custom poster on a collection from raw image bytes (cosmetic; our own collection only).
+
+        plexapi's ``uploadPoster`` reads from a URL or a filepath, so the in-memory bytes are written
+        to a temp file, uploaded, then deleted in a ``finally`` (rule 7: no scaffolding left behind on
+        the server or the local disk, even on failure). Retried like any idempotent PMS write.
+        """
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+            handle.write(image)
+            path = handle.name
+        try:
+            label = f"uploadPoster {collection.title!r}"
+            _retry_idempotent(lambda: collection.uploadPoster(filepath=path), label=label)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(path)
 
     def delete_owned_collection(self, collection: Collection, label_prefix: str) -> None:
         """Delete a collection only if it carries a shortlist label (Kometa coexistence)."""

@@ -60,6 +60,34 @@ export interface Collection {
   /** Per-library Recommended-shelf override for THIS row; {} inherits the global default. */
   hub_anchor: HubAnchorMap;
   prompt: { tone?: string; guidance?: string; template?: string };
+  /** This row's custom poster; mode "" leaves Plex's own artwork alone. */
+  poster: Poster;
+}
+
+/** A row's custom collection poster (as returned by the API — never the image bytes). */
+export interface Poster {
+  mode: "" | "upload" | "generate";
+  /** Generate-mode text; supports {user}/{library_name}/{top_seed} placeholders. */
+  title: string;
+  subtitle: string;
+  style: string;
+  /** True when an uploaded image is stored for this row (upload mode). */
+  has_image: boolean;
+}
+
+/** Poster fields sent on save (no image bytes — those go through the upload endpoint). */
+export interface PosterInput {
+  mode: "" | "upload" | "generate";
+  title: string;
+  subtitle: string;
+  style: string;
+}
+
+/** Whether the configured AI provider can generate images (GET /api/system/image-provider). */
+export interface ImageProviderStatus {
+  capable: boolean;
+  provider: string;
+  reason: string;
 }
 
 /** Where a row sits in a library's Recommended shelf, keyed by library (section) key. A `top` entry
@@ -118,6 +146,7 @@ export interface CollectionInput {
   pin_top: boolean;
   hub_anchor: HubAnchorMap;
   prompt: { tone: string; guidance: string; template: string };
+  poster: PosterInput;
 }
 
 /** PATCH /api/users/{id} — per-user overrides. */

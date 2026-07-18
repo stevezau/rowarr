@@ -22,6 +22,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
         updateCollection(id, body),
       getSettings: () => Promise.resolve({}),
       getLibraries: () => Promise.resolve([]),
+      getImageProvider: () =>
+        Promise.resolve({ capable: false, provider: "", reason: "" }),
     },
   };
 });
@@ -51,6 +53,7 @@ function row(patch: Partial<Collection> = {}): Collection {
     pin_top: false,
     hub_anchor: {},
     prompt: { tone: "", guidance: "", template: "" },
+    poster: { mode: "", title: "", subtitle: "", style: "", has_image: false },
     ...patch,
   };
 }

@@ -36,6 +36,7 @@ export function blankInput(): CollectionInput {
     pin_top: false,
     hub_anchor: {},
     prompt: { tone: "", guidance: "", template: "" },
+    poster: { mode: "", title: "", subtitle: "", style: "" },
   };
 }
 
@@ -65,6 +66,12 @@ export function toInput(collection: Collection): CollectionInput {
       tone: collection.prompt.tone ?? "",
       guidance: collection.prompt.guidance ?? "",
       template: collection.prompt.template ?? "",
+    },
+    poster: {
+      mode: collection.poster?.mode ?? "",
+      title: collection.poster?.title ?? "",
+      subtitle: collection.poster?.subtitle ?? "",
+      style: collection.poster?.style ?? "",
     },
   };
 }

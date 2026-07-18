@@ -10,6 +10,8 @@ import type {
   CleanupResult,
   Collection,
   CollectionInput,
+  ImageProviderStatus,
+  PosterInput,
   PinStatus,
   PlexServer,
   PromptPreview,
@@ -320,6 +322,58 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ dry_run: dryRun }),
     }),
+
+  // --- Row posters ---
+  /** Whether the AI provider can generate poster images (drives the Generate option's gate). */
+  getImageProvider: (): Promise<ImageProviderStatus> =>
+    request("/api/system/image-provider"),
+
+  /** The <img src> for a row's current poster image (add a cache-buster after changing it). */
+  posterImageUrl: (id: number): string =>
+    apiUrl(`/api/collections/${id}/poster/image`),
+
+  /** Store an uploaded poster image and switch the row into upload mode. */
+  uploadPosterImage: async (
+    id: number,
+    file: File,
+  ): Promise<{ ok: boolean; mode: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    // No Content-Type header: the browser sets the multipart boundary itself.
+    const response = await fetch(
+      apiUrl(`/api/collections/${id}/poster/upload`),
+      {
+        method: "POST",
+        headers: { "x-shortlist-csrf": "1" },
+        body: form,
+      },
+    );
+    if (!response.ok)
+      throw new ApiError(response.status, await errorMessageFrom(response));
+    return response.json();
+  },
+
+  /** Remove a row's uploaded poster image. */
+  deletePosterImage: (id: number): Promise<void> =>
+    request(`/api/collections/${id}/poster/image`, { method: "DELETE" }),
+
+  /** Generate a sample poster from the given text/style; returns the image as a Blob. */
+  previewPoster: async (id: number, body: PosterInput): Promise<Blob> => {
+    const response = await fetch(
+      apiUrl(`/api/collections/${id}/poster/preview`),
+      {
+        method: "POST",
+        headers: {
+          "x-shortlist-csrf": "1",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!response.ok)
+      throw new ApiError(response.status, await errorMessageFrom(response));
+    return response.blob();
+  },
 
   /** Assemble the prompt from a recipe against sample data, to preview its effect before saving. */
   previewPrompt: (body: PromptPreviewRequest): Promise<PromptPreview> =>

@@ -28,6 +28,7 @@ from shortlist.engine.models import (
     EngineConfig,
     HubAnchor,
     MediaType,
+    PosterSpec,
     PromptConfig,
     RequestConfig,
     RowOverride,
@@ -49,6 +50,7 @@ from shortlist.server.db.models import (
     iso_utc,
     utcnow,
 )
+from shortlist.server.services.poster_service import load_upload, make_artist
 from shortlist.server.services.sse import EventBus
 from shortlist.server.settings_store import SettingsStore
 
@@ -117,6 +119,11 @@ class ContextBuilder:
             history = self._history_source(store, plex)
             provider = store.get("curator.provider")
             curator = make_curator(provider, **curator_kwargs(store.get))
+            # Only build the image artist if a row actually wants a generated poster — otherwise a
+            # server that never uses posters never touches the (optional) image SDK. None when the
+            # curator provider can't make images; the engine then skips generate-mode posters.
+            wants_generated = any((c.poster or {}).get("mode") == "generate" for c in session.query(Collection).all())
+            poster_artist = make_artist(store, self._sessions) if wants_generated else None
             config = EngineConfig(
                 row_size=int(store.get("row.size")),
                 row_name_template=store.get("row.name_template"),
@@ -165,6 +172,7 @@ class ContextBuilder:
             tmdb=tmdb,
             trakt=trakt,
             search=search,
+            poster_artist=poster_artist,
             history_source=history,
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),
@@ -405,9 +413,32 @@ class ContextBuilder:
                     pin_top=bool(collection.pin_top),
                     hub_anchors=self._row_hub_anchors(collection),
                     library_keys=[str(k) for k in (collection.library_keys or [])],
+                    poster=self._build_poster(session, collection),
                 )
             )
         return specs
+
+    @staticmethod
+    def _build_poster(session: Session, collection) -> PosterSpec | None:
+        """This row's custom-poster spec, or None to leave Plex's own artwork alone.
+
+        Upload mode carries the stored image bytes so the engine (which must not touch the DB or
+        filesystem) can hand them straight to ``uploadPoster``; a configured-but-not-yet-uploaded row
+        yields None. Generate mode carries only the text/style — the injected artist renders it.
+        """
+        cfg = collection.poster or {}
+        mode = (cfg.get("mode") or "").strip()
+        if mode == "upload":
+            stored = load_upload(session, collection.id)
+            return PosterSpec(mode="upload", image=stored[0]) if stored else None
+        if mode == "generate":
+            return PosterSpec(
+                mode="generate",
+                title=cfg.get("title") or "",
+                subtitle=cfg.get("subtitle") or "",
+                style=cfg.get("style") or "",
+            )
+        return None
 
     @classmethod
     def _row_hub_anchors(cls, collection) -> dict[str, HubAnchor]:

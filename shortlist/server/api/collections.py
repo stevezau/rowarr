@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 
@@ -15,6 +18,8 @@ from shortlist.server.auth import require_owner
 from shortlist.server.db.models import DEFAULT_SLUG, Collection, CollectionAudience, PickRow, User
 from shortlist.server.scheduler import rebuild_schedule
 from shortlist.server.services import collection_reconcile as reconcile
+from shortlist.server.services import poster_service
+from shortlist.server.services.poster_service import load_upload
 from shortlist.server.settings_store import SettingsStore
 
 router = APIRouter(prefix="/collections", tags=["collections"], dependencies=[Depends(require_owner)])
@@ -27,6 +32,7 @@ BUILDS = {"per_person", "shared"}
 AUDIENCES = {"everyone", "subset"}
 MEDIA = {"movie", "show", "both"}
 PLACEMENTS = {"both", "home", "library"}
+POSTER_MODES = {"", "upload", "generate"}
 
 
 class PromptIn(BaseModel):
@@ -49,6 +55,17 @@ class HubAnchorIn(BaseModel):
     anchor: str = Field(default="", max_length=255)
     before: bool = False
     top: bool = False
+
+
+class PosterIn(BaseModel):
+    """A row's custom-poster config. ``mode`` "" leaves Plex artwork alone; "upload" uses the image
+    stored via the upload endpoint; "generate" renders ``title``/``subtitle`` in ``style`` with the AI
+    curator provider. The text fields share the row-name placeholders ({user}/{library_name}/{top_seed})."""
+
+    mode: str = ""
+    title: str = Field(default="", max_length=120)
+    subtitle: str = Field(default="", max_length=120)
+    style: str = Field(default="", max_length=400)
 
 
 class CollectionIn(BaseModel):
@@ -76,6 +93,7 @@ class CollectionIn(BaseModel):
     # global default (settings `rows.hub_anchor`).
     hub_anchor: dict[str, HubAnchorIn] = Field(default_factory=dict)
     prompt: PromptIn = Field(default_factory=PromptIn)
+    poster: PosterIn = Field(default_factory=PosterIn)
 
 
 def _validate(body: CollectionIn) -> None:
@@ -92,6 +110,8 @@ def _validate(body: CollectionIn) -> None:
         raise HTTPException(422, f"unknown tone {body.prompt.tone!r}; valid: {sorted(TONE_PRESETS)} (or blank)")
     if body.placement not in PLACEMENTS:
         raise HTTPException(422, f"placement must be one of {sorted(PLACEMENTS)}")
+    if body.poster.mode not in POSTER_MODES:
+        raise HTTPException(422, f"poster mode must be one of {sorted(POSTER_MODES)}")
     if body.schedule.strip():
         try:
             CronTrigger.from_crontab(body.schedule.strip())
@@ -100,6 +120,20 @@ def _validate(body: CollectionIn) -> None:
     for lib, anchor in body.hub_anchor.items():
         if not anchor.top and not anchor.anchor.strip():
             raise HTTPException(422, f"hub_anchor[{lib}]: needs 'top' or a non-empty 'anchor'")
+
+
+def _poster_view(session, collection: Collection) -> dict:
+    """The row's poster config for the editor — never the image bytes, just what's set plus whether an
+    uploaded image exists (so the editor can show a thumbnail via the image endpoint)."""
+    cfg = collection.poster or {}
+    mode = (cfg.get("mode") or "").strip()
+    return {
+        "mode": mode,
+        "title": cfg.get("title") or "",
+        "subtitle": cfg.get("subtitle") or "",
+        "style": cfg.get("style") or "",
+        "has_image": mode == "upload" and load_upload(session, collection.id) is not None,
+    }
 
 
 def _serialize(session, collection: Collection) -> dict:
@@ -139,6 +173,7 @@ def _serialize(session, collection: Collection) -> dict:
         "hub_anchor": collection.hub_anchor or {},
         "library_keys": [str(k) for k in (collection.library_keys or [])],
         "prompt": collection.prompt or {},
+        "poster": _poster_view(session, collection),
     }
 
 
@@ -207,6 +242,7 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
             hub_anchor={k: v.model_dump() for k, v in body.hub_anchor.items()},
             library_keys=body.library_keys,
             prompt=_prompt_for(slug, body),
+            poster=body.poster.model_dump(),
         )
         session.add(collection)
         session.flush()
@@ -283,6 +319,8 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
             collection.schedule = body.schedule.strip()  # a whitespace-only cron means "no schedule"
         if "prompt" in sent:
             collection.prompt = _prompt_for(collection.slug, body)
+        if "poster" in sent:
+            collection.poster = body.poster.model_dump()
         if "hub_anchor" in sent:
             collection.hub_anchor = {k: v.model_dump() for k, v in body.hub_anchor.items()}
         if sent & {"audience", "audience_user_ids"}:
@@ -384,3 +422,93 @@ async def cleanup_collection(collection_id: int, body: CleanupRequest, request: 
         "dry_run": body.dry_run,
         "message": f"{verb} {len(removed)} collection(s) for “{name}”.",
     }
+
+
+def _require_collection(session, collection_id: int) -> Collection:
+    collection = session.get(Collection, collection_id)
+    if collection is None:
+        raise HTTPException(404, "collection not found")
+    return collection
+
+
+@router.post("/{collection_id}/poster/upload")
+async def upload_poster_image(collection_id: int, request: Request, file: Annotated[UploadFile, File()]) -> dict:
+    """Store an uploaded poster image for a row and switch it into upload mode.
+
+    Normalizes the image (downscale to poster size + JPEG) before it hits the DB, so a phone photo
+    doesn't bloat /config. Any generate-mode text the user typed is preserved.
+    """
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(422, "no file was uploaded")
+    if len(raw) > poster_service.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "that image is too large — keep it under 8 MB")
+    try:
+        image, content_type = poster_service.normalize_upload(raw)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    with request.app.state.sessions() as session:
+        collection = _require_collection(session, collection_id)
+        poster_service.store_upload(session, collection_id, image, content_type)
+        cfg = dict(collection.poster or {})
+        cfg["mode"] = "upload"
+        collection.poster = cfg
+        session.commit()
+    return {"ok": True, "mode": "upload"}
+
+
+@router.get("/{collection_id}/poster/image")
+async def get_poster_image(collection_id: int, request: Request) -> Response:
+    """Serve a row's current poster image: the uploaded original, or the last generated preview."""
+    state = request.app.state
+    with state.sessions() as session:
+        collection = _require_collection(session, collection_id)
+        stored = poster_service.load_upload(session, collection_id)
+        if stored is not None:
+            return Response(stored[0], media_type=stored[1])
+        cfg = collection.poster or {}
+        if (cfg.get("mode") or "") == "generate":
+            store = SettingsStore(session, state.secrets)
+            prompt = poster_service.sample_preview_prompt(
+                store, cfg.get("title") or "", cfg.get("subtitle") or "", cfg.get("style") or ""
+            )
+            cached = poster_service.load_generated(session, prompt)
+            if cached is not None:
+                return Response(cached, media_type="image/png")
+    raise HTTPException(404, "no poster image for this row")
+
+
+@router.post("/{collection_id}/poster/preview")
+async def preview_poster(collection_id: int, body: PosterIn, request: Request) -> Response:
+    """Generate a sample poster from the given generate-mode text and return the image.
+
+    Uses sample placeholder values (a name + the Movies library) so the owner can see what a poster
+    will look like. The result is cached, so warming the preview also speeds the next run.
+    """
+    state = request.app.state
+    with state.sessions() as session:
+        _require_collection(session, collection_id)
+        store = SettingsStore(session, state.secrets)
+        status = poster_service.image_provider_status(store)
+        if not status["capable"]:
+            raise HTTPException(422, status["reason"])
+        artist = poster_service.make_artist(store, state.sessions)
+        prompt = poster_service.sample_preview_prompt(store, body.title, body.subtitle, body.style)
+    if artist is None:
+        raise HTTPException(422, "image generation isn't available with the current AI provider")
+    try:
+        image = await run_in_threadpool(artist.render, prompt)
+    except Exception as exc:
+        raise HTTPException(502, f"couldn't generate a preview ({type(exc).__name__})") from exc
+    if not image:
+        raise HTTPException(502, "the image provider returned no image")
+    return Response(image, media_type="image/png")
+
+
+@router.delete("/{collection_id}/poster/image", status_code=204)
+async def delete_poster_image(collection_id: int, request: Request) -> None:
+    """Remove a row's uploaded poster image (its config/mode is cleared via the normal save)."""
+    with request.app.state.sessions() as session:
+        _require_collection(session, collection_id)
+        poster_service.clear_assets(session, collection_id)
+        session.commit()

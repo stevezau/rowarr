@@ -7,6 +7,7 @@ import {
 import { SaveStatus } from "@/components/save-status";
 import { AudiencePicker } from "@/components/rows/audience-picker";
 import { LibraryPicker } from "@/components/rows/library-picker";
+import { PosterField } from "@/components/rows/poster-field";
 import { RowScheduleField } from "@/components/rows/row-schedule-field";
 import { RowShelfPlacement } from "@/components/rows/row-shelf-placement";
 import { RowSourcesField } from "@/components/rows/row-sources-field";
@@ -147,6 +148,13 @@ export function RowEditor({
               </p>
             )}
           </div>
+
+          <PosterField
+            value={input.poster}
+            onChange={(poster) => set({ poster })}
+            collectionId={collection?.id ?? null}
+            hasImage={collection?.poster?.has_image ?? false}
+          />
 
           <div className="space-y-2">
             <Label>Built how?</Label>

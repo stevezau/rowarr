@@ -1025,6 +1025,53 @@ class TestCollectionsSeed:
 
         assert "blankish" not in {s.slug for s in retired}, "a whitespace-title row must not be auto-removed"
 
+    def test_poster_config_round_trips_and_reaches_the_spec(self, client: TestClient):
+        from shortlist.server.services.context_builder import ContextBuilder
+        from shortlist.server.services.sse import EventBus
+        from shortlist.server.settings_store import SettingsStore
+
+        body = {"name": "Poster Row", "poster": {"mode": "generate", "title": "{user}'s Picks", "style": "neon"}}
+        created = client.post("/api/collections", json=body)
+        assert created.status_code == 201
+        poster = created.json()["poster"]
+        assert poster["mode"] == "generate" and poster["title"] == "{user}'s Picks" and poster["has_image"] is False
+        # An unknown mode is rejected.
+        assert client.post("/api/collections", json={"name": "X", "poster": {"mode": "bogus"}}).status_code == 422
+
+        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
+        with client.app.state.sessions() as session:
+            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
+        spec = next(s for s in specs if s.slug == "poster_row")
+        assert spec.poster is not None and spec.poster.mode == "generate" and spec.poster.style == "neon"
+
+    def test_poster_upload_stores_switches_mode_and_serves_the_image(self, client: TestClient):
+        created = client.post("/api/collections", json={"name": "Uploaded Poster"})
+        cid = created.json()["id"]
+        # No image yet.
+        assert client.get(f"/api/collections/{cid}/poster/image").status_code == 404
+
+        upload = client.post(
+            f"/api/collections/{cid}/poster/upload",
+            files={"file": ("poster.png", b"\x89PNG\r\n\x1a\nfake-bytes", "image/png")},
+        )
+        assert upload.status_code == 200 and upload.json()["mode"] == "upload"
+
+        # The row is now in upload mode and reports an image; the image endpoint serves the bytes.
+        got = next(c for c in client.get("/api/collections").json() if c["id"] == cid)
+        assert got["poster"]["mode"] == "upload" and got["poster"]["has_image"] is True
+        image = client.get(f"/api/collections/{cid}/poster/image")
+        assert image.status_code == 200 and image.content.startswith(b"\x89PNG")
+
+        # Deleting the image removes it.
+        assert client.delete(f"/api/collections/{cid}/poster/image").status_code == 204
+        assert client.get(f"/api/collections/{cid}/poster/image").status_code == 404
+
+    def test_image_provider_status_reports_incapable_without_an_image_provider(self, client: TestClient):
+        status = client.get("/api/system/image-provider")
+        assert status.status_code == 200
+        # The test config has no OpenAI/Google curator, so generation is not available.
+        assert status.json()["capable"] is False
+
     def test_default_row_prompt_by_build(self, client: TestClient):
         """The default row's style comes from global Settings — but HOW it gets there differs by
         build, and the shared cell used to fall through to a bare default (ignoring Settings).

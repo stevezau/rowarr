@@ -228,6 +228,17 @@ class TestImageStorage:
         with sessions() as session:
             assert load_upload(session, 999) is None
 
+    def test_storing_the_same_key_twice_upserts_without_erroring(self, sessions):
+        # The concurrency bug the e2e caught: two stores of the same key must not UNIQUE-violate.
+        with sessions() as session:
+            store_upload(session, 7, b"ONE", "image/png")
+            session.commit()
+        with sessions() as session:
+            store_upload(session, 7, b"TWO", "image/jpeg")
+            session.commit()
+        with sessions() as session:
+            assert load_upload(session, 7) == (b"TWO", "image/jpeg")
+
     def test_clear_removes_only_this_rows_upload(self, sessions):
         with sessions() as session:
             store_upload(session, 1, b"A", "image/png")

@@ -22,10 +22,11 @@ import hashlib
 import io
 
 from loguru import logger
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from shortlist.engine.clients.poster import PosterArtist
-from shortlist.server.db.models import PosterAsset
+from shortlist.server.db.models import PosterAsset, utcnow
 from shortlist.server.settings_store import SettingsStore
 
 # Curator providers that can generate images (so ai-engine posters reuse the curator key).
@@ -263,12 +264,15 @@ def _upload_key(collection_id: int) -> str:
 
 
 def _put_asset(session: Session, key: str, image: bytes, content_type: str) -> None:
-    asset = session.get(PosterAsset, key)
-    if asset is None:
-        session.add(PosterAsset(key=key, image=image, content_type=content_type))
-    else:
-        asset.image = image
-        asset.content_type = content_type
+    """Insert-or-update an asset atomically. Two concurrent requests can both cache-miss the same
+    generated poster and both try to store it (row card thumbnail + editor image, or parallel GETs);
+    a plain get-then-add races into a UNIQUE-constraint 500, so use an ON CONFLICT upsert. The bytes
+    are deterministic for a given key, so last-writer-wins is harmless."""
+    stmt = sqlite_insert(PosterAsset).values(key=key, image=image, content_type=content_type, updated_at=utcnow())
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["key"], set_={"image": image, "content_type": content_type, "updated_at": utcnow()}
+    )
+    session.execute(stmt)
 
 
 def store_upload(session: Session, collection_id: int, image: bytes, content_type: str) -> None:

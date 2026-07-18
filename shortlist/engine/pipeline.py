@@ -47,7 +47,12 @@ from shortlist.engine.models import (
     UserProfile,
     UserRunReport,
 )
-from shortlist.engine.privacy import SnapshotStore, shared_label_audiences, sync_user_restrictions
+from shortlist.engine.privacy import (
+    SnapshotStore,
+    shared_label_audiences,
+    shortlist_labels_in,
+    sync_user_restrictions,
+)
 
 
 @dataclass
@@ -238,6 +243,27 @@ def _library_index(ctx: EngineContext, section) -> tuple[dict[int, int], dict[in
     return index, episodes
 
 
+def _library_catalog(ctx: EngineContext, section) -> list[dict]:
+    """This section's AI-from-library catalog — from the cross-run cache when the library is unchanged.
+
+    Same signature-keyed cross-run cache as ``_library_index`` right next to it. Without this the
+    llm_library source re-walked every targeted library in full (``section.all()``) on EVERY run, even
+    when nothing changed — a second full library scan beside the (already-cached) index. A signature
+    change (a title added/removed/edited) misses and re-scans; a missing signature / NullCache always
+    re-scans (same safe fallback as the index)."""
+    signature = ctx.plex.section_signature(section)
+    cache_key = f"catalog:{section.key}:{signature}" if signature else None
+    if cache_key and (cached := ctx.index_cache.get(cache_key)):
+        catalog = json.loads(cached)
+        _emit(ctx, section.title, "catalogued (cached)", {"items": len(catalog)})
+        return catalog
+    _emit(ctx, section.title, "cataloguing", {})
+    catalog = ctx.plex.build_library_catalog(section)
+    if cache_key:
+        ctx.index_cache.set(cache_key, json.dumps(catalog), INDEX_CACHE_TTL_S)
+    return catalog
+
+
 def _build_indexes(
     ctx: EngineContext, users: list[UserProfile], sections: list
 ) -> tuple[dict[int, int], dict[MediaType, dict[int, int]]]:
@@ -312,8 +338,7 @@ def _build_indexes(
         seen: dict[MediaType, set[int]] = {MediaType.MOVIE: set(), MediaType.SHOW: set()}
         for section in index_sections:
             kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
-            _emit(ctx, section.title, "cataloguing", {})
-            items = ctx.plex.build_library_catalog(section)
+            items = _library_catalog(ctx, section)  # cross-run cached, like the index
             section_catalog[section.key] = items
             # Deduped across libraries: the same film in "Movies" and "4K Movies" is one title to
             # recommend, and listing it twice would spend the LLM's slice of the catalog on itself.
@@ -515,6 +540,9 @@ def _privacy_sync_phase(
     # not in the config is excluded (hidden) rather than treated as public.
     shared_labels = shared_label_audiences(ctx.config)
     reports = {r.slug: r for r in report.users}
+    # account_id -> {field: expected} for every write this run, verified in ONE roster read after the
+    # loop (below) instead of a full GET /api/users per write (which was O(A²) on a change night).
+    to_verify: dict[int, dict[str, str]] = {}
     for user in audience:
         user_report = reports.get(user.slug)
         try:
@@ -534,6 +562,9 @@ def _privacy_sync_phase(
                 # Every share we touch, audited by account id — most of these accounts have no
                 # UserRunReport to record it on (rule 10).
                 report.filter_writes[user.plex_account_id] = {"username": user.username, "fields": written}
+                if not ctx.config.dry_run:
+                    # {field: expected merged value} — read back once, after every write, below.
+                    to_verify[user.plex_account_id] = {field: after for field, (_before, after) in written.items()}
             if user_report is not None:
                 user_report.privacy_synced = bool(written)
         except Exception as e:
@@ -547,6 +578,37 @@ def _privacy_sync_phase(
             else:
                 report.error = f"{report.error} | {message}" if report.error else message
             logger.exception("{}: privacy sync failed", user.username)
+
+    # Verify every filter write persisted — ONCE, with a single fresh roster read, strictly before any
+    # promotion (the caller promotes only when this returns True). A missing shortlist exclude means a
+    # row would be visible to someone it shouldn't, so it fails the whole sync (blocks promotion) exactly
+    # as the old per-user read-back-and-raise did — just without a full roster fetch per account.
+    if to_verify and not sync_failed:
+        try:
+            fresh = {r.id: r for r in ctx.plextv.list_users()}
+        except Exception as e:
+            sync_failed = True
+            note = f"could not verify filters: {type(e).__name__}"
+            report.error = f"{report.error} | {note}" if report.error else note
+            logger.exception("could not read the plex.tv roster to verify filter writes — nothing promoted")
+        else:
+            for account_id, expected_fields in to_verify.items():
+                remote2 = fresh.get(account_id)
+                for fieldname, expected in expected_fields.items():
+                    got = remote2.filters[fieldname] if remote2 is not None else ""
+                    missing = shortlist_labels_in(expected, ctx.config.label_prefix) - shortlist_labels_in(
+                        got, ctx.config.label_prefix
+                    )
+                    if missing:
+                        sync_failed = True
+                        msg = f"read-back missing excludes {missing} on {fieldname} for account {account_id}"
+                        stamp = reports.get(own_slugs.get(account_id, ""))
+                        if stamp is not None:
+                            stamp.status = "error"
+                            stamp.error = f"{stamp.error} | {msg}" if stamp.error else msg
+                        else:
+                            report.error = f"{report.error} | {msg}" if report.error else msg
+                        logger.error("privacy verify: {}", msg)
 
     return not sync_failed
 

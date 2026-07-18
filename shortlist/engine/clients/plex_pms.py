@@ -122,6 +122,10 @@ class PlexClient:
         # promotes mutate the cached Collection objects in place, so they need no busting.
         self._sections_cache: list[LibrarySection] | None = None
         self._collections_cache: dict[str, list[Collection]] = {}
+        # Per-run memo for cold-start top-rated: the highest-rated titles of a section are identical for
+        # every cold user, so a cold-heavy night (a Tautulli outage pushes many users below min_history)
+        # otherwise repeats the same search O(cold_users x sections). Keyed (section.key, limit).
+        self._top_rated_cache: dict[tuple[str, int], list[tuple[int, object]]] = {}
 
     @property
     def machine_id(self) -> str:
@@ -245,7 +249,13 @@ class PlexClient:
         Returns ``(tmdb_id, item)`` pairs, up to ``limit``. Over-fetches (2x) because titles with
         no TMDB guid are skipped, so a library with sparse ids still fills the request. Owns the
         ``tmdb://`` guid grammar so cold start never has to parse a guid itself.
+
+        Memoized per (section, limit) for the run: a section's top-rated list is the same for every
+        cold-start user, so many cold users share one PMS search instead of one each.
         """
+        cache_key = (str(section.key), limit)
+        if cache_key in self._top_rated_cache:
+            return self._top_rated_cache[cache_key]
         out: list[tuple[int, object]] = []
         for item in section.search(sort="audienceRating:desc", limit=limit * 2):
             tmdb_id = _tmdb_guid(item)
@@ -254,6 +264,7 @@ class PlexClient:
             out.append((tmdb_id, item))
             if len(out) == limit:
                 break
+        self._top_rated_cache[cache_key] = out
         return out
 
     def owned_collections(self, label_prefix: str = "shortlist") -> dict[str, OwnedRow]:

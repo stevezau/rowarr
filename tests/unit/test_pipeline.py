@@ -137,6 +137,70 @@ class TestRun:
         assert not report.ok
         ctx.plex.promote.assert_not_called()
 
+    def test_batched_readback_missing_exclude_blocks_promotion(self, ctx: EngineContext, mock_plextv):
+        """The per-user read-back moved to one roster read after all writes (RANK 1). A write that
+        returns fine but silently doesn't stick must still block promotion: the batched read-back
+        finds the exclude missing, sets sync_failed, and nothing is promoted."""
+        sarah, mike = make_profile("sarah", account_id=100), make_profile("mike", account_id=200)
+        mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
+        ctx.curator.curate.side_effect = curated_picks
+        mock_plextv.update_user_filters.side_effect = lambda *a: None  # write returns ok but doesn't persist
+
+        report = pipeline_mod.run(ctx, [sarah, mike])
+
+        assert not report.ok
+        mock_plextv.update_user_filters.assert_called()  # the write WAS attempted
+        assert "read-back missing" in (report.error or "") or any(
+            "read-back missing" in (u.error or "") for u in report.users
+        )
+        ctx.plex.promote.assert_not_called()
+
+    def test_verification_roster_read_raising_blocks_promotion(self, ctx: EngineContext, mock_plextv):
+        """If the single post-write roster read (used to verify persistence) itself fails, we cannot
+        confirm any exclude stuck -> fail safe, nothing promoted. list_users is called twice per run:
+        once to build the roster, once to verify; only the second (verify) read raises here."""
+        sarah, mike = make_profile("sarah", account_id=100), make_profile("mike", account_id=200)
+        mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
+        ctx.curator.curate.side_effect = curated_picks
+        calls = {"n": 0}
+
+        def list_users():
+            calls["n"] += 1
+            if calls["n"] >= 2:  # the verification read-back
+                raise RuntimeError("plex.tv roster read failed")
+            return mock_plextv.users
+
+        mock_plextv.list_users.side_effect = list_users
+
+        report = pipeline_mod.run(ctx, [sarah, mike])
+
+        assert not report.ok
+        assert "could not verify filters" in (report.error or "")
+        ctx.plex.promote.assert_not_called()
+
+    def test_account_absent_from_verification_roster_blocks_promotion(self, ctx: EngineContext, mock_plextv):
+        """A write happens, but the verification roster read-back no longer lists that account (its
+        share vanished mid-run) -> its just-merged exclude cannot be confirmed -> fail safe, nothing
+        promoted. Reproduces the `remote2 is None -> got=''` branch of the batched verify."""
+        sarah, mike = make_profile("sarah", account_id=100), make_profile("mike", account_id=200)
+        full = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
+        mock_plextv.users = full
+        ctx.curator.curate.side_effect = curated_picks
+        calls = {"n": 0}
+
+        def list_users():
+            calls["n"] += 1
+            if calls["n"] >= 2:  # verification read-back has lost sarah
+                return [u for u in full if u.id != 100]
+            return full
+
+        mock_plextv.list_users.side_effect = list_users
+
+        report = pipeline_mod.run(ctx, [sarah, mike])
+
+        assert not report.ok
+        ctx.plex.promote.assert_not_called()
+
     def test_one_user_failing_never_stops_the_others(self, ctx: EngineContext, mock_plextv):
         sarah, mike = make_profile("sarah", account_id=100), make_profile("mike", account_id=200)
         mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]

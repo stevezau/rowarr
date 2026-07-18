@@ -246,14 +246,11 @@ def sync_user_restrictions(
         return diff
 
     plextv.update_user_filters(user.plex_account_id, desired_fields)
-    readback = plextv.get_user(user.plex_account_id)
-    for fieldname, expected in desired_fields.items():
-        got = readback.filters[fieldname]
-        missing = shortlist_labels_in(expected, label_prefix) - shortlist_labels_in(got, label_prefix)
-        if missing:
-            raise RuntimeError(f"{user.username}: read-back missing excludes {missing} on {fieldname}")
-        if got != expected:
-            logger.warning("{}: {} persisted but normalized: {!r} -> {!r}", user.username, fieldname, expected, got)
+    # Verification is NOT done per-user here: each read-back was a full GET /api/users, so on a night
+    # that writes A accounts it cost A full-roster fetches (~O(A²)). The caller instead reads the roster
+    # ONCE after all writes and verifies every written account's shortlist excludes persisted, still
+    # strictly before any promotion — see the batched read-back at the end of _privacy_sync_phase in
+    # pipeline.py (plex-safety rule 1).
     logger.info("{}: filters merged {}", user.username, diff)
     return diff
 

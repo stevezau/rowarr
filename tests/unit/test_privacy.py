@@ -290,18 +290,24 @@ class TestSyncUserRestrictions:
         mock_plextv.update_user_filters.assert_not_called()
         assert snapshot_store.saved == {}
 
-    def test_readback_missing_exclude_raises(self, mock_plextv, snapshot_store):
+    def test_writes_without_a_per_user_readback(self, mock_plextv, snapshot_store):
+        """The per-user GET/verify was O(A^2) and moved to one batched roster read in the pipeline
+        (the read-back at the end of _privacy_sync_phase). sync_user_restrictions now only writes +
+        returns the diff; it must NOT read the roster back itself."""
         sarah = self._users()[0]
         mock_plextv.users = [plextv_user(100, "sarah")]
-        mock_plextv.update_user_filters.side_effect = lambda *a: None  # write silently doesn't stick
-        with pytest.raises(RuntimeError, match="read-back missing"):
-            sync_user_restrictions(
-                mock_plextv,
-                sarah,
-                mock_plextv.get_user(sarah.plex_account_id),
-                {"mike": "Shortlist_mike"},
-                snapshot_store,
-            )
+        mock_plextv.update_user_filters.side_effect = lambda _id, fields: mock_plextv.users[0].filters.update(fields)
+        remote = mock_plextv.get_user(sarah.plex_account_id)
+        mock_plextv.get_user.reset_mock()
+
+        diff = sync_user_restrictions(mock_plextv, sarah, remote, {"mike": "Shortlist_mike"}, snapshot_store)
+
+        assert diff == {
+            "filterMovies": ("", "label!=Shortlist_mike"),
+            "filterTelevision": ("", "label!=Shortlist_mike"),
+        }
+        mock_plextv.update_user_filters.assert_called_once()
+        mock_plextv.get_user.assert_not_called()
 
 
 class TestRestore:

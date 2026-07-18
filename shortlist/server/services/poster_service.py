@@ -349,6 +349,6 @@ def preview_poster(studio: PosterStudio, mode: str, title: str, subtitle: str, s
 
 
 def load_preview(session: Session, mode: str, title: str, subtitle: str, style: str) -> bytes | None:
-    """The cached preview image for a generate-mode row (from a prior preview/run), or None."""
+    """The cached preview image for a text/AI-mode row (from a prior preview or run), or None."""
     engine = preview_engine(mode)
     return load_generated(session, poster_seed(engine, _sample_text(title), _sample_text(subtitle), style))

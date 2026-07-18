@@ -1074,8 +1074,35 @@ class TestCollectionsSeed:
         )
         assert bad.status_code in (200, 422)  # 422 with Pillow, 200 (stored as-is) without
 
-        # Deleting the image removes it.
+        # Deleting the image removes it (mode stays "upload", so nothing is served afterwards).
         assert client.delete(f"/api/collections/{cid}/poster/image").status_code == 204
+        assert client.get(f"/api/collections/{cid}/poster/image").status_code == 404
+
+    def test_dropping_a_custom_poster_triggers_a_reset(self, client: TestClient, monkeypatch):
+        from shortlist.server.services import collection_reconcile as rec
+
+        calls: list[tuple[str, str, str]] = []
+
+        async def fake_reset(state, *, slug, build, scope):
+            calls.append((slug, build, scope))
+            return [], None
+
+        monkeypatch.setattr(rec, "run_poster_reset", fake_reset)
+        created = client.post("/api/collections", json={"name": "Art Row", "poster": {"mode": "text", "title": "Hi"}})
+        cid = created.json()["id"]
+        # Switching back to Plex default must reconcile a revert onto Plex.
+        client.patch(
+            f"/api/collections/{cid}",
+            json={"name": "Art Row", "poster": {"mode": "", "title": "", "subtitle": "", "style": ""}},
+        )
+        assert calls and calls[0][2] == "collection.poster"
+        # A no-op poster save (still default) does NOT trigger a reset.
+        calls.clear()
+        client.patch(
+            f"/api/collections/{cid}",
+            json={"name": "Art Row", "poster": {"mode": "", "title": "", "subtitle": "", "style": ""}},
+        )
+        assert calls == []
 
     def test_image_provider_status_reports_incapable_without_an_image_provider(self, client: TestClient):
         status = client.get("/api/system/image-provider")

@@ -329,7 +329,91 @@ class TestProviderArtists:
         assert fake_genai.Client.call_args.kwargs["api_key"] == "g-key"
         call = client.models.generate_images.call_args
         assert call.kwargs["model"] == GOOGLE_IMAGE_MODEL
+        assert "T" in call.kwargs["prompt"]  # the composed prompt actually reaches the SDK
         assert fake_genai.types.GenerateImagesConfig.call_args.kwargs["aspect_ratio"] == "3:4"
+
+
+class TestPosterReset:
+    """Reverting a row to Plex default — must scope to OUR labels and hand thumb control back to Plex."""
+
+    def test_reset_row_posters_targets_only_matching_titles(self, engine_config):
+        from shortlist.engine.delivery import reset_row_posters
+
+        plex = MagicMock()
+        section = MagicMock()
+        section.title = "Movies"
+        plex.sections.return_value = [section]
+        keep, target = MagicMock(), MagicMock()
+        keep.title, target.title = "Other Row", "Weekend Picks"
+        plex.find_owned_collections.return_value = [keep, target]
+
+        reset = reset_row_posters(
+            plex, engine_config, label=f"{engine_config.label_prefix}_alex", displays={"Weekend Picks"}, dry_run=False
+        )
+        plex.reset_poster.assert_called_once_with(target)  # only the targeted title, not the other row
+        assert reset == ["Movies"]
+
+    def test_reset_row_posters_refuses_a_foreign_label(self, engine_config):
+        from shortlist.engine.delivery import reset_row_posters
+
+        plex = MagicMock()
+        assert reset_row_posters(plex, engine_config, label="kometa_movies", displays=None, dry_run=False) == []
+        plex.sections.assert_not_called()  # never even scans under a non-Shortlist label
+
+    def test_reset_row_posters_dry_run_reports_without_writing(self, engine_config):
+        from shortlist.engine.delivery import reset_row_posters
+
+        plex = MagicMock()
+        section = MagicMock()
+        section.title = "Movies"
+        plex.sections.return_value = [section]
+        coll = MagicMock()
+        coll.title = "Weekend Picks"
+        plex.find_owned_collections.return_value = [coll]
+        reset = reset_row_posters(
+            plex, engine_config, label=f"{engine_config.label_prefix}_alex", displays=None, dry_run=True
+        )
+        plex.reset_poster.assert_not_called()
+        assert reset == ["Movies"]
+
+    def test_reset_poster_selects_a_plex_default_and_unlocks(self, mock_plex):
+        coll = MagicMock()
+        ours, plex_default = MagicMock(), MagicMock()
+        ours.provider, plex_default.provider = "upload", "gracenote"
+        coll.posters.return_value = [ours, plex_default]
+        mock_plex.reset_poster(coll)
+        coll.setPoster.assert_called_once_with(plex_default)
+        coll.unlockPoster.assert_called_once()
+
+    def test_reset_poster_unlocks_even_with_no_default(self, mock_plex):
+        coll = MagicMock()
+        only_ours = MagicMock()
+        only_ours.provider = "upload"
+        coll.posters.return_value = [only_ours]
+        mock_plex.reset_poster(coll)
+        coll.setPoster.assert_not_called()
+        coll.unlockPoster.assert_called_once()
+
+    def test_reconcile_poster_reset_shared_uses_the_shared_label(self, monkeypatch):
+        from shortlist.engine.models import SHARED_LABEL_PREFIX
+        from shortlist.server.services import collection_reconcile as rec
+
+        state = MagicMock()
+        ctx = MagicMock()
+        ctx.config.label_prefix = "shortlist"
+        state.run_service.build_context.return_value = ctx
+        captured = {}
+
+        def fake_reset(plex, config, *, label, displays, dry_run):
+            captured.update(label=label, displays=displays)
+            return ["Movies"]
+
+        monkeypatch.setattr(rec, "reset_row_posters", fake_reset)
+        reset: list[str] = []
+        rec._reconcile_poster_reset(state, slug="popular", build="shared", reset=reset)
+        assert captured["label"] == f"{SHARED_LABEL_PREFIX}popular"  # shared row -> shared label
+        assert captured["displays"] is None  # all collections under the label
+        assert reset == ["Movies"]
 
 
 class TestRenderTextPoster:

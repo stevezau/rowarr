@@ -80,7 +80,16 @@ export function RowCard({
       <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-6">
         {collection.poster?.has_image && (
           <img
-            src={`${api.posterImageUrl(collection.id)}?v=${collection.poster.mode}`}
+            // Cache-bust on everything that changes the rendered image, so editing a text poster's
+            // title/style refreshes the thumbnail instead of showing the stale one.
+            src={`${api.posterImageUrl(collection.id)}?v=${encodeURIComponent(
+              [
+                collection.poster.mode,
+                collection.poster.title,
+                collection.poster.subtitle,
+                collection.poster.style,
+              ].join("|"),
+            )}`}
             alt=""
             aria-hidden="true"
             className="h-16 w-11 shrink-0 rounded border object-cover"

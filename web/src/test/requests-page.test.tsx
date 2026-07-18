@@ -257,6 +257,27 @@ describe("RequestsPage", () => {
     expect(screen.getByText(/because they watched Futurama/i)).toBeTruthy();
   });
 
+  it("collapses a long why-list to a few reasons with an expander", async () => {
+    const why = Array.from({ length: 6 }, (_, i) => ({
+      user: `person${i}`,
+      row: "Comedy Classics",
+      seed: "Fawlty Towers",
+      source: "tmdb_similar",
+    }));
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, title: "Popular Pick", why }),
+    ]);
+    renderPage();
+    await screen.findByText("Popular Pick");
+    // Only the first 3 reasons render; the rest are behind a "+3 more" toggle.
+    expect(screen.getByText("person0")).toBeTruthy();
+    expect(screen.queryByText("person5")).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: /\+3 more reasons/ }),
+    );
+    expect(screen.getByText("person5")).toBeTruthy();
+  });
+
   it("shows how a seedless pick was suggested when there is no seed", async () => {
     listRequests.mockResolvedValue([
       candidate({

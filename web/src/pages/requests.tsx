@@ -100,10 +100,16 @@ function ExternalLinks({ item }: { item: RequestCandidate }) {
  * answer to "where did this come from and why", not just a count.
  */
 function WhyBreakdown({ why }: { why: RequestCandidate["why"] }) {
+  const [expanded, setExpanded] = useState(false);
   if (!why || why.length === 0) return null;
+  // A popular title can have dozens of wanters — showing every reason is a wall. Show a few, then
+  // let the owner expand the rest on demand.
+  const LIMIT = 3;
+  const shown = expanded ? why : why.slice(0, LIMIT);
+  const hidden = why.length - shown.length;
   return (
     <ul className="space-y-0.5 border-l-2 border-muted pl-3 text-xs text-muted-foreground">
-      {why.map((w, i) => (
+      {shown.map((w, i) => (
         <li key={`${w.user}-${w.row}-${i}`}>
           <span className="font-medium text-foreground/80">{w.user}</span> ·{" "}
           <span>{w.row}</span>
@@ -114,6 +120,19 @@ function WhyBreakdown({ why }: { why: RequestCandidate["why"] }) {
           ) : null}
         </li>
       ))}
+      {why.length > LIMIT && (
+        <li>
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            {expanded
+              ? "Show fewer"
+              : `+${hidden} more ${hidden === 1 ? "reason" : "reasons"}`}
+          </button>
+        </li>
+      )}
     </ul>
   );
 }

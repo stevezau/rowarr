@@ -248,6 +248,40 @@ class TestDeliverRows:
         plex.fetch_items.assert_called_once_with([1001, 1002])
         assert plex.set_items.call_args.args == (existing, plex.fetch_items.return_value)
 
+    def test_records_order_work_on_create_for_the_deferred_ordering_pass(
+        self, engine_config: EngineConfig, movies, shows
+    ):
+        # Ordering is deferred to a post-promote pass; delivery must queue each created collection with
+        # its ranked rating keys, or that row silently never gets ordered.
+        plex = self._plex(movies, shows)
+        order_work: list = []
+
+        deliver_rows(plex, make_profile(), picks(), engine_config, order_work=order_work)
+
+        assert len(order_work) == 1
+        coll, keys = order_work[0]
+        assert coll is plex.create_collection.return_value
+        assert keys == [1001, 1002]  # the ranked rating keys, in order
+
+    def test_records_order_work_on_update(self, engine_config: EngineConfig, movies, shows):
+        plex = self._plex(movies, shows)
+        profile = make_profile()
+        existing = MagicMock()
+        existing.title = "Old Name" + row_marker(profile.plex_account_id)
+        existing.items.return_value = []
+        plex.find_owned_collections.side_effect = lambda section, label: [existing] if section is movies else []
+        order_work: list = []
+
+        deliver_rows(plex, profile, picks(), engine_config, order_work=order_work)
+
+        assert (existing, [1001, 1002]) in order_work  # the updated collection is queued too
+
+    def test_dry_run_records_no_order_work(self, engine_config: EngineConfig, movies, shows):
+        plex = self._plex(movies, shows)
+        order_work: list = []
+        deliver_rows(plex, make_profile(), picks(), engine_config, dry_run=True, order_work=order_work)
+        assert order_work == []
+
     def test_dry_run_makes_zero_writes(self, engine_config: EngineConfig, movies, shows):
         plex = self._plex(movies, shows)
 

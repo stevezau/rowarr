@@ -188,7 +188,7 @@ def run(ctx: EngineContext, users: list[UserProfile]) -> RunReport:
     # Order each row's items (the expensive one-move-per-item step) as a best-effort pass AFTER
     # promotion — rows are already delivered, hidden and live, so a slow PMS here degrades only the
     # ordering, never the run. Privacy-neutral (never touches a label, filter, or promotion).
-    _collection_order_phase(ctx, order_work, report)
+    _collection_order_phase(ctx, order_work)
 
     # Position the just-promoted rows in each library's Recommended shelf (must run after promotion —
     # a hub has to be promoted to be movable). Best-effort and privacy-neutral.
@@ -392,7 +392,7 @@ def _deliver_phase(
                     ctx, user, seed_index, library_index, stored_labels, user_report, demand, order_work
                 )
             except _PMS_TIMEOUTS:
-                # A single slow PMS read (busy server under the reorder load) shouldn't sink a whole
+                # A single slow PMS read (busy server under the add/remove write load) shouldn't sink a whole
                 # user. Delivery is upsert/idempotent, so retry the user once before giving up. A
                 # persistent outage still fails after the retry.
                 logger.warning("{}: PMS timed out — retrying this user once", user.username)
@@ -655,7 +655,7 @@ def _apply_order(ctx: EngineContext, report: RunReport, section, anchor, only_ti
         logger.warning("{}: hub ordering failed ({}: {}) — left Plex's order", section.title, type(e).__name__, e)
 
 
-def _collection_order_phase(ctx: EngineContext, order_work: list[tuple], report: RunReport) -> None:
+def _collection_order_phase(ctx: EngineContext, order_work: list[tuple]) -> None:
     """Order each delivered row's items to its ranked list — the expensive one-move-per-item step, run
     ONCE here, AFTER promotion. Best-effort and privacy-neutral: rows are already delivered, hidden and
     promoted, so a slow or unresponsive PMS during ordering degrades only the visual order, never the
@@ -663,14 +663,20 @@ def _collection_order_phase(ctx: EngineContext, order_work: list[tuple], report:
     failure is logged and skipped, and the next run re-applies the order."""
     if ctx.config.dry_run or not order_work:
         return
-    total = 0
+    # A user retried after a mid-delivery timeout can append the same collection twice; ordering it
+    # twice is harmless (the second pass finds it in order -> 0 moves) but wasteful, so de-dupe by
+    # ratingKey, keeping the last (most recent) ranked list for each.
+    deduped: dict[int, tuple] = {}
     for collection, wanted_keys in order_work:
+        deduped[getattr(collection, "ratingKey", id(collection))] = (collection, wanted_keys)
+    total = 0
+    for collection, wanted_keys in deduped.values():
         try:
             total += ctx.plex.order_collection(collection, wanted_keys)
         except Exception as e:  # cosmetic — a stall here must never fail an already-delivered run
             title = getattr(collection, "title", "?")
             logger.warning("ordering '{}' failed ({}: {}) — left in delivery order", title, type(e).__name__, e)
-    logger.info("ordered {} collection(s), {} move(s) total", len(order_work), total)
+    logger.info("ordered {} collection(s), {} move(s) total", len(deduped), total)
 
 
 def _row_titles_by_slug(report: RunReport) -> dict[str, set[str]]:

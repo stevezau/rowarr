@@ -1439,21 +1439,40 @@ class TestPerUserTimeoutRetry:
 class TestCollectionOrderPhase:
     """The deferred, post-promote item-ordering pass: best-effort, never fatal to an already-delivered run."""
 
-    def test_orders_every_collection_and_survives_a_per_row_failure(self, ctx: EngineContext):
+    def test_orders_every_collection_with_its_keys_and_survives_a_failure(self, ctx: EngineContext):
         from unittest.mock import MagicMock as MM
+        from unittest.mock import call
 
         from shortlist.engine.pipeline import _collection_order_phase
 
-        c1, c2, c3 = MM(), MM(), MM()
+        c1, c2, c3 = MM(ratingKey=1), MM(ratingKey=2), MM(ratingKey=3)
         # Middle collection's ordering blows up (slow PMS) — the pass must keep going, not raise.
         ctx.plex.order_collection.side_effect = [4, RuntimeError("PMS timed out"), 2]
-        _collection_order_phase(ctx, [(c1, [1, 2]), (c2, [3, 4]), (c3, [5, 6])], MM())
-        assert ctx.plex.order_collection.call_count == 3  # all three attempted despite the middle failure
+        _collection_order_phase(ctx, [(c1, [1, 2]), (c2, [3, 4]), (c3, [5, 6])])
+        # Each collection ordered with ITS OWN ranked keys, in order (asserts the unpack, not just count).
+        ctx.plex.order_collection.assert_has_calls([call(c1, [1, 2]), call(c2, [3, 4]), call(c3, [5, 6])])
 
-    def test_no_order_work_is_a_noop(self, ctx: EngineContext):
+    def test_duplicate_collection_from_a_retry_is_ordered_once(self, ctx: EngineContext):
         from unittest.mock import MagicMock as MM
 
         from shortlist.engine.pipeline import _collection_order_phase
 
-        _collection_order_phase(ctx, [], MM())
+        coll = MM(ratingKey=7)  # a retried user appended the same collection twice
+        _collection_order_phase(ctx, [(coll, [1, 2]), (coll, [1, 2])])
+        assert ctx.plex.order_collection.call_count == 1  # de-duped by ratingKey
+
+    def test_dry_run_orders_nothing(self, ctx: EngineContext):
+        from dataclasses import replace as dc_replace
+        from unittest.mock import MagicMock as MM
+
+        from shortlist.engine.pipeline import _collection_order_phase
+
+        ctx.config = dc_replace(ctx.config, dry_run=True)
+        _collection_order_phase(ctx, [(MM(ratingKey=1), [1, 2])])
+        ctx.plex.order_collection.assert_not_called()
+
+    def test_no_order_work_is_a_noop(self, ctx: EngineContext):
+        from shortlist.engine.pipeline import _collection_order_phase
+
+        _collection_order_phase(ctx, [])
         ctx.plex.order_collection.assert_not_called()

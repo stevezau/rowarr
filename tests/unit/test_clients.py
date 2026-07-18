@@ -556,6 +556,26 @@ class TestPlexClient:
         assert mock_plex.order_collection(collection, [1, 2, 3]) == 0
         collection.moveItem.assert_not_called()
 
+    def test_order_collection_only_orders_the_visible_top(self, mock_plex: PlexClient):
+        """The cap: only the top _REORDER_TOP_N (the visible head) are ordered — the tail below the fold
+        is left alone, so a big row doesn't cost a move per item."""
+        from shortlist.engine.clients.plex_pms import _REORDER_TOP_N
+
+        item = self._item
+        n = _REORDER_TOP_N
+        # Live order is fully reversed vs wanted, so every position is out of place.
+        live = [item(i) for i in range(2 * n, 0, -1)]
+        collection = MagicMock()
+        collection.items.return_value = live
+        wanted = list(range(1, 2 * n + 1))  # 1..2n in order
+
+        mock_plex.order_collection(collection, wanted)
+
+        # Never more than the cap of moves, and never a move for an item past the visible head.
+        moved = [c.args[0].ratingKey for c in collection.moveItem.call_args_list]
+        assert len(moved) <= n
+        assert all(k <= n for k in moved), f"only the top {n} should move, got {moved}"
+
     def test_sections_by_type_maps_each_media_type_to_its_library(self, mock_plex: PlexClient):
         movies, shows = MagicMock(), MagicMock()
         movies.type, movies.key = "movie", "1"

@@ -320,7 +320,47 @@ function UserPanel({ run, result }: { run: RunDetail; result: RunUserResult }) {
   );
 }
 
-/** The clickable user nav at the top of a run — pick whose rows to see (failures flagged). */
+function UserChip({
+  result,
+  selected,
+  onSelect,
+}: {
+  result: RunUserResult;
+  selected: string;
+  onSelect: (slug: string) => void;
+}) {
+  const failed = result.error !== null;
+  const isSelected = result.slug === selected;
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={isSelected}
+      onClick={() => onSelect(result.slug)}
+      className={cn(
+        "flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        isSelected
+          ? "border-primary bg-primary/10"
+          : "border-border hover:bg-muted",
+        failed && !isSelected && "border-destructive/40",
+      )}
+    >
+      <UserAvatar name={result.username} size="sm" />
+      <span className="font-medium">{result.username}</span>
+      {failed ? (
+        <AlertCircle
+          className="h-3.5 w-3.5 text-destructive"
+          aria-hidden="true"
+        />
+      ) : (
+        <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
+/** The user nav at the top of a run. At 48 users a flat grid is a wall, so: a one-line summary,
+ *  failures always up front, the (usually many) successes tucked behind a toggle, and a search box. */
 function UserTabs({
   results,
   selected,
@@ -330,43 +370,95 @@ function UserTabs({
   selected: string;
   onSelect: (slug: string) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [showOk, setShowOk] = useState(false);
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? results.filter((r) => r.username.toLowerCase().includes(q))
+    : results;
+  const failed = shown.filter((r) => r.error !== null);
+  const ok = shown.filter((r) => r.error === null);
+  const failedTotal = results.filter((r) => r.error !== null).length;
+  const many = results.length > 10;
+
   return (
-    <div
-      className="flex flex-wrap gap-2"
-      role="tablist"
-      aria-label="Users in this run"
-    >
-      {results.map((result) => {
-        const failed = result.error !== null;
-        const isSelected = result.slug === selected;
-        return (
-          <button
-            key={result.slug}
-            type="button"
-            role="tab"
-            aria-selected={isSelected}
-            onClick={() => onSelect(result.slug)}
-            className={cn(
-              "flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              isSelected
-                ? "border-primary bg-primary/10"
-                : "border-border hover:bg-muted",
-              failed && !isSelected && "border-destructive/40",
+    <div className="space-y-3" role="tablist" aria-label="Users in this run">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {failedTotal > 0 && (
+            <span className="font-medium text-destructive">
+              {failedTotal} failed
+            </span>
+          )}
+          {failedTotal > 0 && " · "}
+          {results.length - failedTotal} succeeded
+        </p>
+        {many && (
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find a person…"
+            className="h-8 w-44 rounded-md border bg-background px-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Search users in this run"
+          />
+        )}
+      </div>
+
+      {failed.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {failed.map((result) => (
+            <UserChip
+              key={result.slug}
+              result={result}
+              selected={selected}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+
+      {ok.length > 0 &&
+        (many && !q ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowOk((value) => !value)}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              {showOk ? "Hide" : `Show ${ok.length} that succeeded`}
+            </button>
+            {showOk && (
+              <div className="flex flex-wrap gap-2 pt-2">
+                {ok.map((result) => (
+                  <UserChip
+                    key={result.slug}
+                    result={result}
+                    selected={selected}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </div>
             )}
-          >
-            <UserAvatar name={result.username} size="sm" />
-            <span className="font-medium">{result.username}</span>
-            {failed ? (
-              <AlertCircle
-                className="h-3.5 w-3.5 text-destructive"
-                aria-hidden="true"
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {ok.map((result) => (
+              <UserChip
+                key={result.slug}
+                result={result}
+                selected={selected}
+                onSelect={onSelect}
               />
-            ) : (
-              <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
-            )}
-          </button>
-        );
-      })}
+            ))}
+          </div>
+        ))}
+
+      {shown.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No one matches “{query}”.
+        </p>
+      )}
     </div>
   );
 }

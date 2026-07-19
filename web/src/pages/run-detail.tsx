@@ -134,6 +134,23 @@ function CopyForGitHubButton({
   );
 }
 
+/** A one-line, plain-English take on a raw engine/Plex error — the raw text stays available below. */
+function friendlyError(raw: string): string {
+  if (/\b50\d\b|internal_server_error/i.test(raw))
+    return "Plex hit a server error (500) while writing this row — it was most likely overloaded. This usually clears on the next run.";
+  if (/timed?\s?out|timeout/i.test(raw))
+    return "Plex timed out while writing this row — it was busy. This usually clears on the next run.";
+  if (/\b429\b|too many requests/i.test(raw))
+    return "Plex was rate-limiting writes (429) — too many at once. This usually clears on the next run.";
+  return "Something went wrong building this person’s row.";
+}
+
+/** A stable bucket key for an error, so identical failures (same 500 on different collection ids /
+ *  rating keys) group together — used to surface "N people failed with the same problem". */
+function errorBucket(raw: string): string {
+  return friendlyError(raw);
+}
+
 /** Rank badge colour by tier — the top picks stand out, lower ones recede. */
 function rankClass(rank: number): string {
   if (rank <= 3) return "text-amber-400";
@@ -286,11 +303,14 @@ function UserPanel({ run, result }: { run: RunDetail; result: RunUserResult }) {
   if (result.error !== null) {
     return (
       <div role="alert" className="space-y-3 rounded-md bg-destructive/10 p-3">
-        <p className="text-sm text-foreground">
-          Something went wrong building this person&rsquo;s row — copy the
-          details below when reporting it:
+        <p className="text-sm font-medium text-foreground">
+          {friendlyError(result.error)}
         </p>
-        <p className="font-mono text-sm text-destructive">{result.error}</p>
+        {/* Raw detail is contained: it scrolls inside its own box and wraps long tokens (the encoded
+            Plex uri) so it can never push the page sideways. */}
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-background/60 p-2.5 font-mono text-xs text-destructive">
+          {result.error}
+        </pre>
         <CopyForGitHubButton run={run} result={result} />
       </div>
     );
@@ -615,62 +635,96 @@ export function RunDetailPage() {
                   if (!selected) return null;
                   const failed = selected.error !== null;
                   const userId = idBySlug.get(selected.slug) ?? null;
+                  // When many people failed the same way (e.g. one Plex outage), say it ONCE up top so
+                  // you don't click through 47 identical errors.
+                  const buckets = new Map<string, number>();
+                  for (const u of run.users)
+                    if (u.error)
+                      buckets.set(
+                        errorBucket(u.error),
+                        (buckets.get(errorBucket(u.error)) ?? 0) + 1,
+                      );
+                  const topError = [...buckets.entries()].sort(
+                    (a, b) => b[1] - a[1],
+                  )[0];
+                  const commonError =
+                    topError && topError[1] >= 2
+                      ? { msg: topError[0], count: topError[1] }
+                      : null;
                   return (
-                    <div
-                      className={cn(
-                        run.users.length > 1 &&
-                          "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start",
-                      )}
-                    >
-                      {run.users.length > 1 && (
-                        <div className="lg:sticky lg:top-4">
-                          <UserTabs
-                            results={ordered}
-                            selected={selected.slug}
-                            onSelect={setSelectedSlug}
-                          />
+                    <div className="space-y-4">
+                      {commonError && (
+                        <div
+                          role="alert"
+                          className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm"
+                        >
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                          <p>
+                            <span className="font-medium">
+                              {commonError.count} people failed with the same
+                              problem.
+                            </span>{" "}
+                            {commonError.msg} Open any person below for the raw
+                            details.
+                          </p>
                         </div>
                       )}
-                      <Card
+                      <div
                         className={cn(
-                          "min-w-0",
-                          failed && "border-destructive/50",
+                          run.users.length > 1 &&
+                            "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start",
                         )}
                       >
-                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-                          <CardTitle className="flex items-center gap-2.5">
-                            <UserAvatar name={selected.username} size="sm" />
-                            {userId !== null ? (
-                              <Link
-                                to={`/users/${userId}`}
-                                className="rounded-sm hover:text-primary hover:underline"
+                        {run.users.length > 1 && (
+                          <div className="lg:sticky lg:top-4">
+                            <UserTabs
+                              results={ordered}
+                              selected={selected.slug}
+                              onSelect={setSelectedSlug}
+                            />
+                          </div>
+                        )}
+                        <Card
+                          className={cn(
+                            "min-w-0",
+                            failed && "border-destructive/50",
+                          )}
+                        >
+                          <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+                            <CardTitle className="flex items-center gap-2.5">
+                              <UserAvatar name={selected.username} size="sm" />
+                              {userId !== null ? (
+                                <Link
+                                  to={`/users/${userId}`}
+                                  className="rounded-sm hover:text-primary hover:underline"
+                                >
+                                  {selected.username}
+                                </Link>
+                              ) : (
+                                selected.username
+                              )}
+                              <Badge
+                                variant={
+                                  failed
+                                    ? "destructive"
+                                    : runStatusVariant(selected.status)
+                                }
                               >
-                                {selected.username}
-                              </Link>
-                            ) : (
-                              selected.username
-                            )}
-                            <Badge
-                              variant={
-                                failed
-                                  ? "destructive"
-                                  : runStatusVariant(selected.status)
-                              }
-                            >
-                              {runStatusLabel(selected.status)}
-                            </Badge>
-                          </CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            {formatDuration(selected.duration_ms)}
-                            {selected.llm_tokens > 0
-                              ? ` · ${selected.llm_tokens.toLocaleString()} AI tokens`
-                              : ""}
-                          </p>
-                        </CardHeader>
-                        <CardContent>
-                          <UserPanel run={run} result={selected} />
-                        </CardContent>
-                      </Card>
+                                {runStatusLabel(selected.status)}
+                              </Badge>
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground">
+                              {formatDuration(selected.duration_ms)}
+                              {selected.llm_tokens > 0
+                                ? ` · ${selected.llm_tokens.toLocaleString()} AI tokens`
+                                : ""}
+                            </p>
+                          </CardHeader>
+                          <CardContent>
+                            <UserPanel run={run} result={selected} />
+                          </CardContent>
+                        </Card>
+                      </div>
                     </div>
                   );
                 })()

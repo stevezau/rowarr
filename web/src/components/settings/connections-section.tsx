@@ -76,7 +76,7 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
         <ConnectionCard
           service="llm"
           title="AI curator"
-          purpose="Writes each row and its “why we picked this”. Optional — a no-AI mode works too."
+          purpose="Picks each row’s titles and writes its “why”, and powers the optional AI sources (web search + from-library). Optional — a no-AI mode works too."
           settings={settings}
           summary={
             // Show the provider's friendly label ("Claude", "None"), never the raw id or a

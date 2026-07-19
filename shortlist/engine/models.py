@@ -386,8 +386,9 @@ class RequestReport:
 
     considered: int = 0  # titles that cleared the rating/vote thresholds
     outcomes: list[RequestOutcome] = field(default_factory=list)
-    # Cleared the base floors but not the auto-send bar (or overflowed max_per_run): not requested,
-    # handed back for the server to persist so the owner can approve them by hand.
+    # Titles handed back for the server to persist as pending so the owner can approve them by hand:
+    # those that cleared the base floors but not the auto-send bar (or overflowed max_per_run), PLUS
+    # any auto-send that was attempted and ERRORED (each carries its `.detail` so the inbox shows why).
     queued: list[MissingTitle] = field(default_factory=list)
     # The titles actually ASKED FOR this run. The server files these in the inbox as `sent`, which is
     # what stops tomorrow's run re-requesting a title that is merely still downloading — and spending

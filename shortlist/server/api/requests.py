@@ -99,6 +99,27 @@ def reject_requests(body: RequestAction, request: Request) -> dict:
     return {"rejected": len(rows)}
 
 
+@router.post("/restore")
+def restore_requests(body: RequestAction, request: Request) -> dict:
+    """Un-reject: move rejected titles back to the pending queue (Waiting) so they can be sent again.
+
+    Only ``rejected`` rows are restored; ``pending``/``sent`` are left as they are. The row keeps its
+    recorded demand/wanters/why/tags, so it reappears in Waiting exactly as it was, ready to send —
+    unlike a run, which would only re-surface it if the same taste turned it up again.
+    """
+    with request.app.state.sessions() as session:
+        rows = (
+            session.query(RequestCandidate)
+            .filter(RequestCandidate.id.in_(body.ids), RequestCandidate.status == "rejected")
+            .all()
+        )
+        for row in rows:
+            row.status = "pending"
+        session.add(Event(scope="requests.restore", level="info", message={"ids": body.ids, "count": len(rows)}))
+        session.commit()
+    return {"restored": len(rows)}
+
+
 @router.post("/delete")
 def delete_requests(body: RequestAction, request: Request) -> dict:
     """Remove the given titles from the inbox entirely, leaving no trace.

@@ -360,3 +360,12 @@ export function useDeleteRequests() {
       queryClient.invalidateQueries({ queryKey: queryKeys.requests }),
   });
 }
+
+export function useRestoreRequests() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.restoreRequests(ids),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.requests }),
+  });
+}

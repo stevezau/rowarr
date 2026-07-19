@@ -269,8 +269,9 @@ Tick the ones you want and click **Send to Sonarr/Radarr**. For the rest you hav
 difference is exactly what happens on the next run:
 
 - **Reject** — a permanent "no". The title is never re-queued AND never auto-sent by a later run. It
-  moves to the **Rejected** tab as a record. Changed your mind? **Allow again** on that tab lifts the
-  block so a future run may surface it once more.
+  moves to the **Rejected** tab as a record. Changed your mind? **Allow again** (or **Allow all
+  again**) on that tab moves it straight back to Waiting — immediately, with its who-wanted-it detail
+  intact — ready to send. No waiting for a run.
 - **Delete** — a "not right now". The title is removed from the list with no block, so if your people's
   taste turns it up again on a later run, it comes back to Waiting. Use it to clear clutter without
   slamming the door.

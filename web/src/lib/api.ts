@@ -401,7 +401,14 @@ export const api = {
       body: JSON.stringify({ ids }),
     }),
 
-  // Hard-delete (no tombstone) — a later run can re-surface the title. Also lifts a rejection.
+  // Un-reject: move rejected titles back to Waiting (pending) right now, metadata intact.
+  restoreRequests: (ids: number[]): Promise<{ restored: number }> =>
+    request("/api/requests/restore", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+
+  // Hard-delete (no tombstone) — a later run can re-surface the title.
   deleteRequests: (ids: number[]): Promise<{ deleted: number }> =>
     request("/api/requests/delete", {
       method: "POST",

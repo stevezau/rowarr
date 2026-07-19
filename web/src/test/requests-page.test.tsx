@@ -12,6 +12,7 @@ const {
   sendRequests,
   rejectRequests,
   deleteRequests,
+  restoreRequests,
   getSettings,
 } = vi.hoisted(() => ({
   listRequests: vi.fn(),
@@ -20,6 +21,9 @@ const {
   ),
   rejectRequests: vi.fn((_ids: number[]) => Promise.resolve({ rejected: 1 })),
   deleteRequests: vi.fn((_ids: number[]) => Promise.resolve({ deleted: 1 })),
+  restoreRequests: vi.fn((ids: number[]) =>
+    Promise.resolve({ restored: ids.length }),
+  ),
   getSettings: vi.fn(() => Promise.resolve({ "requests.enabled": true })),
 }));
 
@@ -31,6 +35,7 @@ vi.mock("@/lib/api", () => ({
       sendRequests(ids, dryRun),
     rejectRequests: (ids: number[]) => rejectRequests(ids),
     deleteRequests: (ids: number[]) => deleteRequests(ids),
+    restoreRequests: (ids: number[]) => restoreRequests(ids),
     getSettings: () => getSettings(),
   },
 }));
@@ -80,6 +85,7 @@ describe("RequestsPage", () => {
     sendRequests.mockClear();
     rejectRequests.mockClear();
     deleteRequests.mockClear();
+    restoreRequests.mockClear();
     getSettings.mockResolvedValue({ "requests.enabled": true });
   });
 
@@ -402,7 +408,7 @@ describe("RequestsPage", () => {
     expect(rejectRequests).not.toHaveBeenCalled();
   });
 
-  it("lets a rejected title come back via 'Allow again' (deletes the tombstone)", async () => {
+  it("lets a rejected title come straight back to Waiting via 'Allow again' (restores, not deletes)", async () => {
     listRequests.mockResolvedValue([
       candidate({ id: 21, title: "Blocked Show", status: "rejected" }),
     ]);
@@ -412,7 +418,29 @@ describe("RequestsPage", () => {
       await screen.findByRole("button", { name: "Rejected (1)" }),
     );
     await userEvent.click(screen.getByRole("button", { name: /Allow again/i }));
-    await waitFor(() => expect(deleteRequests).toHaveBeenCalledWith([21]));
+    // Restore (back to pending) — NOT delete: the item must reappear in Waiting, not vanish.
+    await waitFor(() => expect(restoreRequests).toHaveBeenCalledWith([21]));
+    expect(deleteRequests).not.toHaveBeenCalled();
+  });
+
+  it("restores every rejected title at once with 'Allow all again'", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 21, title: "Blocked One", status: "rejected" }),
+      candidate({
+        id: 22,
+        tmdb_id: 222,
+        title: "Blocked Two",
+        status: "rejected",
+      }),
+    ]);
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Rejected (2)" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Allow all again/i }),
+    );
+    await waitFor(() => expect(restoreRequests).toHaveBeenCalledWith([21, 22]));
   });
 
   it("reads as off — and cannot send — when requests are disabled but candidates are on file", async () => {

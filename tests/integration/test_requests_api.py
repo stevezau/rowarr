@@ -137,6 +137,20 @@ class TestRequestsApi:
         with client.app.state.sessions() as session:
             assert session.get(RequestCandidate, 3) is not None  # id 3 is the seeded "Sent Film"
 
+    def test_restore_moves_a_rejected_title_back_to_pending(self, client: TestClient):
+        # "Allow again": a rejected title returns to Waiting immediately, ready to send — not deleted.
+        client.post("/api/requests/reject", json={"ids": [1]})
+        assert client.post("/api/requests/restore", json={"ids": [1]}).json()["restored"] == 1
+        rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
+        assert rows[10]["status"] == "pending"  # back in the waiting queue, metadata intact
+
+    def test_restore_only_touches_rejected_rows(self, client: TestClient):
+        # A pending row (id 2) and a sent row (id 3) must be left exactly as they are.
+        body = client.post("/api/requests/restore", json={"ids": [2, 3]}).json()
+        assert body["restored"] == 0
+        rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
+        assert rows[20]["status"] == "pending" and rows[30]["status"] == "sent"
+
     def test_send_without_requests_configured_returns_409(self, client: TestClient, monkeypatch):
         monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(None))
         assert client.post("/api/requests/send", json={"ids": [10]}).status_code == 409

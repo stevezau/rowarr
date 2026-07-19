@@ -24,6 +24,7 @@ import {
   useDeleteRequests,
   useRejectRequests,
   useRequests,
+  useRestoreRequests,
   useSendRequests,
   useSettings,
 } from "@/lib/queries";
@@ -263,8 +264,8 @@ function SentRow({ item }: { item: RequestCandidate }) {
   );
 }
 
-/** A rejected title — a permanent tombstone that blocks re-queuing. "Allow again" deletes the
- *  tombstone so a future run may surface it once more. */
+/** A rejected title — blocked from being suggested or requested. "Allow again" un-rejects it,
+ *  moving it straight back to Waiting (metadata intact) so it can be sent. */
 function RejectedRow({
   item,
   onAllowAgain,
@@ -289,7 +290,7 @@ function RejectedRow({
           size="sm"
           disabled={disabled}
           onClick={() => onAllowAgain(item.id)}
-          title="Clear this rejection so a future run can suggest it again."
+          title="Move this back to Waiting so you can send it."
         >
           <RotateCcw aria-hidden="true" />
           Allow again
@@ -311,6 +312,7 @@ export function RequestsPage() {
   const send = useSendRequests();
   const reject = useRejectRequests();
   const del = useDeleteRequests();
+  const restore = useRestoreRequests();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   // Opens on Waiting, but a `?tab=sent` deep-link (e.g. the dashboard's "View the full send log")
   // lands straight on that view. `?tab=dismissed` is an accepted alias for the renamed Rejected tab.
@@ -368,7 +370,8 @@ export function RequestsPage() {
     .map((r) => r.id);
   const allChecked =
     pendingShown.length > 0 && selectedPending.length === pendingShown.length;
-  const busy = send.isPending || reject.isPending || del.isPending;
+  const busy =
+    send.isPending || reject.isPending || del.isPending || restore.isPending;
 
   const toggleAll = () =>
     setSelected(
@@ -637,18 +640,36 @@ export function RequestsPage() {
 
                     {active === "rejected" && rejected.length > 0 && (
                       <section className="space-y-3">
-                        <p className="text-sm text-muted-foreground">
-                          These are blocked — no run will suggest or request
-                          them again. Changed your mind?{" "}
-                          <strong className="font-medium text-foreground">
-                            Allow again
-                          </strong>{" "}
-                          clears the block so a future run can bring one back.
-                        </p>
-                        {del.isError && (
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm text-muted-foreground">
+                            These are blocked — no run suggests or requests
+                            them.{" "}
+                            <strong className="font-medium text-foreground">
+                              Allow again
+                            </strong>{" "}
+                            moves one straight back to Waiting so you can send
+                            it.
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            loading={restore.isPending}
+                            disabled={busy}
+                            onClick={() =>
+                              restore.mutate(rejectedShown.map((r) => r.id))
+                            }
+                            title="Move every rejected title here back to Waiting."
+                          >
+                            {!restore.isPending && (
+                              <RotateCcw aria-hidden="true" />
+                            )}
+                            Allow all again ({rejectedShown.length})
+                          </Button>
+                        </div>
+                        {restore.isError && (
                           <p role="alert" className="text-sm text-destructive">
                             {apiErrorMessage(
-                              del.error,
+                              restore.error,
                               "That didn't go through. Check the server log and try again.",
                             )}
                           </p>
@@ -658,7 +679,7 @@ export function RequestsPage() {
                             <RejectedRow
                               key={item.id}
                               item={item}
-                              onAllowAgain={(id) => del.mutate([id])}
+                              onAllowAgain={(id) => restore.mutate([id])}
                               disabled={busy}
                             />
                           ))}

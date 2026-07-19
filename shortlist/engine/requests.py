@@ -173,8 +173,20 @@ def request_missing(
     report.outcomes = _send(cfg, tmdb, auto, dry_run=dry_run, min_write_interval=min_write_interval)
     # Only the ones the Arr actually accepted. A send that failed, or was skipped for want of a TVDB
     # id, must stay requestable — suppressing it would lose the title silently.
-    landed = {o.tmdb_id for o in report.outcomes if o.status in ("requested", "would_request")}
-    report.sent = [m for m in auto if m.tmdb_id in landed]
+    # Keyed by (tmdb_id, media_type), never the bare id — movie 550 and TV 550 are different titles,
+    # and both can land in one auto batch (see filter_candidates for the same rule).
+    landed = {(o.tmdb_id, o.media_type) for o in report.outcomes if o.status in ("requested", "would_request")}
+    report.sent = [m for m in auto if (m.tmdb_id, m.media_type) in landed]
+    # A failed auto-send (status "error" — e.g. a Sonarr/Radarr lookup 5xx) used to vanish: it was in
+    # neither `sent` nor `queued`, so it never reached the inbox, retried blindly every night, and its
+    # reason was invisible. Queue it WITH the reason so it shows in Waiting, retriable by hand. Only
+    # "error" — the skips are deliberately NOT queued: skipped_present is already in the Arr (handled),
+    # and skipped_no_tvdb/skipped_no_target can never be requested, so surfacing them is just noise.
+    fail_detail = {(o.tmdb_id, o.media_type): o.detail for o in report.outcomes if o.status == "error"}
+    for m in auto:
+        if (m.tmdb_id, m.media_type) in fail_detail:
+            m.detail = fail_detail[(m.tmdb_id, m.media_type)]
+            report.queued.append(m)
     logger.info(
         "requests: {} of {} auto-{}, {} queued for approval ({} considered)",
         report.requested,

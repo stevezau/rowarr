@@ -62,7 +62,16 @@ class TestRadarrAddMovie:
         assert post.calls.last.request.headers["X-Api-Key"] == "rk"
 
     @respx.mock
-    def test_creates_and_applies_the_configured_tag(self):
+    def test_lookup_actually_sends_the_tmdb_id_in_the_query(self):
+        # Regression: httpx >=0.28 REPLACES a URL's query with the `params` arg, so a bare params={}
+        # alongside `?tmdbId=…` in the path silently dropped the id — Radarr then 500s on a lookup with
+        # no tmdbId and EVERY request failed. respx matches by path, so the old test passed blind to
+        # this; assert the id is really on the wire.
+        route = respx.get("http://radarr.test/api/v3/movie/lookup/tmdb").mock(
+            return_value=httpx.Response(200, json=MOVIE_LOOKUP)
+        )
+        RadarrClient(RADARR).add_movie(273481, dry_run=True)
+        assert route.calls.last.request.url.params.get("tmdbId") == "273481"
         tagged = ArrTarget(
             url="http://radarr.test", api_key="rk", quality_profile_id=4, root_folder="/movies", tag="shortlist"
         )
@@ -219,6 +228,16 @@ class TestRadarrAddMovie:
 
 
 class TestSonarrAddSeries:
+    @respx.mock
+    def test_lookup_actually_sends_the_tvdb_term_in_the_query(self):
+        # Same httpx-0.28 query-drop regression as Radarr: a bare params={} stripped `?term=tvdb:…`,
+        # so Sonarr 503'd on a lookup with no term. Assert the term is really on the wire.
+        route = respx.get("http://sonarr.test/api/v3/series/lookup").mock(
+            return_value=httpx.Response(200, json=[SERIES_LOOKUP])
+        )
+        SonarrClient(SONARR).add_series(371980, dry_run=True)
+        assert route.calls.last.request.url.params.get("term") == "tvdb:371980"
+
     @respx.mock
     def test_posts_target_profile_folder_and_search_when_missing(self):
         respx.get("http://sonarr.test/api/v3/series/lookup").mock(

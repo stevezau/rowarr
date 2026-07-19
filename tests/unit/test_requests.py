@@ -33,17 +33,20 @@ def _cfg(**kw) -> RequestConfig:
 class FakeArr:
     """A stand-in Radarr/Sonarr client that records adds and can be told to fail."""
 
-    def __init__(self, *, raise_on: int | None = None):
+    def __init__(self, *, raise_on: int | None = None, skip_present: set[int] | None = None):
         self.movie_calls: list[tuple[int, bool]] = []
         self.series_calls: list[tuple[int, bool]] = []
         self.tag_calls: list[set[str]] = []  # extra_tags passed on each add, in call order
         self.raise_on = raise_on
+        self.skip_present = skip_present or set()
 
     def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         self.movie_calls.append((tmdb_id, dry_run))
         self.tag_calls.append(set(extra_tags or set()))
         if self.raise_on == tmdb_id:
             raise ArrError("boom")
+        if tmdb_id in self.skip_present:
+            return ("skipped_present", "already in Radarr")
         return ("would_request" if dry_run else "requested", "ok")
 
     def add_series(self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
@@ -443,6 +446,29 @@ class TestRequestMissing:
         report = requests_mod.request_missing(cfg, FakeTmdb(), demand, dry_run=False)
         statuses = {o.tmdb_id: o.status for o in report.outcomes}
         assert statuses == {10: "error", 11: "requested"}  # the second still went through
+
+    def test_a_failed_auto_send_is_queued_with_its_reason_not_dropped(self, monkeypatch):
+        # A failed auto-send used to vanish (neither sent nor queued) and retry blindly every night.
+        # It must land in the inbox WITH the reason, so the owner sees it and can retry by hand.
+        fake = FakeArr(raise_on=10)
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(MissingTitle(10, "boom", MediaType.MOVIE, 2020, rating=9.9, vote_count=999, demand=5))
+        cfg = _cfg(radarr=RADARR)
+        report = requests_mod.request_missing(cfg, FakeTmdb(), demand, dry_run=False)
+        assert report.requested == 0  # it didn't land
+        assert [m.tmdb_id for m in report.queued] == [10]  # queued for the inbox, not lost
+        outcome_detail = next(o.detail for o in report.outcomes if o.tmdb_id == 10)
+        assert report.queued[0].detail == outcome_detail  # carries WHY, shown as "Last attempt: …"
+
+    def test_a_skipped_present_auto_title_is_not_queued(self, monkeypatch):
+        # "already in Radarr" is being handled — it must NOT clutter the inbox as a pending row that
+        # reappears every night. Only genuine "error" outcomes are queued, never the skips.
+        fake = FakeArr(skip_present={10})
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(MissingTitle(10, "have it", MediaType.MOVIE, 2020, rating=9.0, vote_count=900, demand=5))
+        report = requests_mod.request_missing(_cfg(radarr=RADARR), FakeTmdb(), demand, dry_run=False)
+        assert [o.status for o in report.outcomes] == ["skipped_present"]
+        assert report.queued == [] and report.sent == []  # handled elsewhere — kept out of the inbox
 
 
 class TestHybridSplit:

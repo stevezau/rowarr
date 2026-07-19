@@ -48,6 +48,7 @@ def _candidate_row(m, run_id: int, *, status: str) -> RequestCandidate:
         wanters=sorted(m.wanters),
         why=_why_json(m.why),
         status=status,
+        detail=m.detail,  # a failed auto-send carries WHY it didn't land, shown as "Last attempt: …"
         first_seen_run_id=run_id,
     )
 
@@ -579,6 +580,7 @@ class RunService:
                     row.tags,
                     row.wanters,
                     row.why,
+                    row.detail,
                 ) = (
                     m.title,
                     m.year,
@@ -589,6 +591,7 @@ class RunService:
                     sorted(m.tags),
                     sorted(m.wanters),
                     _why_json(m.why),
+                    m.detail or row.detail,  # keep the last failure reason if this pass didn't set one
                 )
 
         # The titles this run AUTO-SENT are filed as `sent` too. Without this the ledger only knew

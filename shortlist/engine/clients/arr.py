@@ -44,8 +44,14 @@ class _ArrClient:
         return {"X-Api-Key": self._target.api_key}
 
     def _get(self, path: str, **params: object) -> object:
+        # `params or None`, never a bare `{}`: httpx ≥0.28 REPLACES a URL's existing query string with
+        # the params arg, so passing an empty dict alongside a path that carries its own query (e.g.
+        # `/movie/lookup/tmdb?tmdbId=…`) silently DROPS the query — Radarr then 500s (no tmdbId) and
+        # Sonarr 503s (no term), failing every request. None leaves the in-path query intact.
         try:
-            r = http_retry.get(f"{self._base}{path}", headers=self._headers(), params=params, timeout=self._timeout)
+            r = http_retry.get(
+                f"{self._base}{path}", headers=self._headers(), params=params or None, timeout=self._timeout
+            )
         except httpx.HTTPError as e:
             # str(e) can embed the request URL but never the api key (that's a header) — still, keep
             # the message generic so no target detail leaks into events.

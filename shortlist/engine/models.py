@@ -362,6 +362,10 @@ class MissingTitle:
     # and why". Accumulated across every user and row, deduplicated so one (person, row, seed) is
     # listed once.
     why: list[RequestWhy] = field(default_factory=list)
+    # Why the last send attempt didn't land (e.g. "Sonarr GET …/lookup returned HTTP 503"), so a
+    # FAILED auto-send is queued back to the inbox with the reason visible instead of vanishing and
+    # silently retrying every night. Empty for a title that was never attempted.
+    detail: str = ""
 
 
 @dataclass

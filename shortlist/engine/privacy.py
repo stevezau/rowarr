@@ -139,6 +139,7 @@ def desired_excludes(
     *,
     account_id: int | None = None,
     shared_labels: dict[str, set[int] | None] | None = None,
+    hide_all_shared: bool = False,
 ) -> set[str]:
     """Labels an account must NOT see: every EXISTING Shortlist row's label except their own.
 
@@ -164,6 +165,10 @@ def desired_excludes(
     is excluded from every account not in its audience. Anything NOT in `shared_labels` — a private
     row (even one whose owner's slug happens to look shared), or a stale/disabled shared collection
     still on the server — is excluded, fail-safe: a leak we never write beats a leak we can't unwrite.
+
+    `hide_all_shared` is set for a DISABLED (opted-out) Shortlist account: it hides EVERY shared row
+    from them, including public ones — a disabled user should see nothing Shortlist produces, not even
+    the "Popular on this server" rows everyone else gets.
     """
     shared_labels = shared_labels or {}
     excludes: set[str] = set()
@@ -171,7 +176,7 @@ def desired_excludes(
         if label == own_label:
             continue
         audience = shared_labels.get(label.lower(), _UNSHARED)
-        if audience is not _UNSHARED:  # a CONFIGURED shared row
+        if audience is not _UNSHARED and not hide_all_shared:  # a CONFIGURED shared row, account opted in
             if audience is None:  # public -> everyone may see it -> never excluded
                 continue
             if account_id is not None and account_id in audience:  # in the audience -> may see it
@@ -191,6 +196,7 @@ def sync_user_restrictions(
     own_label: str | None = None,
     label_prefix: str = "shortlist",
     shared_labels: dict[str, set[int] | None] | None = None,
+    hide_all_shared: bool = False,
     dry_run: bool = False,
 ) -> dict[str, tuple[str, str]] | None:
     """Merge the desired shortlist excludes into one user's share filters.
@@ -216,11 +222,33 @@ def sync_user_restrictions(
         logger.info("{}: no longer shares this server — nothing to restrict", user.username)
         return None
 
-    wanted = desired_excludes(own_label, stored_labels, account_id=user.plex_account_id, shared_labels=shared_labels)
+    wanted = desired_excludes(
+        own_label,
+        stored_labels,
+        account_id=user.plex_account_id,
+        shared_labels=shared_labels,
+        hide_all_shared=hide_all_shared,
+    )
+    # Converge SHARED-row excludes: drop any shortlist SHARED-row exclude the account should no longer
+    # have (re-enabled after a disable, or added to a subset row's audience). This is the ONE safe
+    # place to remove an exclude — un-hiding a *shared* row only ever reveals a public or in-audience
+    # row, never a private one, so it can't leak even if `wanted` is computed from a partial read.
+    # Private-row excludes are NEVER pruned (removing one is the leak direction), so they stay
+    # union-only and fail-safe. Foreign filters are untouched (both primitives byte-preserve them).
+    shared_lower = set(shared_labels or {})
+    wanted_lower = {w.lower() for w in wanted}
+    prunable_shared: set[str] = set()
+    for fieldname in RESTRICTED_FILTER_FIELDS:
+        for lbl in shortlist_labels_in(remote.filters[fieldname], label_prefix):
+            if lbl.lower() in shared_lower and lbl.lower() not in wanted_lower:
+                prunable_shared.add(lbl)
+
     desired_fields = {}
     for fieldname in RESTRICTED_FILTER_FIELDS:
         current = remote.filters[fieldname]
         merged = merge_label_excludes(current, wanted)
+        if prunable_shared:
+            merged = remove_label_excludes(merged, prunable_shared)
         if merged != current:
             desired_fields[fieldname] = merged
 

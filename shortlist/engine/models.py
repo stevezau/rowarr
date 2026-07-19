@@ -457,6 +457,9 @@ class EngineConfig:
     # How many of a person's most recent watched titles the web-search source searches per row (one
     # cached Exa search each). Row-overridable via RowSpec.recent_count.
     recent_count: int = 10
+    # When True (default), a DISABLED (opted-out) Shortlist user has EVERY shared row hidden too — even
+    # public "Popular on this server" rows — so disabling someone removes them from Shortlist entirely.
+    hide_shared_from_disabled: bool = True
     min_history: int = 10  # below this -> cold-start row
     min_completion: float = 0.7  # history completion threshold for "meaningful" watch
     max_seeds: int = 30

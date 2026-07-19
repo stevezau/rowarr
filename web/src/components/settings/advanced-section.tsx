@@ -3,6 +3,8 @@ import { useRef, useState } from "react";
 import { SaveStatus } from "@/components/save-status";
 import { Segmented } from "@/components/segmented";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { settingBool } from "@/lib/format";
 import { useSaveSettings } from "@/lib/queries";
 import type { Settings } from "@/lib/types";
 
@@ -27,6 +29,11 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
   );
   const retention = String(
     (settings["runs.retention"] as number | undefined) ?? 100,
+  );
+  const hideSharedFromDisabled = settingBool(
+    settings,
+    "privacy.hide_shared_from_disabled",
+    true,
   );
 
   // Every change auto-saves — but with the same Saving…/Saved/failed feedback the other sections
@@ -105,6 +112,24 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
             }))}
             onChange={(value) => save({ "runs.retention": Number(value) })}
           />
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-0.5">
+              <p className="font-medium">Disabled users see nothing</p>
+              <p className="text-sm text-muted-foreground">
+                When you disable a user, hide every shared row from them too —
+                even the public “Popular on this server” rows everyone else
+                sees. Off = a disabled user still sees public shared rows like
+                any other account with library access.
+              </p>
+            </div>
+            <Switch
+              checked={hideSharedFromDisabled}
+              onCheckedChange={(on) =>
+                save({ "privacy.hide_shared_from_disabled": on })
+              }
+              aria-label="Hide shared rows from disabled users"
+            />
+          </div>
           <div className="pt-1">
             <SaveStatus
               isPending={saveSettings.isPending}

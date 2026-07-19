@@ -84,6 +84,10 @@ DEFAULTS: dict[str, Any] = {
     # How many of a person's most recent watches the web-search source searches per row (one cached
     # Exa search each). Row-overridable. Fewer = tighter/cheaper; the DbCache dedups shared titles.
     "recommendations.recent_count": 10,
+    # When on (default), disabling a user hides EVERY shared row from them too (even public "Popular on
+    # this server" rows), so a disabled user sees nothing from Shortlist. Off = disabled users still see
+    # public shared rows like any other account with library access.
+    "privacy.hide_shared_from_disabled": True,
     "plextv.throttle_s": 0.0,  # FLOOR between plex.tv writes; 0 = as fast as plex.tv accepts (adaptive 429 backoff)
     # How many users a run processes concurrently. Only their reads + AI curation overlap; every Plex
     # and plex.tv write stays strictly serial. 1 = fully sequential; higher = faster big runs at the

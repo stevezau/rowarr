@@ -139,6 +139,7 @@ class ContextBuilder:
                 watched_pct=float(store.get("recommendations.watched_pct") or 0.0),
                 freshness=float(store.get("recommendations.freshness") or 0.0),
                 recent_count=int(store.get("recommendations.recent_count") or 10),
+                hide_shared_from_disabled=bool(store.get("privacy.hide_shared_from_disabled")),
                 dry_run=dry_run,
                 rows=self._build_rows(session, store),
                 # The server owns the row list: an empty one means every row is DISABLED, not
@@ -155,6 +156,9 @@ class ContextBuilder:
                 requests=self._build_requests(store),
             )
             previous = self._previous_picks(session)
+            # Opted-out accounts: with hide_shared_from_disabled, even public shared rows are hidden
+            # from them, so disabling a user removes them from Shortlist entirely.
+            disabled_account_ids = {u.plex_account_id for u in session.query(User).filter_by(enabled=False).all()}
             concurrency = int(store.get("run.concurrency") or 1)
             # Every user Shortlist knows, enabled or not: the engine answers "whose row is this?"
             # by account id, because a name can change and two names can slugify alike.
@@ -185,6 +189,7 @@ class ContextBuilder:
             mdblist=self._build_mdblist(store),
             concurrency=concurrency,
             previous_picks=previous,
+            disabled_account_ids=disabled_account_ids,
             known_slugs=known_slugs,
             handled_requests=self._handled_requests(session),
             progress=progress,

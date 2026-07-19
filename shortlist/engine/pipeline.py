@@ -82,6 +82,11 @@ class EngineContext:
     # full-row churn that staleness_runs=3 used to force (SFLIX 2026-07-20). Empty -> every row
     # bootstraps by curating fresh, exactly like a first run.
     previous_picks: dict[tuple[str, str, str], list[Pick]] = field(default_factory=dict)
+    # plex_account_ids of DISABLED (opted-out) Shortlist users. With config.hide_shared_from_disabled,
+    # the privacy sync hides even public shared rows from these accounts, so disabling a user removes
+    # them from Shortlist entirely. A non-Shortlist account that merely shares the server is NOT here,
+    # so it still sees public shared rows.
+    disabled_account_ids: set[int] = field(default_factory=set)
     # media_type -> [{tmdb_id, rating_key, title, year, genres}] for the delivery libraries, built
     # once per run and only when the AI-from-library candidate source is enabled (else empty).
     library_catalog: dict[MediaType, list[dict]] = field(default_factory=dict)
@@ -590,6 +595,12 @@ def _privacy_sync_phase(
                 own_label=stored_labels.get(own_slug) if own_slug else None,
                 label_prefix=ctx.config.label_prefix,
                 shared_labels=shared_labels,
+                # A disabled (opted-out) Shortlist account gets even public shared rows hidden, so
+                # disabling someone removes them from Shortlist entirely. Non-Shortlist accounts that
+                # merely share the server aren't in disabled_account_ids, so they still see public rows.
+                hide_all_shared=(
+                    ctx.config.hide_shared_from_disabled and user.plex_account_id in ctx.disabled_account_ids
+                ),
                 dry_run=ctx.config.dry_run,
             )
             if written:

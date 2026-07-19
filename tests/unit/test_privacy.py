@@ -122,12 +122,33 @@ class TestSharedRowExcludes:
         # The public shared row is excluded from nobody; the per-person label still is.
         assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Shortlist_sarah"}
 
+    def test_hide_all_shared_hides_even_a_public_row_from_an_opted_out_account(self):
+        # A DISABLED (opted-out) Shortlist account: hide_all_shared hides EVERY shared row from them,
+        # including the public one that everyone else sees.
+        stored = {"sarah": "Shortlist_sarah", "shared_popular": "Shortlist__shared_popular"}
+        shared = {"shortlist__shared_popular": None}  # public
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == {"Shortlist_sarah"}
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared, hide_all_shared=True) == {
+            "Shortlist_sarah",
+            "Shortlist__shared_popular",
+        }
+
     def test_subset_shared_row_is_hidden_from_accounts_outside_the_audience(self):
         stored = {"shared_staff": "Shortlist__shared_staff"}
         shared = {"shortlist__shared_staff": {201, 202}}
         assert privacy.desired_excludes(None, stored, account_id=201, shared_labels=shared) == set()
         assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == set()
         assert privacy.desired_excludes(None, stored, account_id=203, shared_labels=shared) == {
+            "Shortlist__shared_staff"
+        }
+
+    def test_hide_all_shared_hides_a_subset_row_even_from_an_in_audience_account(self):
+        # An opted-out account that WAS in a subset row's audience still has it hidden under
+        # hide_all_shared — the same guard as the public case.
+        stored = {"shared_staff": "Shortlist__shared_staff"}
+        shared = {"shortlist__shared_staff": {201, 202}}
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared) == set()
+        assert privacy.desired_excludes(None, stored, account_id=202, shared_labels=shared, hide_all_shared=True) == {
             "Shortlist__shared_staff"
         }
 
@@ -252,6 +273,54 @@ class TestSyncUserRestrictions:
         # Both fields merged; foreign condition preserved byte-identical; stored (title-cased) labels used.
         assert call.args[1]["filterMovies"] == "contentRating!=R|label!=Shortlist_mike,Shortlist_steve"
         assert call.args[1]["filterTelevision"] == "label!=Shortlist_mike,Shortlist_steve"
+
+    def test_prunes_a_stale_shared_exclude_but_keeps_private_and_foreign(self, mock_plextv, snapshot_store):
+        """A re-enabled user (or one added to a shared row's audience) must get the shared-row exclude
+        REMOVED so the row is restored — but a private-row exclude and any foreign condition stay.
+        This is the only place we remove an exclude, and only ever for a shared row (never a leak)."""
+        sarah = self._users()[0]  # account 100, not opted out
+        mock_plextv.users = [
+            plextv_user(
+                100,
+                "sarah",
+                filters={
+                    # A public shared exclude left from when she was disabled, plus a private exclude and
+                    # a foreign condition that must both survive.
+                    "filterMovies": "contentRating!=R|label!=Shortlist__shared_popular,Shortlist_mike",
+                    "filterTelevision": "label!=Shortlist__shared_popular,Shortlist_mike",
+                },
+            )
+        ]
+        stored = {"mike": "Shortlist_mike", "shared_popular": "Shortlist__shared_popular"}
+        shared = {"shortlist__shared_popular": None}  # configured PUBLIC shared row
+
+        wrote = sync_user_restrictions(
+            mock_plextv,
+            sarah,
+            mock_plextv.get_user(sarah.plex_account_id),
+            stored,
+            snapshot_store,
+            shared_labels=shared,
+        )
+
+        # The public shared exclude is pruned; the private one and the foreign condition remain.
+        assert wrote["filterMovies"][1] == "contentRating!=R|label!=Shortlist_mike"
+        assert wrote["filterTelevision"][1] == "label!=Shortlist_mike"
+
+    def test_a_stale_private_exclude_is_never_pruned(self, mock_plextv, snapshot_store):
+        """The leak-safe boundary: only SHARED excludes are ever removed. A stale PRIVATE exclude (a
+        label not in stored/wanted and not a configured shared row) stays — removing a private exclude
+        is the leak direction, so the sync never does it, even for a label pointing at a deleted row."""
+        sarah = self._users()[0]
+        both = "label!=Shortlist_ghost,Shortlist_mike"  # a stale private exclude (ghost) + a live one
+        mock_plextv.users = [plextv_user(100, "sarah", filters={"filterMovies": both, "filterTelevision": both})]
+        stored = {"mike": "Shortlist_mike"}  # Shortlist_ghost is gone from the server, and it's private
+        wrote = sync_user_restrictions(
+            mock_plextv, sarah, mock_plextv.get_user(100), stored, snapshot_store, shared_labels={}
+        )
+        # Nothing to add (mike present) and ghost is private, so nothing is pruned -> zero writes, and
+        # the stale private exclude is left exactly where it is (removing it would be the leak direction).
+        assert wrote is None
 
     def test_steady_state_makes_zero_writes(self, mock_plextv, snapshot_store):
         sarah = self._users()[0]

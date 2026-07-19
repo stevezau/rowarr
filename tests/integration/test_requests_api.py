@@ -116,6 +116,27 @@ class TestRequestsApi:
         rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
         assert rows[10]["status"] == "rejected"
 
+    def test_delete_removes_the_row_entirely_leaving_no_tombstone(self, client: TestClient):
+        # Delete (unlike reject) removes the row outright, so a later run can re-surface the title.
+        assert client.post("/api/requests/delete", json={"ids": [1]}).json()["deleted"] == 1
+        assert 10 not in {r["tmdb_id"] for r in client.get("/api/requests").json()}
+        with client.app.state.sessions() as session:
+            assert session.get(RequestCandidate, 1) is None
+
+    def test_delete_lifts_a_rejection_so_it_can_come_back(self, client: TestClient):
+        # Reject first (a permanent tombstone), then delete it — the block is gone.
+        client.post("/api/requests/reject", json={"ids": [1]})
+        assert client.post("/api/requests/delete", json={"ids": [1]}).json()["deleted"] == 1
+        with client.app.state.sessions() as session:
+            assert session.get(RequestCandidate, 1) is None
+
+    def test_delete_never_removes_a_sent_row(self, client: TestClient):
+        # `sent` is a load-bearing tombstone: dropping it would let a still-downloading title be seen
+        # as missing and re-requested nightly. A delete of a sent id is a no-op, not a removal.
+        assert client.post("/api/requests/delete", json={"ids": [3]}).json()["deleted"] == 0
+        with client.app.state.sessions() as session:
+            assert session.get(RequestCandidate, 3) is not None  # id 3 is the seeded "Sent Film"
+
     def test_send_without_requests_configured_returns_409(self, client: TestClient, monkeypatch):
         monkeypatch.setattr(client.app.state.run_service, "build_requests_context", lambda: _fake_requests_ctx(None))
         assert client.post("/api/requests/send", json={"ids": [10]}).status_code == 409

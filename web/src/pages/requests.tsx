@@ -1,4 +1,13 @@
-import { Clapperboard, ExternalLink, Inbox, Send, Star, X } from "lucide-react";
+import {
+  Clapperboard,
+  ExternalLink,
+  Inbox,
+  RotateCcw,
+  Send,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
@@ -12,6 +21,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate, settingBool, settingString } from "@/lib/format";
 import {
+  useDeleteRequests,
   useRejectRequests,
   useRequests,
   useSendRequests,
@@ -253,8 +263,17 @@ function SentRow({ item }: { item: RequestCandidate }) {
   );
 }
 
-/** A dismissed title — kept on file so a later run never re-queues it. */
-function DismissedRow({ item }: { item: RequestCandidate }) {
+/** A rejected title — a permanent tombstone that blocks re-queuing. "Allow again" deletes the
+ *  tombstone so a future run may surface it once more. */
+function RejectedRow({
+  item,
+  onAllowAgain,
+  disabled,
+}: {
+  item: RequestCandidate;
+  onAllowAgain: (id: number) => void;
+  disabled: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-2 text-sm">
       <div className="min-w-0">
@@ -263,13 +282,25 @@ function DismissedRow({ item }: { item: RequestCandidate }) {
           {item.year ? `· ${item.year} ` : ""}· wanted by {item.demand}
         </span>
       </div>
-      <Badge variant="secondary">dismissed</Badge>
+      <div className="flex shrink-0 items-center gap-2">
+        <Badge variant="secondary">rejected</Badge>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          onClick={() => onAllowAgain(item.id)}
+          title="Clear this rejection so a future run can suggest it again."
+        >
+          <RotateCcw aria-hidden="true" />
+          Allow again
+        </Button>
+      </div>
     </div>
   );
 }
 
-/** Which slice of the inbox is on screen: the actionable queue, the send log, or dismissed titles. */
-type RequestView = "waiting" | "sent" | "dismissed";
+/** Which slice of the inbox is on screen: the actionable queue, the send log, or rejected titles. */
+type RequestView = "waiting" | "sent" | "rejected";
 
 /** A missing title is exactly one media type, so the list can be split by the library it'd land in. */
 type MediaFilter = "all" | "movie" | "show";
@@ -279,15 +310,18 @@ export function RequestsPage() {
   const settingsQuery = useSettings();
   const send = useSendRequests();
   const reject = useRejectRequests();
+  const del = useDeleteRequests();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   // Opens on Waiting, but a `?tab=sent` deep-link (e.g. the dashboard's "View the full send log")
-  // lands straight on that view.
+  // lands straight on that view. `?tab=dismissed` is an accepted alias for the renamed Rejected tab.
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [view, setView] = useState<RequestView>(
-    initialTab === "sent" || initialTab === "dismissed"
-      ? initialTab
-      : "waiting",
+    initialTab === "sent"
+      ? "sent"
+      : initialTab === "rejected" || initialTab === "dismissed"
+        ? "rejected"
+        : "waiting",
   );
   const [media, setMedia] = useState<MediaFilter>("all");
 
@@ -307,7 +341,7 @@ export function RequestsPage() {
     [rows],
   );
   const sent = useMemo(() => rows.filter((r) => r.status === "sent"), [rows]);
-  const dismissed = useMemo(
+  const rejected = useMemo(
     () => rows.filter((r) => r.status === "rejected"),
     [rows],
   );
@@ -325,7 +359,7 @@ export function RequestsPage() {
   };
   const pendingShown = applyMedia(pending);
   const sentShown = applyMedia(sent);
-  const dismissedShown = applyMedia(dismissed);
+  const rejectedShown = applyMedia(rejected);
 
   // Only visible pending rows are selectable, so an id lingering in the set after a send/reject or a
   // filter change is harmless, but scoping to what's shown keeps the count honest.
@@ -334,7 +368,7 @@ export function RequestsPage() {
     .map((r) => r.id);
   const allChecked =
     pendingShown.length > 0 && selectedPending.length === pendingShown.length;
-  const busy = send.isPending || reject.isPending;
+  const busy = send.isPending || reject.isPending || del.isPending;
 
   const toggleAll = () =>
     setSelected(
@@ -388,8 +422,8 @@ export function RequestsPage() {
             >
               {() => {
                 // Tabs, not a long stack: with a big queue the send log used to sit far below the
-                // fold and read as missing. Waiting + Sent are always offered; Dismissed appears
-                // only once something's been dismissed.
+                // fold and read as missing. Waiting + Sent are always offered; Rejected appears
+                // only once something's been rejected.
                 const tabs: { value: RequestView; label: string }[] = [
                   {
                     value: "waiting",
@@ -400,10 +434,10 @@ export function RequestsPage() {
                     label: `Sent${sent.length ? ` (${sent.length})` : ""}`,
                   },
                 ];
-                if (dismissed.length > 0) {
+                if (rejected.length > 0) {
                   tabs.push({
-                    value: "dismissed",
-                    label: `Dismissed (${dismissed.length})`,
+                    value: "rejected",
+                    label: `Rejected (${rejected.length})`,
                   });
                 }
                 // A tab can vanish (e.g. the last dismissed item ages out) while it's selected —
@@ -419,7 +453,7 @@ export function RequestsPage() {
                     ? pending
                     : active === "sent"
                       ? sent
-                      : dismissed;
+                      : rejected;
                 const movieCount = activeFull.filter(
                   (r) => r.media_type === "movie",
                 ).length;
@@ -485,8 +519,25 @@ export function RequestsPage() {
                                   busy
                                 }
                                 onClick={() =>
+                                  act(() => del.mutate(selectedPending))
+                                }
+                                title="Remove from the list for now. If a later run's picks still want it, it comes back."
+                              >
+                                <Trash2 aria-hidden="true" />
+                                Delete
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={
+                                  !requestsEnabled ||
+                                  selectedPending.length === 0 ||
+                                  busy
+                                }
+                                onClick={() =>
                                   act(() => reject.mutate(selectedPending))
                                 }
+                                title="Never suggest or request these again. They won't come back."
                               >
                                 <X aria-hidden="true" />
                                 Reject
@@ -504,6 +555,7 @@ export function RequestsPage() {
                                     send.mutate({ ids: selectedPending }),
                                   )
                                 }
+                                title="Ask Sonarr/Radarr to download the selected titles now."
                               >
                                 {!send.isPending && <Send aria-hidden="true" />}
                                 Send{" "}
@@ -515,13 +567,27 @@ export function RequestsPage() {
                             </div>
                           </div>
 
-                          {(send.isError || reject.isError) && (
+                          {/* Always visible (not just on hover) so the Delete-vs-Reject difference is
+                              never a guess — the two both clear the list but do opposite things next run. */}
+                          <p className="text-xs text-muted-foreground">
+                            <strong className="font-medium text-foreground">
+                              Delete
+                            </strong>{" "}
+                            removes a title for now — it can return on a later
+                            run if it&rsquo;s still wanted.{" "}
+                            <strong className="font-medium text-foreground">
+                              Reject
+                            </strong>{" "}
+                            blocks it for good — it won&rsquo;t come back.
+                          </p>
+
+                          {(send.isError || reject.isError || del.isError) && (
                             <p
                               role="alert"
                               className="text-sm text-destructive"
                             >
                               {apiErrorMessage(
-                                send.error ?? reject.error,
+                                send.error ?? reject.error ?? del.error,
                                 "That didn't go through. Check the server log and try again.",
                               )}
                             </p>
@@ -569,11 +635,32 @@ export function RequestsPage() {
                       </section>
                     )}
 
-                    {active === "dismissed" && dismissed.length > 0 && (
+                    {active === "rejected" && rejected.length > 0 && (
                       <section className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          These are blocked — no run will suggest or request
+                          them again. Changed your mind?{" "}
+                          <strong className="font-medium text-foreground">
+                            Allow again
+                          </strong>{" "}
+                          clears the block so a future run can bring one back.
+                        </p>
+                        {del.isError && (
+                          <p role="alert" className="text-sm text-destructive">
+                            {apiErrorMessage(
+                              del.error,
+                              "That didn't go through. Check the server log and try again.",
+                            )}
+                          </p>
+                        )}
                         <div className="space-y-2">
-                          {dismissedShown.map((item) => (
-                            <DismissedRow key={item.id} item={item} />
+                          {rejectedShown.map((item) => (
+                            <RejectedRow
+                              key={item.id}
+                              item={item}
+                              onAllowAgain={(id) => del.mutate([id])}
+                              disabled={busy}
+                            />
                           ))}
                         </div>
                       </section>

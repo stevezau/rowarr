@@ -401,6 +401,13 @@ export const api = {
       body: JSON.stringify({ ids }),
     }),
 
+  // Hard-delete (no tombstone) — a later run can re-surface the title. Also lifts a rejection.
+  deleteRequests: (ids: number[]): Promise<{ deleted: number }> =>
+    request("/api/requests/delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+
   // --- System ---
   /**
    * Full uninstall (or a dry-run preview of it). The backend requires the

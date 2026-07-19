@@ -83,7 +83,13 @@ def list_requests(request: Request) -> list[RequestCandidateOut]:
 
 @router.post("/reject")
 def reject_requests(body: RequestAction, request: Request) -> dict:
-    """Dismiss the given titles: they leave the pending list and later runs never re-queue them."""
+    """Permanently dismiss the given titles.
+
+    A rejected title is kept on file as a tombstone: it leaves the pending list AND every later run
+    skips re-queuing it (``_persist_request_queue`` only touches ``pending`` rows), so a dismissed
+    suggestion can never come back on its own. Use ``/delete`` instead to remove a title without
+    blocking it — or to lift a rejection so a future run may surface it again.
+    """
     with request.app.state.sessions() as session:
         rows = session.query(RequestCandidate).filter(RequestCandidate.id.in_(body.ids)).all()
         for row in rows:
@@ -91,6 +97,32 @@ def reject_requests(body: RequestAction, request: Request) -> dict:
         session.add(Event(scope="requests.reject", level="info", message={"ids": body.ids, "count": len(rows)}))
         session.commit()
     return {"rejected": len(rows)}
+
+
+@router.post("/delete")
+def delete_requests(body: RequestAction, request: Request) -> dict:
+    """Remove the given titles from the inbox entirely, leaving no trace.
+
+    Unlike ``/reject`` (a permanent tombstone), a deleted row is gone — so if a later run's picks turn
+    up the same title again, it returns to the pending queue. Two uses: clear a title off the list
+    without blocking it forever, or delete a previously *rejected* title to let it come back.
+
+    ``sent`` rows are never deleted: that status is a load-bearing tombstone (``_persist_request_queue``)
+    that stops a still-downloading title from being seen as "missing" and re-requested every night.
+    Dropping it would resurrect that bug, so a ``sent`` id in the request is skipped, not deleted.
+    """
+    with request.app.state.sessions() as session:
+        rows = (
+            session.query(RequestCandidate)
+            .filter(RequestCandidate.id.in_(body.ids), RequestCandidate.status != "sent")
+            .all()
+        )
+        count = len(rows)
+        for row in rows:
+            session.delete(row)
+        session.add(Event(scope="requests.delete", level="info", message={"ids": body.ids, "count": count}))
+        session.commit()
+    return {"deleted": count}
 
 
 @router.post("/send")

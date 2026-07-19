@@ -265,11 +265,20 @@ The **Requests** tab (in the sidebar) is your approval queue. Each run adds the 
 titles it didn't auto-send — with the title, year, rating, and a full **why it's here** breakdown:
 one line per person and row that wanted it, with the reason (e.g. "Sarah · Comedy Classics · because
 they watched Fawlty Towers"). That answers where a request came from and why, not just a count.
-Tick the ones you want and click **Send to Sonarr/Radarr**, or **Reject** the rest. A rejected title is never
-re-queued AND never auto-sent by a later run — a "no" is a no. A title already in the library stops
-appearing on its own, and one that's already been sent (still downloading, say) never re-consumes an
-auto-request slot, so a slow grab can't starve the queue. Dismissed titles move to **Dismissed**, and
-everything sent to Sonarr/Radarr moves to the **Sent to Sonarr/Radarr** log — each entry keeping when
+Tick the ones you want and click **Send to Sonarr/Radarr**. For the rest you have two choices, and the
+difference is exactly what happens on the next run:
+
+- **Reject** — a permanent "no". The title is never re-queued AND never auto-sent by a later run. It
+  moves to the **Rejected** tab as a record. Changed your mind? **Allow again** on that tab lifts the
+  block so a future run may surface it once more.
+- **Delete** — a "not right now". The title is removed from the list with no block, so if your people's
+  taste turns it up again on a later run, it comes back to Waiting. Use it to clear clutter without
+  slamming the door.
+
+Both buttons carry a hover hint, and an always-visible line under the queue spells out the difference.
+A title already in the library stops appearing on its own, and one that's already been sent (still
+downloading, say) never re-consumes an auto-request slot, so a slow grab can't starve the queue.
+Everything sent to Sonarr/Radarr moves to the **Sent to Sonarr/Radarr** log — each entry keeping when
 it went, the app's answer (e.g. "added to Radarr"), and the same why-it-was-wanted breakdown.
 
 It stays cautious on purpose. Missing titles are deduplicated across all your users — three people

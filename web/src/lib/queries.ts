@@ -351,3 +351,12 @@ export function useRejectRequests() {
       queryClient.invalidateQueries({ queryKey: queryKeys.requests }),
   });
 }
+
+export function useDeleteRequests() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.deleteRequests(ids),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.requests }),
+  });
+}

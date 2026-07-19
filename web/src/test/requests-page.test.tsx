@@ -7,16 +7,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RequestCandidate } from "@/lib/types";
 import { RequestsPage } from "@/pages/requests";
 
-const { listRequests, sendRequests, rejectRequests, getSettings } = vi.hoisted(
-  () => ({
-    listRequests: vi.fn(),
-    sendRequests: vi.fn((_ids: number[], _dryRun?: boolean) =>
-      Promise.resolve({ sent: 1, dry_run: false, outcomes: [] }),
-    ),
-    rejectRequests: vi.fn((_ids: number[]) => Promise.resolve({ rejected: 1 })),
-    getSettings: vi.fn(() => Promise.resolve({ "requests.enabled": true })),
-  }),
-);
+const {
+  listRequests,
+  sendRequests,
+  rejectRequests,
+  deleteRequests,
+  getSettings,
+} = vi.hoisted(() => ({
+  listRequests: vi.fn(),
+  sendRequests: vi.fn((_ids: number[], _dryRun?: boolean) =>
+    Promise.resolve({ sent: 1, dry_run: false, outcomes: [] }),
+  ),
+  rejectRequests: vi.fn((_ids: number[]) => Promise.resolve({ rejected: 1 })),
+  deleteRequests: vi.fn((_ids: number[]) => Promise.resolve({ deleted: 1 })),
+  getSettings: vi.fn(() => Promise.resolve({ "requests.enabled": true })),
+}));
 
 vi.mock("@/lib/api", () => ({
   apiErrorMessage: (_error: unknown, fallback: string) => fallback,
@@ -25,6 +30,7 @@ vi.mock("@/lib/api", () => ({
     sendRequests: (ids: number[], dryRun?: boolean) =>
       sendRequests(ids, dryRun),
     rejectRequests: (ids: number[]) => rejectRequests(ids),
+    deleteRequests: (ids: number[]) => deleteRequests(ids),
     getSettings: () => getSettings(),
   },
 }));
@@ -73,6 +79,7 @@ describe("RequestsPage", () => {
     listRequests.mockReset();
     sendRequests.mockClear();
     rejectRequests.mockClear();
+    deleteRequests.mockClear();
     getSettings.mockResolvedValue({ "requests.enabled": true });
   });
 
@@ -149,7 +156,7 @@ describe("RequestsPage", () => {
     expect(screen.queryByText("Dune: Part Two")).toBeNull();
   });
 
-  it("opens on the Dismissed tab when deep-linked and there are dismissed titles", async () => {
+  it("opens on the Rejected tab when deep-linked (accepting the legacy ?tab=dismissed alias)", async () => {
     listRequests.mockResolvedValue([
       candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
       candidate({
@@ -159,21 +166,23 @@ describe("RequestsPage", () => {
         status: "rejected",
       }),
     ]);
+    // `?tab=dismissed` is the old name; it must still land on the renamed Rejected tab.
     renderPage("/requests?tab=dismissed");
     expect(await screen.findByText("Old Reject")).toBeTruthy();
     expect(screen.queryByText("Dune: Part Two")).toBeNull();
+    expect(screen.getByRole("button", { name: "Rejected (1)" })).toBeTruthy();
   });
 
   it("falls back to Waiting when the deep-linked tab has no items to show", async () => {
-    // The Dismissed tab isn't even offered when nothing's dismissed, so a stale `?tab=dismissed`
+    // The Rejected tab isn't even offered when nothing's rejected, so a stale `?tab=rejected`
     // link must land on Waiting rather than a blank view — the same guard that self-heals when a
     // selected tab's items age out.
     listRequests.mockResolvedValue([
       candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
     ]);
-    renderPage("/requests?tab=dismissed");
+    renderPage("/requests?tab=rejected");
     expect(await screen.findByText("Dune: Part Two")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Dismissed/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Rejected/ })).toBeNull();
   });
 
   it("splits the waiting queue by library (Movies / Shows) when both are present", async () => {
@@ -205,7 +214,7 @@ describe("RequestsPage", () => {
     expect(screen.queryByRole("button", { name: /^Shows/ })).toBeNull();
   });
 
-  it("keeps dismissed titles on their own tab, offered only once something is dismissed", async () => {
+  it("keeps rejected titles on their own tab, offered only once something is rejected", async () => {
     listRequests.mockResolvedValue([
       candidate({ id: 1, title: "Dune: Part Two", status: "pending" }),
       candidate({
@@ -218,9 +227,7 @@ describe("RequestsPage", () => {
     renderPage();
     await screen.findByText("Dune: Part Two");
     expect(screen.queryByText("Old Reject")).toBeNull();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Dismissed (1)" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Rejected (1)" }));
     expect(screen.getByText("Old Reject")).toBeTruthy();
   });
 
@@ -380,6 +387,32 @@ describe("RequestsPage", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: /Ripley/i }));
     await userEvent.click(screen.getByRole("button", { name: /Reject/i }));
     await waitFor(() => expect(rejectRequests).toHaveBeenCalledWith([9]));
+    // Delete is the other, non-permanent action — reject must not also hard-delete.
+    expect(deleteRequests).not.toHaveBeenCalled();
+  });
+
+  it("deletes the selected title by its id (the can-come-back action)", async () => {
+    listRequests.mockResolvedValue([candidate({ id: 11, title: "Andor" })]);
+    renderPage();
+    await screen.findByText("Andor");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Andor/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^Delete/i }));
+    await waitFor(() => expect(deleteRequests).toHaveBeenCalledWith([11]));
+    // Delete is not a rejection — it leaves no tombstone.
+    expect(rejectRequests).not.toHaveBeenCalled();
+  });
+
+  it("lets a rejected title come back via 'Allow again' (deletes the tombstone)", async () => {
+    listRequests.mockResolvedValue([
+      candidate({ id: 21, title: "Blocked Show", status: "rejected" }),
+    ]);
+    renderPage();
+    // No pending title to findByText, so wait on the tab itself before interacting.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Rejected (1)" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Allow again/i }));
+    await waitFor(() => expect(deleteRequests).toHaveBeenCalledWith([21]));
   });
 
   it("reads as off — and cannot send — when requests are disabled but candidates are on file", async () => {

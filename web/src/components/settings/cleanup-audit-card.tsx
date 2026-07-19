@@ -43,9 +43,10 @@ export function CleanupAuditCard() {
           <div>
             <p className="font-medium">What Shortlist has on your Plex</p>
             <p className="text-sm text-muted-foreground">
-              Every row Shortlist has created, read straight from Plex by its
-              label — so it catches anything that drifted out of sync with the
-              app. This is exactly what a full uninstall would remove.
+              Every row Shortlist has created, read live from Plex by its label.
+              <br />
+              It catches anything left over or out of step with the app — and
+              it&rsquo;s exactly what a full uninstall would remove.
             </p>
           </div>
           <Button

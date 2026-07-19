@@ -83,7 +83,7 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
         <ConnectionCard
           service="llm"
           title="AI curator"
-          purpose="Picks each row’s titles and writes its “why”, and powers the optional AI sources (web search + from-library). Optional — a no-AI mode works too."
+          purpose="Optional. Picks each row’s titles and writes its short “why”, and powers the AI recommendation sources. Shortlist also works with no AI at all."
           settings={settings}
           summary={
             // Show the provider's friendly label ("Claude", "None"), never the raw id or a
@@ -192,7 +192,7 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
         <ConnectionCard
           service="exa"
           title="Exa (AI web search)"
-          purpose="Optional. Powers the “AI — web search” source for any curator — and is the only way a local Ollama model can search the web."
+          purpose="Optional. Powers the “AI — web search” source for any curator. It’s also the only way a local Ollama model can search the web."
           settings={settings}
           summary={settingString(settings, "exa.apikey") ? "API key saved" : ""}
           glyph={<Globe aria-hidden className="text-primary" />}

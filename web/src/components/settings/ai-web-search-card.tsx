@@ -25,7 +25,7 @@ function backendNote(backend: string, settings: Settings): string {
   if (backend === "exa")
     return "Uses the Exa search API — works for every provider, and the only option for a local Ollama curator.";
   if (hasNativeWebSearch(settings) && hasExa(settings))
-    return "Uses your curator’s own search AND Exa together — they surface mostly different titles, so you get the widest pool (two searches per run).";
+    return "Uses your curator’s own search and Exa together. They find mostly different titles, so you get the widest pool — at the cost of two searches per run.";
   if (hasNativeWebSearch(settings))
     return "Uses your curator’s own web search. Add an Exa key below to search with both (they find different titles).";
   if (hasExa(settings))
@@ -112,9 +112,9 @@ export function AiWebSearchCard({
 
             {nativeUnusable && (
               <p className="text-sm text-warning">
-                Your AI curator can’t search the web on its own — switch the
-                backend to <strong>Auto</strong> or <strong>Exa</strong>, or use
-                a Claude, GPT, or Gemini curator.
+                Your AI curator can’t search the web on its own. To use this
+                source, either switch the backend to <strong>Auto</strong> or{" "}
+                <strong>Exa</strong>, or pick a Claude, GPT, or Gemini curator.
               </p>
             )}
 

@@ -28,8 +28,10 @@ export function DangerZoneSection({ settings }: { settings: Settings }) {
                 {pausedAll ? "Everything is paused" : "Pause all users"}
               </p>
               <p className="text-sm text-muted-foreground">
-                Stops scheduled and manual runs alike — no user stays enabled or
-                gets disabled, and rows stay on Plex untouched until you resume.
+                Stops all runs — both scheduled and manual — until you resume.
+                <br />
+                Nobody is enabled or disabled, and every row stays on Plex
+                exactly as it is.
               </p>
             </div>
             <Button
@@ -44,10 +46,13 @@ export function DangerZoneSection({ settings }: { settings: Settings }) {
             <div>
               <p className="font-medium">Full uninstall</p>
               <p className="text-sm text-muted-foreground">
-                Removes every Shortlist collection and label, restores all share
-                filters from the original snapshots, and switches off every row
-                so nothing rebuilds. Opens a dedicated page with a preview and a
-                live log of every step.
+                Completely removes Shortlist from Plex:
+                <br />
+                deletes every Shortlist collection and label, puts everyone’s
+                share settings back the way they were, and turns off every row
+                so nothing rebuilds.
+                <br />
+                Opens its own page with a preview and a live log of each step.
               </p>
             </div>
             <Button asChild variant="destructive">

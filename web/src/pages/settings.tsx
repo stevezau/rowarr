@@ -46,7 +46,7 @@ export function SettingsPage() {
       <PageHeader
         icon={SettingsIcon}
         title="Settings"
-        subtitle="Connections, recommendations, curation style, row defaults, requests, and uninstall. Schedules are per row."
+        subtitle="Everything that shapes how Shortlist runs — connections, where picks come from, and how rows look. Each row keeps its own schedule."
       />
 
       <QueryBoundary

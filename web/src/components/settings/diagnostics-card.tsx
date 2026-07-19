@@ -31,9 +31,11 @@ export function DiagnosticsCard() {
       <Card>
         <CardContent className="space-y-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            A plain-text summary of this install — version, database state,
-            which connections are set up (yes/no, never your keys), and
-            scheduled jobs. Paste it into a bug report so we can help faster.
+            A plain-text summary of your setup — version, database status,
+            scheduled jobs, and which connections are set up.
+            <br />
+            It says yes/no per connection and never includes your keys. Paste it
+            into a bug report to help us help you faster.
           </p>
           <Button variant="outline" onClick={copy}>
             {copied ? (

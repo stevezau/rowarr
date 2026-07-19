@@ -47,11 +47,14 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
           <div>
             <p className="font-medium">Log level</p>
             <p className="text-sm text-muted-foreground">
-              How much detail the container writes to its console and rotating
-              log file. <strong>DEBUG</strong> shows per-source candidate
-              counts, AI calls with timing and token usage, cache hits and
-              rate-limit waits; <strong>TRACE</strong> adds the full AI prompts.
-              Takes effect immediately — no restart needed.
+              How much detail Shortlist writes to its logs — turn this up when
+              you&rsquo;re chasing a problem or filing a bug report.
+              <br />
+              <strong>DEBUG</strong> adds per-source pick counts and AI timing
+              and token use. <strong>TRACE</strong> also logs the full AI
+              prompts.
+              <br />
+              Changes apply straight away — no restart.
             </p>
           </div>
           <Segmented<Level>
@@ -63,10 +66,13 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
           <div className="border-t pt-4">
             <p className="font-medium">Run concurrency</p>
             <p className="text-sm text-muted-foreground">
-              How many people a run works on at once. Only their history,
-              candidate lookups and AI curation overlap — every change to Plex
-              is still made one at a time, in order. Higher is faster for big
-              servers; <strong>1</strong> runs everyone sequentially.
+              How many people a run works on at the same time.
+              <br />
+              Only the reading and AI steps overlap — changes to Plex are always
+              made one at a time, in order, so this never affects privacy.
+              <br />
+              Higher is faster on big servers. Set to <strong>1</strong> to work
+              through people one after another.
             </p>
           </div>
           <Segmented<string>
@@ -81,11 +87,13 @@ export function AdvancedSection({ settings }: { settings: Settings }) {
           <div className="border-t pt-4">
             <p className="font-medium">Runs kept</p>
             <p className="text-sm text-muted-foreground">
-              How many past runs to keep. After each run, older ones (and the
-              picks they recorded) are cleared automatically.{" "}
-              <strong>All</strong> keeps everything. A run is never cleared
-              while it&rsquo;s still inside the dashboard&rsquo;s 30-day watch
-              window, so a low number can&rsquo;t cost you tracking.
+              How many past runs to keep in history.
+              <br />
+              Older runs (and the picks they recorded) are cleared automatically
+              after each run. <strong>All</strong> keeps everything.
+              <br />A run is never cleared while it still counts toward the
+              dashboard&rsquo;s 30-day watch tracking, so a low number
+              won&rsquo;t cost you any stats.
             </p>
           </div>
           <Segmented<string>

@@ -44,15 +44,26 @@ export function DefaultsSection({ settings }: { settings: Settings }) {
               onChange={(event) => setRowNameTpl(event.target.value)}
             />
             <p className="text-sm text-muted-foreground">
-              Use <span className="font-mono">{"{library_name}"}</span> for the
-              library's name (e.g.{" "}
-              <span className="font-mono">
-                ✨ {"{library_name}"} Picked for You
-              </span>{" "}
-              becomes “✨ Movies Picked for You”),{" "}
-              <span className="font-mono">{"{user}"}</span> for each person's
-              name, or <span className="font-mono">{"{top_seed}"}</span> for
-              their top watched title.
+              The name each person sees on their row. You can drop in:
+            </p>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              <li>
+                <span className="font-mono">{"{library_name}"}</span> — the
+                library&rsquo;s name (Movies, TV Shows)
+              </li>
+              <li>
+                <span className="font-mono">{"{user}"}</span> — the
+                person&rsquo;s name
+              </li>
+              <li>
+                <span className="font-mono">{"{top_seed}"}</span> — their
+                most-watched title
+              </li>
+            </ul>
+            <p className="text-sm text-muted-foreground">
+              Each person&rsquo;s row stays private whether or not their name is
+              in it, so leaving <span className="font-mono">{"{user}"}</span>{" "}
+              out is fine.
             </p>
             <div className="rounded-md border bg-card p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">

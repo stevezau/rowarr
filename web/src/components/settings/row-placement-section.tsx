@@ -167,11 +167,15 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
       <Card>
         <CardContent className="space-y-4 pt-6">
           <p className="text-sm text-muted-foreground">
-            By default Plex adds new collections at the end of a library’s{" "}
-            <em>Recommended</em> shelf — so if another tool (like Kometa)
-            manages collections here, Shortlist’s rows can end up buried at the
-            bottom. Anchor them to a collection you pick and they’ll sit right
-            after (or before) it after every run.
+            Where Shortlist’s rows sit within each library’s{" "}
+            <em>Recommended</em> shelf.
+            <br />
+            By default Plex drops new rows at the end of that shelf, so if
+            another tool (like Kometa) also manages rows here, yours can end up
+            buried at the bottom.
+            <br />
+            Pin a row just after — or before — a row you choose, and it stays
+            there on every run.
           </p>
 
           <QueryBoundary

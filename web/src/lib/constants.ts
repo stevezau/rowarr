@@ -83,7 +83,7 @@ export function freshnessDescription(pct: number): string {
     return "Stable — the same strong picks each day. Best match quality, least day-to-day change.";
   if (pct >= 100)
     return "Fresh — rotates the row every day and reaches deep for new titles. Most variety, occasionally weaker matches.";
-  return `Rotates the row daily and reaches about ${pct}% down the ranked list for variety — higher is fresher, lower keeps the safest picks.`;
+  return `Refreshes the row daily, mixing in picks from about ${pct}% down the ranked list. Higher = more variety; lower = the safest matches.`;
 }
 
 /** Terse label for a row card's "this row overrides the freshness" badge (fraction → percent). */

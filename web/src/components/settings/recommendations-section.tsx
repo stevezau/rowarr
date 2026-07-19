@@ -113,9 +113,10 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
       <Card>
         <CardContent className="space-y-4 pt-6">
           <p className="text-sm text-muted-foreground">
-            Where Shortlist looks for titles to suggest. It pools every source
-            you enable, keeps only what’s already in your library, then
-            re-ranks. More sources means wider reach.
+            Where Shortlist looks for titles to suggest.
+            <br />
+            It gathers from every source you turn on, keeps only titles already
+            in your library, then ranks them. More sources → wider reach.
           </p>
           <p className="text-sm text-muted-foreground">
             This is the <strong>default every row inherits</strong>. Any row can
@@ -130,19 +131,28 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
               Where AI is used, and what it costs
             </p>
             <p>
-              The <strong>TMDB</strong> sources use no AI and no per-token cost
-              (just the free TMDB key you already set up) — they find most of
-              the titles. Two sources below use your AI curator:{" "}
-              <strong>AI web search</strong> — in our testing the strongest
-              extra, surfacing acclaimed titles TMDB misses — and{" "}
-              <strong>AI from library</strong>, which adds the least for the
-              most cost (turn it off first to save).
+              The <strong>TMDB</strong> sources use no AI — just the free TMDB
+              key you already added — and find most of the titles.
+            </p>
+            <p>Two sources below use your AI curator (so they cost tokens):</p>
+            <ul className="ml-4 list-disc space-y-1">
+              <li>
+                <strong>AI web search</strong> — the strongest extra in our
+                testing; surfaces acclaimed titles TMDB misses.
+              </li>
+              <li>
+                <strong>AI from library</strong> — adds the least for the most
+                cost. Turn this off first if you want to save.
+              </li>
+            </ul>
+            <p>
+              Your AI curator also makes the final pick and writes each row’s
+              short “why”.
             </p>
             <p>
-              Separately, your AI curator makes the final pick and writes each
-              row’s short “why”. Prefer no AI at all? Leave the AI sources off
-              and set the curator to <strong>None</strong> under Curation — you
-              still get full rows, ranked by score with plain reasons.
+              Prefer no AI at all? Turn the AI sources off and set the curator
+              to <strong>None</strong> under Curation — you still get full rows,
+              ranked by score with plain reasons.
             </p>
           </div>
           {SIMPLE_SOURCES.map((source) => (

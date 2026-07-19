@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Cable,
   Inbox,
+  KeyRound,
   ListOrdered,
   type LucideIcon,
   Rows3,
@@ -14,8 +15,8 @@ export type NavSection = { id: string; label: string; icon: LucideIcon };
 
 /**
  * The Settings page sections, in the order a new owner works down them: connect things → decide
- * where titles come from → how they're written → row defaults → optional requests → advanced →
- * danger. Schedules are per-row now (each row's editor), not a global Settings section. Shared by
+ * where titles come from → how they're written → row defaults → optional requests → advanced → API
+ * access → danger. Schedules are per-row now (each row's editor), not a global Settings section. Shared by
  * the page (which renders each section's content, keyed by `id`) and the sidebar sub-nav (which
  * lists them and jumps to `#id`).
  */
@@ -27,5 +28,6 @@ export const SETTINGS_SECTIONS: NavSection[] = [
   { id: "placement", label: "Row placement", icon: ListOrdered },
   { id: "requests", label: "Requests", icon: Inbox },
   { id: "advanced", label: "Advanced", icon: SlidersHorizontal },
+  { id: "api-access", label: "API access", icon: KeyRound },
   { id: "danger", label: "Danger zone", icon: AlertTriangle },
 ];

@@ -30,10 +30,10 @@ function sectionContent(settings: Settings): Record<string, ReactNode> {
     advanced: (
       <div className="space-y-6">
         <AdvancedSection settings={settings} />
-        <ApiAccessCard />
         <DiagnosticsCard />
       </div>
     ),
+    "api-access": <ApiAccessCard />,
     danger: <DangerZoneSection settings={settings} />,
   };
 }

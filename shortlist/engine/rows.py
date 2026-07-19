@@ -8,6 +8,7 @@ only builds and delivers collections, always UNPROMOTED.
 from __future__ import annotations
 
 import time
+import zlib
 from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -126,24 +127,52 @@ def _apply_watched_cap(
     return [replace(p, rank=i + 1) for i, p in enumerate(kept)]
 
 
-def _rotate_for_freshness(ranked: list, k: int, freshness: float, day: int) -> list:
-    """Rotate a fraction of a row's ranked candidates by a per-day phase, keeping the strongest put.
+_MAX_REFRESH_PERIOD_DAYS = 14  # freshness just above 0 → refresh about fortnightly
+_KEEP_FRACTION = 2 / 3  # on a refresh night, keep the strongest ~two-thirds; swap the weakest third
 
-    Freshness ``f`` rotates ``round(f * k)`` of the k slots: the top ``k - swap`` picks stay (quality
-    preserved), and the remaining slots rotate daily through the candidates ranked just below them —
-    so the row shifts day to day without dropping its best titles or reaching for weak ones until
-    ``f`` is high. ``day`` is the phase (``date.toordinal()``): the same day yields the same order, a
-    later day a shifted one. ``f == 0``, a zero ``day``, or a pool no deeper than ``k`` is a no-op.
+
+def _refresh_period_days(freshness: float) -> int:
+    """Days between a row's refreshes, from its freshness. 1.0 → 1 (nightly); lower → longer, capped
+    at ~a fortnight. Freshness 0.0 is handled by the caller as 'never refresh once built'."""
+    f = max(0.0, min(1.0, freshness))
+    if f >= 1.0:
+        return 1
+    return max(1, round(1 + (1 - f) * (_MAX_REFRESH_PERIOD_DAYS - 1)))
+
+
+def _is_refresh_night(row_slug: str, owner_slug: str, run_day: int, freshness: float) -> bool:
+    """Whether this row rebuilds today, vs redelivering last run's picks unchanged.
+
+    Freshness is a CADENCE, not a nightly shuffle: 0.0 = never refresh once built (a frozen, pinned
+    row), 1.0 = every night, in between = every N days. A per-(row, owner) phase — a STABLE crc32,
+    never Python's per-process-salted ``hash`` — spreads refreshes across the cycle so the whole
+    server never re-curates (and re-writes to Plex) on one night. ``run_day <= 0`` (direct engine
+    calls and tests, which pass no day) always refreshes, preserving the pre-cadence behaviour.
     """
-    if freshness <= 0 or day <= 0 or len(ranked) <= k:
-        return ranked
-    swap = round(freshness * k)
-    if swap <= 0:
-        return ranked
-    stable = k - swap
-    tail = ranked[stable:]  # everything eligible to rotate through the swap slots
-    offset = (day * swap) % len(tail)
-    return ranked[:stable] + tail[offset:] + tail[:offset]
+    if run_day <= 0:
+        return True
+    if freshness <= 0.0:
+        return False
+    period = _refresh_period_days(freshness)
+    if period <= 1:
+        return True
+    phase = zlib.crc32(f"{row_slug}|{owner_slug}".encode()) % period
+    return run_day % period == phase
+
+
+def _reusable_prior(
+    prior: list[Pick], kind: MediaType, sec_idx: dict[int, int], watched: set[tuple[int, MediaType]], pct: float
+) -> list[Pick]:
+    """Last run's picks for this library still valid to redeliver, in their original rank order: right
+    media type, still in the library, and — for a 0%-watched row — not since finished."""
+    out: list[Pick] = []
+    for p in prior:
+        if p.media_type is not kind or p.tmdb_id not in sec_idx:
+            continue
+        if pct <= 0 and (p.tmdb_id, p.media_type) in watched:
+            continue
+        out.append(p)
+    return out
 
 
 def _rating_key_resolver(seed_index: dict[int, int]) -> Callable[[WatchedItem], int | None]:
@@ -209,31 +238,28 @@ def _candidate_pool(
     library_index: dict[MediaType, dict[int, int]],
     *,
     excluded_genres: set[str],
-    recent: set[tuple[int, MediaType]],
     profile=None,
     sources: list[str] | None = None,
     media: str = "both",
     catalog: dict[MediaType, list[dict]] | None = None,
     watched_exclusions: set[tuple[int, MediaType]] | None = None,
-) -> tuple[tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]], candidates_mod.GatherStats]:
-    """Gather TMDB candidates for ``seeds``, intersect with the library, split by staleness.
+) -> tuple[tuple[list[Candidate], list[Candidate], list[Candidate]], candidates_mod.GatherStats]:
+    """Gather TMDB candidates for ``seeds`` and intersect them with the library.
 
-    Returns ``((pool, in_library, ranked, held_back), gather_stats)`` — the 4-tuple of candidate
-    lists, plus the AI token/Exa spend the gather incurred (for per-run cost accounting):
+    Returns ``((pool, in_library, ranked), gather_stats)`` — the 3-tuple of candidate lists, plus the
+    AI token/Exa spend the gather incurred (for per-run cost accounting):
 
     * ``pool`` — every pooled candidate (used for request-demand bookkeeping before narrowing).
     * ``in_library`` — the ones the delivery libraries actually hold and this user may still see.
-    * ``ranked`` — the pre-ranked fresh candidates the curator chooses from.
-    * ``held_back`` — pre-ranked titles the staleness guard held back (recommended in the last N
-      runs). Still valid recommendations, so they backfill a row fresh candidates can't fill —
-      without them a thin pool SHRINKS the row rather than repeating a title.
+    * ``ranked`` — the pre-ranked candidates the curator chooses from.
 
     ``media`` narrows the pool BEFORE the pre-rank truncation. Filtering after it meant a
     movie-heavy watcher's shows-only row could lose every show to the 40-candidate cut and deliver
-    nothing — a dead row on a green run.
+    nothing — a dead row on a green run. Identity is (tmdb_id, media_type), never the bare id — movie
+    1399 and TV 1399 are different titles.
 
-    One ``filter_candidates`` pass, not two: the valid set is partitioned by ``recent``. Identity
-    is (tmdb_id, media_type), never the bare id — movie 1399 and TV 1399 are different titles.
+    (No staleness partition anymore: rows now carry their prior picks forward on non-refresh nights,
+    so there's nothing to "hold back" — see ``_reusable_prior`` / ``_is_refresh_night``.)
     """
     # The titles this person has already watched (per the row's policy), not just the ~30 seeds — a
     # recommendation you've finished is the exact thing the row shouldn't surface. Falls back to the
@@ -259,17 +285,14 @@ def _candidate_pool(
         excluded_genres=excluded_genres,
         recent_pick_ids=set(),
     )
-    valid = _media_filter(valid, media)
-    in_library = [c for c in valid if (c.tmdb_id, c.media_type) not in recent]
-    held = [c for c in valid if (c.tmdb_id, c.media_type) in recent]
+    in_library = _media_filter(valid, media)
     # Pre-rank EACH media type to its own cap, not the mixed pool to one cap — otherwise a 'both'
     # row whose pool skews one way (a mostly-TV watcher) truncates the other type away before the
     # per-media curate ever sees it, and that library's collection comes up empty.
     kinds = [MediaType.MOVIE, MediaType.SHOW] if media == "both" else [MediaType(media)]
     cap = ctx.config.candidates_pre_rank
     ranked = [c for kind in kinds for c in ranking.pre_rank([x for x in in_library if x.media_type is kind], cap)]
-    held_back = [c for kind in kinds for c in ranking.pre_rank([x for x in held if x.media_type is kind], cap)]
-    return (pool, in_library, ranked, held_back), gather_stats
+    return (pool, in_library, ranked), gather_stats
 
 
 def _add_step_tokens(report: UserRunReport, step: str, n: int) -> None:
@@ -380,11 +403,10 @@ def _run_user(
     # A candidate pool per DISTINCT effective source-set among this user's rows. Rows that share
     # sources (the common case — every row inheriting the global set) reuse one pool; a row that
     # picks its own sources gets its own. Keyed by the sorted source tuple, memoised across the user.
-    Pool = tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]]
+    Pool = tuple[list[Candidate], list[Candidate], list[Candidate]]
     pool_cache: dict[tuple, Pool] = {}
     pool_failures: dict[tuple, str] = {}  # pool key -> why every source for it failed
     seeds: list = []
-    recent: set[tuple[int, MediaType]] = set()
     # This person's watched breakdown, filled in the non-cold branch and read by pools_for: watched
     # movie tmdb_ids, and show tmdb_id -> episode-play count (for the finished-show fraction). The
     # derived set of FINISHED (tmdb_id, media_type) titles is computed once the breakdown is in.
@@ -436,7 +458,6 @@ def _run_user(
                     seeds,
                     row_library_index(ctx, spec, library_index),
                     excluded_genres=user.excluded_genres,
-                    recent=recent,
                     profile=user,
                     sources=list(key[0]),
                     media=spec.media,
@@ -475,7 +496,6 @@ def _run_user(
         # watched cap (>0). Mutated in place so the pools_for closure sees it.
         watched_titles |= _watched_titles(watched_movies, show_plays, ctx.episode_counts, cfg.watched_show_pct)
         _pipeline._emit(ctx, user.slug, "candidates", {"history": len(user.history), "seeds": len(seeds)})
-        recent = ctx.recent_picks.get(user.slug, set())
         for spec in specs:  # build every row's pool up front so counts and demand see them all
             pools_for(spec)
         # Only if EVERY row's sources are down do we know nothing about this person: that's a failed
@@ -558,6 +578,20 @@ def _run_user(
     delivered_any = False
     # (row_slug, library_key) -> curate tokens, stamped onto each breakdown entry after the loop.
     curate_tokens: dict[tuple[str, str], int] = {}
+
+    def curate_section(profile: UserProfile, cands: list[Candidate], want: int, spec: RowSpec, section) -> list[Pick]:
+        """Curate up to ``want`` picks from ``cands``, recording token spend and degrading to the
+        heuristic curator if the AI one fails. Empty in → empty out (nothing to curate)."""
+        if not cands or want <= 0:
+            return []
+        try:
+            picks = ctx.curator.curate(profile, cands, want)
+            _record_curate(user_report, curate_tokens, spec.slug, section.key, getattr(ctx.curator, "last_tokens", 0))
+            return picks
+        except CuratorError as e:
+            logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
+            return NullCurator().curate(profile, cands, want)
+
     for spec in specs:
         # A per-row override lets this one person resize or restyle this one row; each field falls
         # through to the row's own setting when unset. Row beats global — the same direction the
@@ -584,9 +618,10 @@ def _run_user(
             pools = pools_for(spec)
             if pools is None:
                 continue  # every source this row uses is down; its siblings still deliver
-            _pool, _in_library, pool_for_row, held_back = pools
+            _pool, _in_library, pool_for_row = pools
             _pipeline._emit(ctx, user.slug, "curating", {"candidates": len(pool_for_row)})
         section_picks: dict[str, list[Pick]] = {}
+        fresh = effective_freshness(spec)
         for section in targets:
             kind = section_kind(section)
             # tmdb_id -> ratingKey for THIS library only; a candidate not in this library isn't a
@@ -594,34 +629,52 @@ def _run_user(
             if cold:
                 # Cold picks already come FROM a library (plex.top_rated), so they're in-library by
                 # construction; delivery remaps each to the target library and drops any it lacks.
-                cands = _rotate_for_freshness(
-                    [p for p in base_cold if p.media_type is kind], k, effective_freshness(spec), ctx.run_day
-                )[:k]
+                cands = [p for p in base_cold if p.media_type is kind][:k]
                 section_picks[section.key] = [replace(p, rank=i + 1) for i, p in enumerate(cands)]
                 continue
             sec_idx = ctx.section_index.get(section.key, {})
-            sub = [c for c in pool_for_row if c.media_type is kind and c.tmdb_id in sec_idx]
-            if not sub:
-                continue
-            # Freshness rotates which strong candidates lead today, so the row shifts day to day
-            # without dropping its best titles (at 0 this is a no-op — the ranking is untouched).
-            sub = _rotate_for_freshness(sub, k, effective_freshness(spec), ctx.run_day)
-            try:
-                sec_picks = ctx.curator.curate(row_profile, sub, k)
-                toks = getattr(ctx.curator, "last_tokens", 0)
-                _record_curate(user_report, curate_tokens, spec.slug, section.key, toks)
-            except CuratorError as e:
-                logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
-                sec_picks = NullCurator().curate(row_profile, sub, k)
-            held = [c for c in held_back if c.media_type is kind and c.tmdb_id in sec_idx]
-            if len(sec_picks) < k:
-                sec_picks = _pad_picks(sec_picks, sub + held, k)
             pct = effective_watched_pct(spec)
+            sub = [c for c in pool_for_row if c.media_type is kind and c.tmdb_id in sec_idx]
+            # str(section.key): previous_picks is keyed by the PickRow.section_key STRING column, so the
+            # live section key (which may not be a str) must be coerced or carry-forward silently misses.
+            prior_valid = _reusable_prior(
+                ctx.previous_picks.get((user.slug, spec.slug, str(section.key)), []), kind, sec_idx, watched_titles, pct
+            )
+            refresh = _is_refresh_night(spec.slug, user.slug, ctx.run_day, fresh)
+
+            if prior_valid and not refresh:
+                # Not this row's refresh night: redeliver last run's picks unchanged — no curator call
+                # (saves the tokens), and delivery's unchanged-skip then avoids the Plex write too. Pad
+                # only if a title has since left the library, so the row stays full.
+                sec_picks = prior_valid[:k]
+                if len(sec_picks) < k and sub:
+                    sec_picks = _pad_picks(sec_picks, sub, k)
+            elif prior_valid:
+                # Refresh night: keep the strongest ~two-thirds, swap the rest for genuinely-new titles.
+                # Curate only from candidates NOT already in the row so a just-rotated-out title can't
+                # bounce straight back — the internal anti-immediate-repeat guard that replaced staleness_runs.
+                keep_n = min(len(prior_valid), round(_KEEP_FRACTION * k))
+                kept = prior_valid[:keep_n]
+                prior_ids = {(p.tmdb_id, p.media_type) for p in prior_valid}
+                fresh_pool = [c for c in sub if (c.tmdb_id, c.media_type) not in prior_ids]
+                new_picks = curate_section(row_profile, fresh_pool, k, spec, section)
+                sec_picks = (kept + [p for p in new_picks if (p.tmdb_id, p.media_type) not in prior_ids])[:k]
+                if len(sec_picks) < k:
+                    sec_picks = _pad_picks(sec_picks, fresh_pool, k)
+            else:
+                # Bootstrap: this row+library has never been built (or its picks predate row/library
+                # stamping) — curate a fresh full row, exactly like a first run.
+                if not sub:
+                    continue
+                sec_picks = curate_section(row_profile, sub, k, spec, section)
+                if len(sec_picks) < k:
+                    sec_picks = _pad_picks(sec_picks, sub, k)
+
             if pct > 0:
                 # Let at most `pct` of this library's row be already-finished titles; backfill the
                 # rest from its fresh candidates. (At pct == 0 the pool already dropped finished ones.)
-                sec_picks = _apply_watched_cap(sec_picks, sub + held, watched_titles, k, pct)
-            section_picks[section.key] = sec_picks
+                sec_picks = _apply_watched_cap(sec_picks, sub, watched_titles, k, pct)
+            section_picks[section.key] = [replace(p, rank=i + 1) for i, p in enumerate(sec_picks[:k])]
         # Stamp each pick with the row AND the library it belongs to, so the user page can group picks
         # per row and the effectiveness report can split a multi-library row into one line per library.
         library_names = {section.key: getattr(section, "title", "") or "" for section in targets}
@@ -810,12 +863,11 @@ def _shared_row(
     seeds = derive_seeds(agg_history, resolve, max_seeds=cfg.max_seeds)
     row_sources = spec.candidate_sources if spec.candidate_sources else None  # None -> global default
     # Same three narrowings a per-person row gets: its sources, its media, its libraries.
-    (_pool, _in_library, ranked, held_back), gather_stats = _candidate_pool(
+    (_pool, _in_library, ranked), gather_stats = _candidate_pool(
         ctx,
         seeds,
         row_library_index(ctx, spec, library_index),
         excluded_genres=set(),
-        recent=ctx.recent_picks.get(slug, set()),
         profile=agg,
         sources=row_sources,
         media=spec.media,
@@ -829,14 +881,15 @@ def _shared_row(
     targets = target_sections(ctx.delivery_sections, spec)
     section_picks: dict[str, list[Pick]] = {}
     curate_tokens: dict[tuple[str, str], int] = {}  # (row_slug, library_key) -> curate cost, stamped below
-    freshness = spec.freshness if spec.freshness is not None else cfg.freshness
     for section in targets:
         kind = section_kind(section)
         sec_idx = ctx.section_index.get(section.key, {})
         sub = [c for c in ranked if c.media_type is kind and c.tmdb_id in sec_idx]
         if not sub:
             continue
-        sub = _rotate_for_freshness(sub, k, freshness, ctx.run_day)  # rotate a public row day to day too
+        # NOTE: shared-row picks aren't persisted per-user (they file under `shared_<slug>`), so they
+        # can't carry forward like per-person rows yet — they re-curate each run. They're few (1-2) and
+        # aggregate history changes slowly, so churn here is minor. See [[perf-work-state]] follow-up.
         try:
             sec_picks = ctx.curator.curate(agg, sub, k)
             # Shared-row LLM spend used to vanish — only the per-person path accounted tokens.
@@ -845,10 +898,8 @@ def _shared_row(
         except CuratorError:
             sec_picks = NullCurator().curate(agg, sub, k)
         if len(sec_picks) < k:
-            # Backfill from held-back titles too — a shared row used to SHRINK on a thin pool while a
-            # per-person row backfilled.
-            held = [c for c in held_back if c.media_type is kind and c.tmdb_id in sec_idx]
-            sec_picks = _pad_picks(sec_picks, sub + held, k)
+            # Backfill from this library's ranked pool so a thin curate never SHRINKS the row.
+            sec_picks = _pad_picks(sec_picks, sub, k)
         section_picks[section.key] = sec_picks
     # Force aggregate framing regardless of curator: a shared row is nobody's "because you watched",
     # and the seed is dropped so a {top_seed} name template can never surface one person's title.

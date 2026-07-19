@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from loguru import logger
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, sessionmaker
 
 from shortlist.engine.clients.mdblist import MdbListClient
@@ -29,6 +30,7 @@ from shortlist.engine.models import (
     EngineConfig,
     HubAnchor,
     MediaType,
+    Pick,
     PosterSpec,
     PromptConfig,
     RequestConfig,
@@ -129,7 +131,6 @@ class ContextBuilder:
             config = EngineConfig(
                 row_size=int(store.get("row.size")),
                 row_name_template=store.get("row.name_template"),
-                staleness_runs=int(store.get("staleness_runs")),
                 # Fallback matches the seeded default and the UI's, so a never-saved setting behaves
                 # the same everywhere (gather_candidates still floors an explicit [] at tmdb_similar).
                 candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
@@ -152,7 +153,7 @@ class ContextBuilder:
                 build_only=self._build_only_slugs(session, collection_ids),
                 requests=self._build_requests(store),
             )
-            recent = self._recent_picks(session, config)
+            previous = self._previous_picks(session)
             concurrency = int(store.get("run.concurrency") or 1)
             # Every user Shortlist knows, enabled or not: the engine answers "whose row is this?"
             # by account id, because a name can change and two names can slugify alike.
@@ -181,7 +182,7 @@ class ContextBuilder:
             index_cache=DbCache(self._sessions, kind="library_index"),
             mdblist=self._build_mdblist(store),
             concurrency=concurrency,
-            recent_picks=recent,
+            previous_picks=previous,
             known_slugs=known_slugs,
             handled_requests=self._handled_requests(session),
             progress=progress,
@@ -265,24 +266,63 @@ class ContextBuilder:
             for w in items[:limit]
         ]
 
-    def _recent_picks(self, session: Session, config: EngineConfig) -> dict[str, set[tuple[int, MediaType]]]:
-        """Titles picked in the last N runs, keyed on (tmdb_id, media_type).
+    def _previous_picks(self, session: Session) -> dict[tuple[str, str, str], list[Pick]]:
+        """Each row+library's picks from the run that last built it, keyed (user_slug, row_slug, section_key).
 
-        The pair, not the bare id: TMDB ids are unique only within a namespace, so keying on the
-        id alone lets a recently-picked film suppress the show that shares its number.
+        Carried into the engine so a row is REUSED unchanged on non-refresh nights instead of being
+        re-curated (and re-written to Plex) from scratch every night — the fix for the nightly full-row
+        churn. We take the picks from the MAX run_id per (user, row, library), i.e. the last time we
+        delivered that exact row+library, which is the best proxy for what's on Plex now. Legacy rows
+        with no row/library stamp (blank collection_slug/section_key) can't be mapped, so they're
+        skipped and simply bootstrap by curating fresh.
         """
-        recent: dict[str, set[tuple[int, MediaType]]] = {}
-        window = config.staleness_runs * config.row_size
-        for user in session.query(User).filter_by(enabled=True).all():
-            rows = (
-                session.query(PickRow.tmdb_id, PickRow.media_type)
-                .filter_by(user_id=user.id)
-                .order_by(PickRow.id.desc())
-                .limit(window)
-                .all()
+        latest = (
+            session.query(
+                PickRow.user_id.label("user_id"),
+                PickRow.collection_slug.label("slug"),
+                PickRow.section_key.label("section_key"),
+                func.max(PickRow.run_id).label("mrun"),
             )
-            recent[user.slug] = {(r.tmdb_id, MediaType(r.media_type)) for r in rows}
-        return recent
+            .filter(PickRow.collection_slug != "", PickRow.section_key != "")
+            .group_by(PickRow.user_id, PickRow.collection_slug, PickRow.section_key)
+            .subquery()
+        )
+        rows = (
+            session.query(PickRow)
+            .join(
+                latest,
+                and_(
+                    PickRow.user_id == latest.c.user_id,
+                    PickRow.collection_slug == latest.c.slug,
+                    PickRow.section_key == latest.c.section_key,
+                    PickRow.run_id == latest.c.mrun,
+                ),
+            )
+            .order_by(PickRow.rank)
+            .all()
+        )
+        slug_by_id = {u.id: u.slug for u in session.query(User).all()}
+        out: dict[tuple[str, str, str], list[Pick]] = {}
+        for r in rows:
+            slug = slug_by_id.get(r.user_id)
+            if slug is None:
+                continue
+            out.setdefault((slug, r.collection_slug, r.section_key), []).append(
+                Pick(
+                    tmdb_id=r.tmdb_id,
+                    rating_key=0,  # remapped to THIS library's ratingKey at delivery, via section_index
+                    title=r.title,
+                    rank=r.rank,
+                    reason=r.reason,
+                    media_type=MediaType(r.media_type),
+                    seed_tmdb_id=r.seed_tmdb_id,
+                    seed_title=r.seed_title,
+                    collection_slug=r.collection_slug,
+                    section_key=r.section_key,
+                    library=r.library,
+                )
+            )
+        return out
 
     def enabled_profiles(self, session: Session, user_ids: list[int] | None = None) -> list[UserProfile]:
         """Enabled users, optionally narrowed to user_ids — never widened past enabled=True.

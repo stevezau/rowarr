@@ -452,7 +452,6 @@ class EngineConfig:
     min_history: int = 10  # below this -> cold-start row
     min_completion: float = 0.7  # history completion threshold for "meaningful" watch
     max_seeds: int = 30
-    staleness_runs: int = 3  # don't repeat picks recommended in the last N runs
     # Cap on already-watched titles in a row, as a fraction of the row. 0.0 (default): all fresh —
     # drop every finished title (a movie you watched, or a show you've seen >= watched_show_pct of;
     # a partly-watched show or one with a new season stays eligible). 1.0: no filtering. Between:

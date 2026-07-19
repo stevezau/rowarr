@@ -151,49 +151,94 @@ class TestWatchedCap:
         assert {p.tmdb_id for p in out} == {1, 2, 3}  # no filtering at 100%
 
 
-class TestFreshnessRotation:
-    """The freshness rotation: keep the strongest picks stable, rotate the rest by a per-day phase."""
+class TestReusablePrior:
+    """Which carried-forward picks may be redelivered on a reuse night — the privacy-adjacent filter
+    that keeps a stale/departed/now-watched title from being reused."""
 
-    def _ranked(self, n: int = 20) -> list:
-        # ids 1..n, already in rank order (best first).
-        return [make_candidate(i, f"c{i}") for i in range(1, n + 1)]
+    def _pick(self, tmdb_id: int, rank: int, mt=MediaType.MOVIE):
+        from shortlist.engine.models import Pick
 
-    def test_zero_freshness_is_a_no_op(self):
-        from shortlist.engine.rows import _rotate_for_freshness
+        return Pick(tmdb_id=tmdb_id, rating_key=0, title=f"t{tmdb_id}", rank=rank, reason="", media_type=mt)
 
-        ranked = self._ranked()
-        assert _rotate_for_freshness(ranked, 5, 0.0, 100) is ranked
+    def test_keeps_valid_priors_in_order(self):
+        from shortlist.engine.rows import _reusable_prior
 
-    def test_day_zero_is_a_no_op(self):
-        from shortlist.engine.rows import _rotate_for_freshness
+        prior = [self._pick(10, 1), self._pick(11, 2), self._pick(12, 3)]
+        sec_idx = {10: 100, 11: 110, 12: 120}
+        out = _reusable_prior(prior, MediaType.MOVIE, sec_idx, watched=set(), pct=0.0)
+        assert [p.tmdb_id for p in out] == [10, 11, 12]
 
-        ranked = self._ranked()
-        assert _rotate_for_freshness(ranked, 5, 0.5, 0) is ranked
+    def test_drops_wrong_media_type(self):
+        from shortlist.engine.rows import _reusable_prior
 
-    def test_a_pool_no_deeper_than_the_row_is_a_no_op(self):
-        from shortlist.engine.rows import _rotate_for_freshness
+        prior = [self._pick(10, 1, MediaType.SHOW), self._pick(11, 2, MediaType.MOVIE)]
+        out = _reusable_prior(prior, MediaType.MOVIE, {10: 100, 11: 110}, watched=set(), pct=0.0)
+        assert [p.tmdb_id for p in out] == [11]  # the show is filtered out for a movie library
 
-        # Nothing below the row to rotate in: the guard must return the ranking untouched — a shallow
-        # pool can never SHRINK or reshuffle the row.
-        exactly_k = self._ranked(4)
-        assert _rotate_for_freshness(exactly_k, 4, 1.0, 5) is exactly_k
-        too_few = self._ranked(3)
-        assert _rotate_for_freshness(too_few, 4, 1.0, 5) is too_few
+    def test_drops_a_title_that_left_the_library(self):
+        from shortlist.engine.rows import _reusable_prior
 
-    def test_keeps_the_top_stable_and_rotates_the_rest(self):
-        from shortlist.engine.rows import _rotate_for_freshness
+        prior = [self._pick(10, 1), self._pick(11, 2)]
+        out = _reusable_prior(prior, MediaType.MOVIE, {10: 100}, watched=set(), pct=0.0)
+        assert [p.tmdb_id for p in out] == [10]  # 11 is no longer in the section index
 
-        ranked = self._ranked()
-        k = 4  # freshness 0.5 -> swap 2, keep top 2
-        day1 = [c.tmdb_id for c in _rotate_for_freshness(ranked, k, 0.5, 1)[:k]]
-        day2 = [c.tmdb_id for c in _rotate_for_freshness(ranked, k, 0.5, 2)[:k]]
-        assert day1[:2] == [1, 2] and day2[:2] == [1, 2], "the two strongest picks stay put every day"
-        assert day1[2:] != day2[2:], "the remaining slots rotate for day-to-day variety"
-        assert day1 == [c.tmdb_id for c in _rotate_for_freshness(ranked, k, 0.5, 1)[:k]], "same day is reproducible"
+    def test_drops_a_since_watched_title_only_when_pct_is_zero(self):
+        from shortlist.engine.rows import _reusable_prior
 
-    def test_full_freshness_moves_the_whole_row_off_the_top(self):
-        from shortlist.engine.rows import _rotate_for_freshness
+        prior = [self._pick(10, 1), self._pick(11, 2)]
+        sec_idx = {10: 100, 11: 110}
+        watched = {(11, MediaType.MOVIE)}
+        # 0% row: a now-finished title is no longer eligible, so it's dropped.
+        assert [p.tmdb_id for p in _reusable_prior(prior, MediaType.MOVIE, sec_idx, watched, 0.0)] == [10]
+        # A >0 row keeps it — the delivery-time watched cap trims the surplus instead.
+        assert [p.tmdb_id for p in _reusable_prior(prior, MediaType.MOVIE, sec_idx, watched, 0.3)] == [10, 11]
 
-        ranked = self._ranked()
-        day1 = [c.tmdb_id for c in _rotate_for_freshness(ranked, 4, 1.0, 1)[:4]]
-        assert day1 != [1, 2, 3, 4], "at full freshness even the top slots rotate"
+
+class TestFreshnessCadence:
+    """Freshness as a REFRESH CADENCE: 0 = never rebuild, 1 = nightly, in between = every N days."""
+
+    def test_period_scales_with_freshness(self):
+        from shortlist.engine.rows import _refresh_period_days
+
+        assert _refresh_period_days(1.0) == 1  # full freshness -> rebuild every night
+        assert _refresh_period_days(0.5) == 8  # ~weekly at the default
+        assert _refresh_period_days(0.1) > _refresh_period_days(0.9)  # lower freshness -> longer gap
+        assert _refresh_period_days(0.01) <= 14  # capped near a fortnight
+
+    def test_zero_freshness_never_refreshes(self):
+        from shortlist.engine.rows import _is_refresh_night
+
+        # A frozen row: once built it is never a refresh night, on any day.
+        assert not any(_is_refresh_night("row", "sarah", day, 0.0) for day in range(1, 60))
+
+    def test_full_freshness_refreshes_every_night(self):
+        from shortlist.engine.rows import _is_refresh_night
+
+        assert all(_is_refresh_night("row", "sarah", day, 1.0) for day in range(1, 30))
+
+    def test_run_day_zero_always_refreshes(self):
+        # Direct engine calls / tests pass no day (0) — behave like the pre-cadence engine.
+        from shortlist.engine.rows import _is_refresh_night
+
+        assert _is_refresh_night("row", "sarah", 0, 0.5)
+
+    def test_cadence_fires_once_per_period_and_is_stable(self):
+        from shortlist.engine.rows import _is_refresh_night, _refresh_period_days
+
+        period = _refresh_period_days(0.5)
+        # Real run days start at 1 (day 0 is the tests/direct "always refresh" sentinel).
+        hits = [d for d in range(1, period * 3 + 1) if _is_refresh_night("row", "sarah", d, 0.5)]
+        # Exactly one refresh night per period window, and the schedule is reproducible (stable crc).
+        assert len(hits) == 3
+        assert all(_is_refresh_night("row", "sarah", d, 0.5) for d in hits)
+
+    def test_phase_differs_across_rows_so_the_server_does_not_all_refresh_at_once(self):
+        from shortlist.engine.rows import _is_refresh_night, _refresh_period_days
+
+        period = _refresh_period_days(0.5)
+        # Different (row, owner) keys land on different phase days within the period (crc-spread), so
+        # the whole roster never re-curates on the same night. Search from day 1 (0 always refreshes).
+        phases = {
+            next(d for d in range(1, period + 1) if _is_refresh_night(f"row{n}", f"user{n}", d, 0.5)) for n in range(8)
+        }
+        assert len(phases) > 1

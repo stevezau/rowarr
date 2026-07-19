@@ -79,40 +79,46 @@ class TestBuildContext:
         assert ctx.curator.name == "ollama"
         assert ctx.curator._base_url == "http://ollama.local:11434"
 
-    def test_recent_picks_window_respects_staleness_config(self, service, sessions, configured):
+    def test_previous_picks_carries_the_latest_run_per_row_and_library(self, service, sessions, configured):
         from shortlist.server.db.models import Run
 
         with sessions() as session:
-            store = SettingsStore(session, configured)
-            store.set("staleness_runs", 2)
-            store.set("row.size", 3)  # window = 6
             session.add(User(plex_account_id=1, username="sarah", slug="sarah", enabled=True))
-            run = Run(trigger="manual", status="ok", dry_run=False, stats={})
-            session.add(run)
+            old = Run(trigger="manual", status="ok", dry_run=False, stats={})
+            new = Run(trigger="manual", status="ok", dry_run=False, stats={})
+            session.add_all([old, new])
             session.commit()
             user_id = session.query(User).one().id
-            for i in range(10):
-                session.add(
-                    PickRow(
-                        run_id=run.id,
-                        user_id=user_id,
-                        tmdb_id=100 + i,
-                        media_type="show" if i % 2 else "movie",
-                        rating_key=i,
-                        rank=1,
-                    )
+            old_id, new_id = old.id, new.id
+
+            def pick(run_id, tmdb_id, rank, slug="picked", section="movies-1", mt="movie"):
+                return PickRow(
+                    run_id=run_id,
+                    user_id=user_id,
+                    tmdb_id=tmdb_id,
+                    media_type=mt,
+                    rating_key=tmdb_id,
+                    rank=rank,
+                    collection_slug=slug,
+                    section_key=section,
+                    title=f"t{tmdb_id}",
+                    reason="because",
                 )
+
+            # An older run's picks for the row, then a newer run that rebuilt it — carry-forward must
+            # take the NEWER set. A blank-stamp pick (legacy) can't map to a row, so it's skipped.
+            session.add_all([pick(old_id, 100, 1), pick(old_id, 101, 2)])
+            session.add_all([pick(new_id, 200, 2), pick(new_id, 201, 1)])
+            session.add(pick(new_id, 300, 1, slug="", section=""))
             session.commit()
+
         ctx = service.build_context(dry_run=True)
-        # Keyed on (id, type): a recently-picked movie must not suppress the show sharing its id.
-        assert ctx.recent_picks["sarah"] == {
-            (104, MediaType.MOVIE),
-            (105, MediaType.SHOW),
-            (106, MediaType.MOVIE),
-            (107, MediaType.SHOW),
-            (108, MediaType.MOVIE),
-            (109, MediaType.SHOW),
-        }  # newest 6 only
+        got = ctx.previous_picks[("sarah", "picked", "movies-1")]
+        # Only the newest run's picks, ordered by rank, reconstructed as engine Pick objects.
+        assert [p.tmdb_id for p in got] == [201, 200]
+        assert got[0].title == "t201" and got[0].reason == "because"
+        # The legacy unstamped pick maps to no row and is dropped, not filed under ("", "").
+        assert ("sarah", "", "") not in ctx.previous_picks
 
 
 class TestBuildRequests:
@@ -218,7 +224,7 @@ class TestSyncWatched:
         from datetime import UTC, datetime, timedelta
         from types import SimpleNamespace
 
-        from shortlist.engine.models import MediaType, UserProfile, UserType, WatchedItem
+        from shortlist.engine.models import UserProfile, UserType, WatchedItem
         from shortlist.server.db.models import PickRow, Run, User
 
         with sessions() as s:

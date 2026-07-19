@@ -41,6 +41,7 @@ from shortlist.engine.models import (
     EngineConfig,
     HubAnchor,
     MediaType,
+    Pick,
     RequestOutcome,
     RequestReport,
     RowSpec,
@@ -75,9 +76,12 @@ class EngineContext:
     # Optional image-generation backend for generate-mode row posters, built from the AI curator's
     # provider/key. None when the curator provider can't make images (Anthropic, Ollama) or none is set.
     poster_artist: PosterArtist | None = None
-    # slug -> {(tmdb_id, media_type)}: the staleness guard. Keyed on the PAIR because TMDB ids
-    # are unique only within a namespace — movie 550 and TV 550 are different titles.
-    recent_picks: dict[str, set[tuple[int, MediaType]]] = field(default_factory=dict)
+    # (owner_slug, row_slug, section_key) -> last run's delivered picks for that row+library, newest
+    # first. Carried forward so a row is REUSED unchanged on non-refresh nights (freshness is the
+    # refresh CADENCE) instead of re-curated from scratch every night — the fix for the nightly
+    # full-row churn that staleness_runs=3 used to force (SFLIX 2026-07-20). Empty -> every row
+    # bootstraps by curating fresh, exactly like a first run.
+    previous_picks: dict[tuple[str, str, str], list[Pick]] = field(default_factory=dict)
     # media_type -> [{tmdb_id, rating_key, title, year, genres}] for the delivery libraries, built
     # once per run and only when the AI-from-library candidate source is enabled (else empty).
     library_catalog: dict[MediaType, list[dict]] = field(default_factory=dict)

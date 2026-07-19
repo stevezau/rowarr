@@ -148,7 +148,7 @@ describe("RowEditor — freshness", () => {
   it("shows the freshness slider only when the row overrides the global default", () => {
     renderEditor(row({ freshness: 0.25 }));
     expect(
-      screen.getByRole("slider", { name: /varies day to day/i }),
+      screen.getByRole("slider", { name: /how often the row refreshes/i }),
     ).toHaveValue("25");
     expect(
       screen.getByRole("switch", { name: /global freshness default/i }),

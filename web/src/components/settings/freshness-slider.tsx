@@ -9,9 +9,9 @@ interface FreshnessSliderProps {
 }
 
 /**
- * How much a row varies day to day (0% = stable, best quality .. 100% = fresh, most variety). A
- * native range input so it's keyboard-accessible for free; the whole-percent value maps to a 0..1
- * fraction at the call site.
+ * How OFTEN a row refreshes (0% = frozen once built .. 100% = rebuilds every night). Freshness is a
+ * cadence, not a nightly shuffle. A native range input so it's keyboard-accessible for free; the
+ * whole-percent value maps to a 0..1 fraction at the call site.
  */
 export function FreshnessSlider({
   id,
@@ -30,7 +30,7 @@ export function FreshnessSlider({
           step={5}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          aria-label="How much the row varies day to day"
+          aria-label="How often the row refreshes"
           aria-valuetext={`${value} percent fresh`}
           className="h-2 w-full cursor-pointer accent-primary"
         />

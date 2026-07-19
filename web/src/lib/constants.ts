@@ -71,25 +71,42 @@ export function watchedBadgeLabel(pct: number): string {
 }
 
 /**
- * Freshness, as a whole percentage. 0 = stable (the same strong picks each day, best quality),
- * 100 = maximum variety (rotates the row daily and reaches deep down the ranked list for new
- * titles). In between trades quality for novelty. Stored as a 0..1 fraction; the UI is whole percent.
+ * Freshness, as a whole percentage — the REFRESH CADENCE (how often a row rebuilds), not a nightly
+ * shuffle. 0 = never refresh once built (frozen/pinned), 100 = rebuild every night, in between =
+ * every N days (50 ≈ weekly). On a refresh the strongest ~two-thirds stay and the weakest third is
+ * swapped for new picks; other nights the row is reused unchanged (no re-curation, no Plex write).
+ * Default weekly so rows stay stable and evolve gradually. Stored as a 0..1 fraction; UI is percent.
  */
-export const FRESHNESS_DEFAULT = 0;
+export const FRESHNESS_DEFAULT = 50;
+
+/** Roughly how many days between refreshes at a given whole-percent freshness (mirrors the engine's
+ *  `_refresh_period_days`: 100 → nightly, lower → longer, capped near a fortnight). */
+function refreshEveryDays(pct: number): number {
+  const f = Math.min(100, Math.max(0, pct)) / 100;
+  if (f >= 1) return 1;
+  return Math.max(1, Math.round(1 + (1 - f) * 13));
+}
 
 /** Human sentence describing a given whole-percent freshness, for helper text under the control. */
 export function freshnessDescription(pct: number): string {
   if (pct <= 0)
-    return "Stable — the same strong picks each day. Best match quality, least day-to-day change.";
+    return "Frozen — once built, the row never changes on its own. Pin a shelf you want to stay put.";
   if (pct >= 100)
-    return "Fresh — rotates the row every day and reaches deep for new titles. Most variety, occasionally weaker matches.";
-  return `Refreshes the row daily, mixing in picks from about ${pct}% down the ranked list. Higher = more variety; lower = the safest matches.`;
+    return "Rebuilds every night — the strongest two-thirds stay, the rest are swapped for new picks. Most variety, most Plex writes.";
+  const days = refreshEveryDays(pct);
+  const every =
+    days <= 1
+      ? "every night"
+      : days >= 7
+        ? `about every ${days} days`
+        : `every ${days} days`;
+  return `Refreshes ${every}: keeps the strongest two-thirds and swaps the rest for new picks. Other nights the row stays exactly as it is. Higher = fresher; lower = stickier.`;
 }
 
 /** Terse label for a row card's "this row overrides the freshness" badge (fraction → percent). */
 export function freshnessBadgeLabel(pct: number): string {
   const whole = Math.round(pct * 100);
-  if (whole <= 0) return "Freshness: stable";
-  if (whole >= 100) return "Freshness: max";
+  if (whole <= 0) return "Freshness: frozen";
+  if (whole >= 100) return "Freshness: nightly";
   return `Freshness: ${whole}%`;
 }

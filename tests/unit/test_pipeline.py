@@ -10,7 +10,7 @@ import pytest
 import shortlist.engine.pipeline as pipeline_mod
 from shortlist.engine.clients.tmdb import NullCache
 from shortlist.engine.curator.base import CuratorError
-from shortlist.engine.models import EngineConfig, MediaType, OwnedRow, RowOverride, RowSpec
+from shortlist.engine.models import EngineConfig, MediaType, OwnedRow, Pick, RowOverride, RowSpec
 from shortlist.engine.pipeline import EngineContext
 from tests.conftest import MemorySnapshotStore, fake_media_item, make_profile, make_watched, plextv_user
 
@@ -792,34 +792,68 @@ class TestPerRowOverrides:
             assert len(entry["picks"]) == 5, "each library's row has its own full set of picks"
             assert [p["rank"] for p in entry["picks"]] == [1, 2, 3, 4, 5], "picks ranked 1..k within the library"
 
-    def test_freshness_rotates_which_candidates_the_curator_sees(self, ctx: EngineContext, mock_plextv):
-        """A freshness>0 row rotates its candidates by the run's day, so the curator leads with a
-        different (still strong) title than the raw #1 — the mechanism behind day-to-day variety."""
-        ctx.config.rows = [RowSpec(slug="picked", name_template="", size=4, media="movie", freshness=1.0)]
+    def _movie_row_ctx(self, ctx, freshness, run_day):
+        """A single Movies library holding tmdb 10-19, one 'picked' movie row at the given freshness."""
+        movies = MagicMock(type="movie", key="1", title="Movies")
+        ctx.plex.sections.return_value = [movies]
+        ctx.plex.sections_by_type.return_value = {MediaType.MOVIE: movies}
+        idx = {900: 999, **{i: 1000 + i for i in range(10, 20)}}
+        ctx.plex.build_library_index.return_value = (idx, {})
+        pool = [{"id": i, "title": f"T{i}", "genre_ids": [], "vote_average": 8.0} for i in range(10, 20)]
+        ctx.tmdb.suggestions.side_effect = lambda tid, mt: pool
+        ctx.history_source.fetch.return_value = [make_watched("Fargo", days_ago=1, rating_key=999)]
+        ctx.config.rows = [RowSpec(slug="picked", name_template="", size=5, media="movie", freshness=freshness)]
         ctx.config.min_history = 1
         ctx.config.candidates_pre_rank = 50
-        ctx.run_day = 2  # a non-zero phase, so rotation is active and reproducible
-        idx = {900: 999, **{i: 1000 + i for i in range(1, 21)}}
-        ctx.plex.build_library_index.return_value = (idx, {})
-        # Distinct descending ratings so the pre-rank order is deterministic: id 1 is the strongest.
-        pool = [{"id": i, "title": f"T{i}", "genre_ids": [], "vote_average": 9.9 - i * 0.1} for i in range(1, 21)]
-        ctx.tmdb.suggestions.return_value = pool
-        ctx.history_source.fetch.return_value = [make_watched("Fargo", days_ago=1, rating_key=999)]
+        ctx.run_day = run_day  # a real day; 0 is the tests/direct "always refresh" sentinel
+
+    def _prior_movies(self, tmdb_ids):
+        return [
+            Pick(
+                tmdb_id=t,
+                rating_key=0,
+                title=f"T{t}",
+                rank=i + 1,
+                reason="kept",
+                media_type=MediaType.MOVIE,
+                collection_slug="picked",
+                section_key="1",
+                library="Movies",
+            )
+            for i, t in enumerate(tmdb_ids)
+        ]
+
+    def test_non_refresh_night_reuses_prior_picks_without_curating(self, ctx: EngineContext, mock_plextv):
+        """Freshness 0 = a frozen row: after the first build it redelivers last run's picks unchanged
+        and never calls the (token-costing, non-deterministic) curator — the fix for nightly churn."""
+        self._movie_row_ctx(ctx, freshness=0.0, run_day=5)
+        ctx.previous_picks = {("sarah", "picked", "1"): self._prior_movies([12, 13, 14, 15, 16])}
         sarah = make_profile("sarah", account_id=100)
         mock_plextv.users = [plextv_user(100, "sarah")]
-        seen: dict[str, int] = {}
+        ctx.curator.curate.side_effect = curated_picks
 
-        def capture(profile, ranked, k):
-            seen.setdefault("first", ranked[0].tmdb_id)
-            return curated_picks(profile, ranked, k)
+        report = pipeline_mod.run(ctx, [sarah])
 
-        ctx.curator.curate.side_effect = capture
+        ctx.curator.curate.assert_not_called()  # reused, not re-curated
+        picks = next(e for e in report.users[0].breakdown if e["library_title"] == "Movies")["picks"]
+        assert [p["tmdb_id"] for p in picks] == [12, 13, 14, 15, 16]  # exactly last run's row, in order
 
-        pipeline_mod.run(ctx, [sarah])
+    def test_refresh_night_keeps_the_strong_top_and_swaps_the_rest(self, ctx: EngineContext, mock_plextv):
+        """On a refresh night the strongest ~two-thirds carry over and the rest are swapped for titles
+        NOT already in the row, so a just-rotated-out pick can't immediately bounce back."""
+        self._movie_row_ctx(ctx, freshness=1.0, run_day=5)  # 1.0 = refresh every night
+        ctx.previous_picks = {("sarah", "picked", "1"): self._prior_movies([12, 13, 14, 15, 16])}
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.curator.curate.side_effect = curated_picks
 
-        # Exact, not just "changed": freshness 1.0 with run_day 2 and k 4 rotates by (2*4) % 20 = 8,
-        # so the curator's first candidate is the rank-9 title (id 9) — pinning the phase/direction.
-        assert seen["first"] == 9, f"expected the day-2 rotation to lead with id 9, saw {seen['first']}"
+        report = pipeline_mod.run(ctx, [sarah])
+
+        ctx.curator.curate.assert_called()  # a refresh night DOES curate the swapped-in slots
+        picks = next(e for e in report.users[0].breakdown if e["library_title"] == "Movies")["picks"]
+        ids = [p["tmdb_id"] for p in picks]
+        assert ids[:3] == [12, 13, 14], f"keep the strongest two-thirds of last run's row, got {ids}"
+        assert set(ids[3:]).isdisjoint({12, 13, 14, 15, 16}), f"swapped slots are genuinely new, got {ids}"
 
     def test_a_shared_row_also_records_a_breakdown(self, ctx: EngineContext, mock_plextv):
         """A shared 'popular on this server' row records a per-library breakdown too, keyed by its own

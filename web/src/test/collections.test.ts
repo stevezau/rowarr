@@ -136,13 +136,13 @@ describe("rowOverrides", () => {
 
   it("badges a row's own freshness override, but not when it inherits the global one", () => {
     expect(rowOverrides(collection({ freshness: 0 }), LIBRARIES)).toContain(
-      "Freshness: stable",
+      "Freshness: frozen",
     );
     expect(rowOverrides(collection({ freshness: 0.5 }), LIBRARIES)).toContain(
       "Freshness: 50%",
     );
     expect(rowOverrides(collection({ freshness: 1 }), LIBRARIES)).toContain(
-      "Freshness: max",
+      "Freshness: nightly",
     );
     expect(rowOverrides(collection({ freshness: null }), LIBRARIES)).toEqual(
       [],

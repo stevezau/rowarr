@@ -59,7 +59,6 @@ DEFAULTS: dict[str, Any] = {
     # land last, under any co-managing tool like Kometa). Re-applied at end of each run; anchor is
     # read-only, only our rows move.
     "rows.hub_anchor": {},
-    "staleness_runs": 3,
     # How many past runs to keep. After each run, older ones (and their picks) are pruned to this
     # count — but a run is never pruned while it's still inside the 30-day watch-credit window, so a
     # low value can't cost the report a hit. 0 = keep everything.
@@ -76,9 +75,12 @@ DEFAULTS: dict[str, Any] = {
     # Cap on already-finished titles in a row, as a fraction: 0.0 = all fresh (default), 1.0 = no
     # filtering, in between = at most that share of the row may be things already watched. Per-row.
     "recommendations.watched_pct": 0.0,
-    # How much rows vary day to day: 0.0 = stable (same strong picks), 1.0 = fresh (rotate + reach
-    # deep for variety). Per-row overridable.
-    "recommendations.freshness": 0.0,
+    # Freshness is the REFRESH CADENCE, not a nightly shuffle: 0.0 = never refresh once built (a
+    # frozen, pinned row), 1.0 = rebuild every night, in between = every N days (0.5 ≈ weekly). On a
+    # refresh night the strongest ~two-thirds stay and the weakest third is swapped for new picks; on
+    # every other night the row is reused unchanged (no re-curation, no Plex write). Default weekly so
+    # rows feel curated and stable instead of churning completely every night. Per-row overridable.
+    "recommendations.freshness": 0.5,
     "plextv.throttle_s": 0.0,  # FLOOR between plex.tv writes; 0 = as fast as plex.tv accepts (adaptive 429 backoff)
     # How many users a run processes concurrently. Only their reads + AI curation overlap; every Plex
     # and plex.tv write stays strictly serial. 1 = fully sequential; higher = faster big runs at the
@@ -118,7 +120,7 @@ SECRET_KEYS = {
 PRIVATE_KEYS = {"api.token", "api.token_created_at", "api.token_hash", "api.token_hint"}
 
 # Dropped keys purged from the settings table on boot, so stale rows don't linger.
-LEGACY_KEYS = {"api.token_hash", "api.token_hint", "requests.omdb.apikey"}
+LEGACY_KEYS = {"api.token_hash", "api.token_hint", "requests.omdb.apikey", "staleness_runs"}
 
 ENV_SEEDS = {
     "PLEX_URL": "plex.url",

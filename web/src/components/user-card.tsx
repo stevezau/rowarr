@@ -26,7 +26,8 @@ function statusLine(user: User, activeStage: string | null): string {
   // run-detail log and activity pill — a bare token like "Running: candidates…" reads as jargon.
   if (activeStage)
     return `Running: ${STAGE_LABELS[activeStage] ?? activeStage}…`;
-  if (!user.enabled) return "Turned off — no row is maintained for this user.";
+  if (!user.enabled)
+    return "Off — their Shortlist rows were removed from Plex, and none are built until you turn them back on.";
   if (user.cold_start)
     return "Thin history — getting the popular-titles fallback row.";
   if (user.last_run_at) return `Row refreshed ${timeAgo(user.last_run_at)}.`;
@@ -104,7 +105,14 @@ export function UserCard({
             )}
             Run now
           </Button>
-          <div className="flex items-center gap-2">
+          <div
+            className="flex items-center gap-2"
+            title={
+              user.enabled
+                ? "On: Shortlist builds and refreshes this person's rows. Turn off to remove their rows from Plex now and stop building them."
+                : "Off: their rows are removed from Plex and none are built. Turn on to start building again on the next run."
+            }
+          >
             <label htmlFor={switchId} className="text-xs text-muted-foreground">
               {user.enabled ? "On" : "Off"}
             </label>

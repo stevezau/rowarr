@@ -125,7 +125,7 @@ describe("RequestsPage", () => {
     expect(screen.getByText("Shogun")).toBeTruthy();
     // The log is its own section, and each entry carries the app's answer (the outcome).
     expect(
-      screen.getByRole("heading", { name: "Sent to Sonarr/Radarr" }),
+      screen.getByRole("heading", { name: "Sent to Radarr & Sonarr" }),
     ).toBeTruthy();
     expect(screen.getByText(/added to Sonarr/i)).toBeTruthy();
   });
@@ -140,7 +140,7 @@ describe("RequestsPage", () => {
     await screen.findByText("Dune: Part Two");
     await userEvent.click(screen.getByRole("button", { name: "Sent" }));
     expect(
-      screen.getByRole("heading", { name: "Sent to Sonarr/Radarr" }),
+      screen.getByRole("heading", { name: "Sent to Radarr & Sonarr" }),
     ).toBeTruthy();
     expect(screen.getByText(/Nothing sent yet/i)).toBeTruthy();
   });

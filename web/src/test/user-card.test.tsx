@@ -83,7 +83,9 @@ describe("UserCard", () => {
   it("disables Run now and dims the card for a disabled user", () => {
     renderCard({ user: makeUser({ enabled: false }) });
 
-    expect(screen.getByText(/turned off/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/rows were removed from Plex/i),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run now/i })).toBeDisabled();
     expect(
       screen.getByRole("switch", { name: /shortlist row for sarah/i }),

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { ImdbGlyph, TmdbGlyph, TraktGlyph } from "@/components/brand-glyphs";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, QueryBoundary } from "@/components/query-boundary";
 import { Segmented } from "@/components/segmented";
@@ -73,10 +74,12 @@ function ExternalLinks({ item }: { item: RequestCandidate }) {
   const links = [
     {
       label: "TMDB",
+      icon: <TmdbGlyph className="h-3.5 w-3.5 rounded-[2px]" />,
       href: `https://www.themoviedb.org/${tmdbPath}/${item.tmdb_id}`,
     },
     {
       label: "IMDb",
+      icon: <ImdbGlyph className="h-3.5 w-3.5 rounded-[2px]" />,
       // Deep-link straight to the title when we resolved its id; otherwise fall back to a search.
       href: item.imdb_id
         ? `https://www.imdb.com/title/${item.imdb_id}/`
@@ -84,6 +87,7 @@ function ExternalLinks({ item }: { item: RequestCandidate }) {
     },
     {
       label: "Trakt",
+      icon: <TraktGlyph className="h-3.5 w-3.5" />,
       href: `https://trakt.tv/search/tmdb/${item.tmdb_id}?id_type=${traktType}`,
     },
   ];
@@ -97,6 +101,7 @@ function ExternalLinks({ item }: { item: RequestCandidate }) {
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline focus-visible:text-foreground"
         >
+          {link.icon}
           {link.label}
           <ExternalLink className="h-3 w-3" aria-hidden="true" />
         </a>
@@ -241,14 +246,31 @@ function PendingRow({
   );
 }
 
-/** The send log: a title that went to Sonarr/Radarr — when it went, the app's answer, and why it
- *  was wanted in the first place. */
-function SentRow({ item }: { item: RequestCandidate }) {
+/** The send log: a title that went to Sonarr or Radarr — which app, when it went, the app's answer,
+ *  a link straight into that app, and why it was wanted. */
+function SentRow({
+  item,
+  radarrUrl,
+  sonarrUrl,
+}: {
+  item: RequestCandidate;
+  radarrUrl: string;
+  sonarrUrl: string;
+}) {
+  const isMovie = item.media_type === "movie";
+  const app = isMovie ? "Radarr" : "Sonarr";
+  const base = (isMovie ? radarrUrl : sonarrUrl).replace(/\/+$/, "");
+  // Radarr deep-links a movie by its TMDB id; Sonarr has no TMDB route, so we open the app itself.
+  const arrLink = base
+    ? isMovie
+      ? `${base}/movie/${item.tmdb_id}`
+      : base
+    : "";
   return (
     <div className="space-y-1.5 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-medium">{item.title}</p>
-        <Badge variant="success">Sent to Sonarr/Radarr</Badge>
+        <Badge variant="success">Sent to {app}</Badge>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <TypeBadge mediaType={item.media_type} />
@@ -257,6 +279,17 @@ function SentRow({ item }: { item: RequestCandidate }) {
           <span>Sent {formatDate(item.updated_at)}</span>
         ) : null}
         {item.detail ? <span>· {item.detail}</span> : null}
+        {arrLink ? (
+          <a
+            href={arrLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
+          >
+            Open in {app}
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          </a>
+        ) : null}
       </div>
       <WhyBreakdown why={item.why} />
       <ExternalLinks item={item} />
@@ -399,6 +432,8 @@ export function RequestsPage() {
         {(settings) => {
           const requestsEnabled = settingBool(settings, "requests.enabled");
           const globalTag = settingString(settings, "requests.tag");
+          const radarrUrl = settingString(settings, "requests.radarr.url");
+          const sonarrUrl = settingString(settings, "requests.sonarr.url");
           return (
             <QueryBoundary
               query={requestsQuery}
@@ -619,12 +654,17 @@ export function RequestsPage() {
                     {active === "sent" && (
                       <section className="space-y-3">
                         <h2 className="text-sm font-medium text-muted-foreground">
-                          Sent to Sonarr/Radarr
+                          Sent to Radarr &amp; Sonarr
                         </h2>
                         {sentShown.length > 0 ? (
                           <div className="space-y-2">
                             {sentShown.map((item) => (
-                              <SentRow key={item.id} item={item} />
+                              <SentRow
+                                key={item.id}
+                                item={item}
+                                radarrUrl={radarrUrl}
+                                sonarrUrl={sonarrUrl}
+                              />
                             ))}
                           </div>
                         ) : (

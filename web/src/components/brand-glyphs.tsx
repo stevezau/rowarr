@@ -76,6 +76,44 @@ export function TmdbGlyph({ className }: GlyphProps) {
   );
 }
 
+export function ImdbGlyph({ className }: GlyphProps) {
+  // IMDb's mark: black "IMDb" on the signature yellow, rounded rect.
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <rect x="2" y="6.5" width="20" height="11" rx="2.5" fill="#F5C518" />
+      <text
+        x="12"
+        y="14.7"
+        textAnchor="middle"
+        fontSize="6.5"
+        fontWeight="800"
+        fontFamily="Arial, sans-serif"
+        fill="#000"
+      >
+        IMDb
+      </text>
+    </svg>
+  );
+}
+
+export function TraktGlyph({ className }: GlyphProps) {
+  // Trakt's mark: a red circle with a light ring — recognizable by colour at small sizes.
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="#ED1C24" />
+      <circle
+        cx="12"
+        cy="12"
+        r="6"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1.6"
+        opacity="0.9"
+      />
+    </svg>
+  );
+}
+
 function ClaudeGlyph({ className }: GlyphProps) {
   // Anthropic/Claude — a radial sunburst of tapered spokes.
   const spokes = Array.from({ length: 12 }, (_, i) => (

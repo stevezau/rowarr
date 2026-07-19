@@ -51,22 +51,19 @@ from shortlist.engine.models import (
 if TYPE_CHECKING:
     from shortlist.engine.pipeline import EngineContext
 
-# A live web search + an LLM call PER PERSON — the dominant read-phase cost at scale, and little
-# benefit to one person's row. Kept only for shared rows (one broad "what's good now" pool for
-# everyone); dropped from per-person gathering.
-_PER_PERSON_EXCLUDED_SOURCES = ("llm_web",)
-
 
 def effective_row_sources(spec: RowSpec, default_sources: list[str]) -> tuple[str, ...]:
     """The candidate sources a row actually gathers from, sorted (so identical sets share one pool).
 
-    A row uses its own ``candidate_sources`` or the global default, minus the sources too expensive to
-    run per person (``llm_web``) — which only shared rows keep.
+    A row uses its own ``candidate_sources`` or the global default — the setting is the single source
+    of truth for every row, shared or per-person. ``llm_web`` (a live web search + an LLM call) used
+    to be hard-dropped from per-person rows on a cost assumption; a head-to-head (2026-07-19) showed it
+    surfaces ~22 strong taste matches per person that TMDB-similar misses (Ozark, Succession, True
+    Detective, Chernobyl…), so it's now allowed wherever it's configured. It's still gated by
+    ``_web_search_capable`` (needs a curator + a search backend), and remains OFF unless it's in the
+    sources list — remove it there to control the per-person Exa/LLM cost.
     """
-    srcs = list(spec.candidate_sources or default_sources)
-    if not spec.shared:
-        srcs = [s for s in srcs if s not in _PER_PERSON_EXCLUDED_SOURCES]
-    return tuple(sorted(srcs))
+    return tuple(sorted(spec.candidate_sources or default_sources))
 
 
 def _media_filter(items: list, media: str) -> list:

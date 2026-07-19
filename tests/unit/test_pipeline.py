@@ -1465,17 +1465,17 @@ class TestParallelRuns:
 
 
 class TestEffectiveRowSources:
-    """llm_web is a per-person cost — dropped from per-person rows, kept for shared."""
+    """candidate_sources (or the global default) is the single source of truth for every row —
+    llm_web included, per-person or shared (a head-to-head showed it adds strong taste matches)."""
 
     def _spec(self, *, shared: bool, sources=None) -> RowSpec:
         return RowSpec(slug="r", name_template="", size=10, shared=shared, candidate_sources=sources or [])
 
-    def test_llm_web_is_dropped_for_a_per_person_row(self):
+    def test_llm_web_is_kept_for_a_per_person_row(self):
         from shortlist.engine.rows import effective_row_sources
 
         srcs = effective_row_sources(self._spec(shared=False), ["tmdb_similar", "llm_web", "llm_library"])
-        assert "llm_web" not in srcs
-        assert set(srcs) == {"tmdb_similar", "llm_library"}
+        assert set(srcs) == {"tmdb_similar", "llm_web", "llm_library"}
 
     def test_llm_web_is_kept_for_a_shared_row(self):
         from shortlist.engine.rows import effective_row_sources

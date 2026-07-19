@@ -87,6 +87,7 @@ GET  /api/settings/curator/models -> {provider, models[]} (available models for 
 GET  /api/report -> {overall, trend[], per_user[], per_row[], recent[]} (delivered-vs-watched hit rates, from picks.watched_at)
 POST /api/settings/prompt-preview {tone?, guidance?, template?, shared?} -> {system, user}
 GET  /api/system/health · GET /api/system/version · POST /api/system/uninstall {confirm: "UNINSTALL"}
+GET  /api/system/api-token -> {enabled, created_at, hint} · POST /api/system/api-token -> {token, created_at, hint} (plaintext ONCE) · DELETE /api/system/api-token (revoke)
 GET  /api/setup/servers (Plex server picker during onboarding) · GET /api/setup/state
 ```
 
@@ -152,6 +153,17 @@ tags round-trip through `GET /api/requests` (`tags[]`) and are applied on `send`
 
 All endpoints except `/api/system/health` require the owner session; mutations require the
 `x-shortlist-csrf: 1` header.
+
+**Programmatic access (API token).** For scripting, generate an owner token in Settings → Advanced →
+API access (or `POST /api/system/api-token`) and send it as `Authorization: Bearer <token>`. It
+grants the same owner-level access as the browser session and needs no CSRF header (a browser never
+sends it automatically). Only the token's SHA-256 is stored, so the plaintext is shown once at
+generation; regenerating or revoking (`DELETE /api/system/api-token`) invalidates the old token
+immediately.
+
+```
+curl -H "Authorization: Bearer <token>" https://<host>/api/runs
+```
 
 ## How rows stay private
 

@@ -1,4 +1,6 @@
 import type {
+  ApiTokenCreated,
+  ApiTokenStatus,
   AppNotification,
   ArrOptions,
   EffectivenessReport,
@@ -265,6 +267,17 @@ export const api = {
   /** The running app version (for the footer + prefilled bug reports). */
   getVersion: (): Promise<{ version: string }> =>
     request("/api/system/version"),
+
+  /** Whether an owner API token exists (+ when it was made and its last-4 hint) — never the token. */
+  getApiToken: (): Promise<ApiTokenStatus> => request("/api/system/api-token"),
+
+  /** Generate (or replace) the owner API token. The plaintext is returned ONCE, here only. */
+  createApiToken: (): Promise<ApiTokenCreated> =>
+    request("/api/system/api-token", { method: "POST" }),
+
+  /** Revoke the API token — any script still using it starts getting 401s. */
+  revokeApiToken: (): Promise<ApiTokenStatus> =>
+    request("/api/system/api-token", { method: "DELETE" }),
 
   /** The owner's current notifications (update available, failed/paused run, errors). */
   getNotifications: (): Promise<{ notifications: AppNotification[] }> =>

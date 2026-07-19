@@ -38,8 +38,12 @@ def _request(
     owner: int | None = None,
     holds_secrets: bool = False,
     csrf: bool = True,
+    bearer: str | None = None,
+    valid_token: str | None = None,
 ):
     headers = {CSRF_HEADER: "1"} if csrf else {}
+    if bearer is not None:
+        headers["authorization"] = f"Bearer {bearer}"
     cookies = {}
     if account_id is not None:
         cookies[SESSION_COOKIE] = session_serializer(SECRET).dumps({"account_id": account_id, "username": "u"})
@@ -52,6 +56,8 @@ def _request(
                 session_secret=SECRET,
                 owner_account_id=lambda: owner,
                 holds_secrets=lambda: holds_secrets or owner is not None,
+                # Mirrors main.py: only the one live token verifies.
+                verify_api_token=lambda t: valid_token is not None and t == valid_token,
             )
         ),
     )
@@ -80,6 +86,43 @@ class TestRequireOwnerIsAlwaysOwnerOnly:
 
     def test_the_owner_is_let_through(self):
         assert require_owner(_request("GET", account_id=555, owner=555))["account_id"] == 555
+
+
+class TestRequireOwnerAcceptsABearerApiToken:
+    """Programmatic access: a valid Bearer token is owner-level, needs no CSRF (a browser never sends
+    it automatically), and a bad/revoked one is rejected — never falling through to the cookie path."""
+
+    def test_a_valid_token_is_owner_level_access(self):
+        session = require_owner(_request("GET", owner=555, bearer="shl_good", valid_token="shl_good"))
+        assert session == {"account_id": 555, "via": "api_token"}
+
+    def test_a_valid_token_needs_no_csrf_header_on_a_mutation(self):
+        # The whole point of a Bearer token: script a POST without the browser CSRF dance.
+        session = require_owner(_request("POST", owner=555, csrf=False, bearer="shl_good", valid_token="shl_good"))
+        assert session["via"] == "api_token"
+
+    def test_a_wrong_token_is_rejected_not_passed_to_the_cookie(self):
+        with pytest.raises(HTTPException) as excinfo:
+            require_owner(_request("GET", owner=555, bearer="shl_wrong", valid_token="shl_good"))
+        assert excinfo.value.status_code == 401
+        # The DISCRIMINATING detail — not the generic "not signed in" 401. If a bad token fell through
+        # to the cookie path, a sessionless request would 401 too, but with a different message; this
+        # asserts we failed closed on the token, not silently on the missing cookie.
+        assert excinfo.value.detail == "invalid or revoked API token"
+
+    def test_a_wrong_token_fails_closed_even_with_a_valid_owner_cookie(self):
+        # The load-bearing property: a bad Bearer must NOT fall through to an otherwise-valid owner
+        # session. With no discriminating assertion this exact regression would ship green.
+        with pytest.raises(HTTPException) as excinfo:
+            require_owner(_request("GET", account_id=555, owner=555, bearer="shl_wrong", valid_token="shl_good"))
+        assert excinfo.value.status_code == 401
+        assert excinfo.value.detail == "invalid or revoked API token"
+
+    def test_a_token_is_worthless_before_an_owner_exists(self):
+        # A token can only be generated post-claim, but be defensive: no owner → no token access.
+        with pytest.raises(HTTPException) as excinfo:
+            require_owner(_request("GET", owner=None, bearer="shl_good", valid_token="shl_good"))
+        assert excinfo.value.status_code == 401
 
 
 class TestSetupAccessOnAnEmptyInstance:

@@ -107,6 +107,12 @@ SECRET_KEYS = {
     "exa.apikey",  # Exa web-search API key for the llm_web source
 }
 
+# Keys stored server-side but NEVER returned by all_public() and never writable via the generic
+# settings PUT — they are managed only through their own dedicated endpoints. The API-token hash and
+# its metadata live here: the hash is one-way (safe at rest without encryption), but it must never
+# appear in a settings response nor be settable by a client.
+PRIVATE_KEYS = {"api.token_hash", "api.token_created_at", "api.token_hint"}
+
 ENV_SEEDS = {
     "PLEX_URL": "plex.url",
     "PLEX_TOKEN": "plex.token",
@@ -145,6 +151,8 @@ class SettingsStore:
         """Everything except secrets; secrets appear redacted when set (UI contract)."""
         out = dict(DEFAULTS)
         for row in self._session.query(Setting).all():
+            if row.key in PRIVATE_KEYS:
+                continue  # never surfaced to any client — managed via dedicated endpoints only
             if row.key in SECRET_KEYS:
                 out[row.key] = "•••••" if row.value.get("v") else ""
             else:

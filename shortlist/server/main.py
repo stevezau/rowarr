@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import secrets as pysecrets
@@ -110,8 +111,17 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
                 store = SettingsStore(session, secret_box)
                 return any(store.get(key) for key in SECRET_KEYS)
 
+        def verify_api_token(token: str) -> bool:
+            """True iff ``token`` matches the stored owner API-token hash (constant-time compare)."""
+            if not token:
+                return False
+            with sessions() as session:
+                stored = SettingsStore(session, secret_box).get(auth.API_TOKEN_HASH_KEY)
+            return bool(stored) and hmac.compare_digest(str(stored), auth.hash_api_token(token))
+
         app.state.owner_account_id = owner_account_id
         app.state.holds_secrets = holds_secrets
+        app.state.verify_api_token = verify_api_token
 
         with sessions() as session:
             store = SettingsStore(session, secret_box)

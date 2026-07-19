@@ -73,6 +73,54 @@ class TestAuthBoundary:
         assert CSRF_HEADER in r.json()["detail"]
 
 
+class TestApiToken:
+    """The owner API token: generate once, authenticate with Bearer, revoke — and the hash never
+    leaks through the settings endpoint."""
+
+    def test_generate_authenticate_and_revoke_round_trip(self, client: TestClient):
+        made = client.post("/api/system/api-token")
+        assert made.status_code == 200
+        token = made.json()["token"]
+        assert token.startswith("shl_")
+        assert made.json()["hint"] == token[-4:]
+
+        status = client.get("/api/system/api-token").json()
+        assert status["enabled"] is True
+        assert status["hint"] == token[-4:]
+        assert "token" not in status and "token_hash" not in status
+
+        # The one-way hash must never surface via the general settings endpoint.
+        settings = client.get("/api/settings").json()
+        assert not any("token_hash" in key for key in settings)
+
+        # A cookie-less, CSRF-less client authenticates with only the Bearer token.
+        bare = TestClient(client.app)
+        ok = bare.get("/api/users", headers={"Authorization": f"Bearer {token}"})
+        assert ok.status_code == 200
+        assert [u["username"] for u in ok.json()] == ["mike", "sarah"]
+
+        # A wrong token is rejected, never falling through to anonymous access.
+        assert bare.get("/api/users", headers={"Authorization": "Bearer shl_wrong"}).status_code == 401
+
+        # Revoke → the previously-valid token stops working immediately.
+        assert client.delete("/api/system/api-token").status_code == 200
+        assert bare.get("/api/users", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+        assert client.get("/api/system/api-token").json()["enabled"] is False
+
+    def test_a_bad_bearer_fails_closed_even_with_a_valid_owner_cookie(self, client: TestClient):
+        # `client` carries a valid owner cookie + CSRF. A wrong Bearer must NOT fall through to it —
+        # it fails closed with the token-specific 401, proving the cookie isn't honored alongside a
+        # (bad) token. Guards the exact regression the unit test's discriminating detail also covers.
+        r = client.get("/api/users", headers={"Authorization": "Bearer shl_wrong"})
+        assert r.status_code == 401
+        assert r.json()["detail"] == "invalid or revoked API token"
+
+    def test_a_non_owner_cannot_mint_a_token(self, client: TestClient):
+        cookie = session_serializer(client.app.state.session_secret).dumps({"account_id": 999, "username": "intruder"})
+        client.cookies.set(SESSION_COOKIE, cookie)
+        assert client.post("/api/system/api-token").status_code == 403
+
+
 class TestUsersApi:
     def test_list_and_patch(self, client: TestClient):
         users = client.get("/api/users").json()

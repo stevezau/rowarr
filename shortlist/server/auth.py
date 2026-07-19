@@ -8,6 +8,7 @@ stored encrypted; it is never logged.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from collections import deque
 
@@ -21,6 +22,24 @@ PRODUCT = "Shortlist"
 SESSION_COOKIE = "shortlist_session"
 SESSION_MAX_AGE_S = 14 * 24 * 3600
 CSRF_HEADER = "x-shortlist-csrf"
+
+# Programmatic API access: an owner-generated Bearer token. Only its SHA-256 is stored (never the
+# token itself), so a config/DB leak can't be replayed. Managed via /api/system/api-token.
+API_TOKEN_HASH_KEY = "api.token_hash"
+API_TOKEN_PREFIX = "shl_"  # human-recognizable so a leaked token is spotted in logs/history
+
+
+def hash_api_token(token: str) -> str:
+    """SHA-256 hex of an API token — what we persist, so the plaintext is only ever seen once."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _bearer_token(request: Request) -> str | None:
+    """The token from an ``Authorization: Bearer <token>`` header, or None if absent/malformed."""
+    header = request.headers.get("authorization") or ""
+    scheme, _, value = header.partition(" ")
+    return value.strip() if scheme.lower() == "bearer" and value.strip() else None
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -117,11 +136,19 @@ def require_owner(request: Request) -> dict:
     Owner-ness is re-checked on every request, not just at login: a session issued during the
     pre-link window loses all access the moment a different account links a server.
     """
+    owner_id = request.app.state.owner_account_id()
+    # Programmatic access: a valid Bearer API token grants owner-level access. A browser never sends
+    # it automatically, so this path needs no CSRF check (unlike the cookie below). An invalid or
+    # revoked token is rejected outright — it must never fall through to the cookie path.
+    bearer = _bearer_token(request)
+    if bearer is not None:
+        if owner_id is not None and request.app.state.verify_api_token(bearer):
+            return {"account_id": owner_id, "via": "api_token"}
+        raise HTTPException(status_code=401, detail="invalid or revoked API token")
     _check_csrf(request)
     session = read_session(request)
     if session is None:
         raise HTTPException(status_code=401, detail="not signed in — use Login with Plex")
-    owner_id = request.app.state.owner_account_id()
     if owner_id is None or session.get("account_id") != owner_id:
         raise HTTPException(status_code=403, detail="only the server owner can use Shortlist")
     return session

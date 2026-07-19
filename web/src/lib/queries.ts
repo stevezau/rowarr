@@ -25,6 +25,7 @@ export const queryKeys = {
   userHistory: (id: number) => ["users", id, "history"] as const,
   session: ["auth", "session"] as const,
   setupState: ["setup", "state"] as const,
+  apiToken: ["api-token"] as const,
 };
 
 export function useSession() {
@@ -171,6 +172,32 @@ export function useSaveSettings() {
     mutationFn: (settings: Settings) => api.putSettings(settings),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.settings }),
+  });
+}
+
+export function useApiToken() {
+  return useQuery({
+    queryKey: queryKeys.apiToken,
+    queryFn: api.getApiToken,
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateApiToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.createApiToken(),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiToken }),
+  });
+}
+
+export function useRevokeApiToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.revokeApiToken(),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiToken }),
   });
 }
 

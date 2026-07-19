@@ -197,6 +197,20 @@ export interface UserPatch {
 
 export type RunTrigger = "schedule" | "manual" | "wizard";
 
+/** Owner API-token status — never carries the token itself, only whether one exists + a hint. */
+export interface ApiTokenStatus {
+  enabled: boolean;
+  created_at: string | null;
+  hint: string | null;
+}
+
+/** The response to generating a token — the plaintext is present here ONCE and never again. */
+export interface ApiTokenCreated {
+  token: string;
+  created_at: string;
+  hint: string;
+}
+
 export interface RunStats {
   users_ok: number;
   users_error: number;

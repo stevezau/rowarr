@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
+import secrets as pysecrets
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,9 +14,12 @@ from loguru import logger
 from pydantic import BaseModel
 
 import shortlist
-from shortlist.server.auth import require_owner
+from shortlist.server.auth import API_TOKEN_HASH_KEY, API_TOKEN_PREFIX, hash_api_token, require_owner
 from shortlist.server.db.models import Collection, Event, RestrictionSnapshotRow, User, iso_utc
 from shortlist.server.scheduler import rebuild_schedule
+from shortlist.server.settings_store import SettingsStore
+
+_TOKEN_META_KEYS = ("api.token_created_at", "api.token_hint")
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -28,6 +32,50 @@ async def health() -> dict:
 @router.get("/version", dependencies=[Depends(require_owner)])
 async def version() -> dict:
     return {"version": shortlist.__version__}
+
+
+@router.get("/api-token", dependencies=[Depends(require_owner)])
+async def api_token_status(request: Request) -> dict:
+    """Whether an API token exists, when it was made, and its last-4 hint — never the token itself."""
+    with request.app.state.sessions() as session:
+        store = SettingsStore(session, request.app.state.secrets)
+        return {
+            "enabled": bool(store.get(API_TOKEN_HASH_KEY)),
+            "created_at": store.get("api.token_created_at") or None,
+            "hint": store.get("api.token_hint") or None,
+        }
+
+
+@router.post("/api-token", dependencies=[Depends(require_owner)])
+async def create_api_token(request: Request) -> dict:
+    """Generate (or replace) the owner API token. Returns the plaintext ONCE — only its hash is stored,
+    so it can never be shown again; regenerating invalidates the previous token immediately."""
+    token = API_TOKEN_PREFIX + pysecrets.token_urlsafe(32)
+    created = datetime.now(UTC).isoformat()
+    with request.app.state.sessions() as session:
+        store = SettingsStore(session, request.app.state.secrets)
+        store.set(API_TOKEN_HASH_KEY, hash_api_token(token))
+        store.set("api.token_created_at", created)
+        store.set("api.token_hint", token[-4:])
+        # Audit the mint of an owner-level, CSRF-exempt credential — hint + timestamp only, never
+        # the token or its hash (plex-safety rule 10).
+        session.add(Event(scope="api_token.create", level="info", message={"hint": token[-4:], "at": created}))
+        session.commit()
+    logger.info("owner API token (re)generated")  # NEVER log the token itself
+    return {"token": token, "created_at": created, "hint": token[-4:]}
+
+
+@router.delete("/api-token", dependencies=[Depends(require_owner)])
+async def revoke_api_token(request: Request) -> dict:
+    """Revoke the API token — any script still using it starts getting 401s on the next call."""
+    with request.app.state.sessions() as session:
+        store = SettingsStore(session, request.app.state.secrets)
+        for key in (API_TOKEN_HASH_KEY, *_TOKEN_META_KEYS):
+            store.set(key, "")
+        session.add(Event(scope="api_token.revoke", level="warn", message={"at": datetime.now(UTC).isoformat()}))
+        session.commit()
+    logger.info("owner API token revoked")
+    return {"enabled": False}
 
 
 @router.get("/image-provider", dependencies=[Depends(require_owner)])

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary } from "@/components/query-boundary";
 import { AdvancedSection } from "@/components/settings/advanced-section";
+import { ApiAccessCard } from "@/components/settings/api-access-card";
 import { ConnectionsSection } from "@/components/settings/connections-section";
 import { CurationSection } from "@/components/settings/curation-section";
 import { DangerZoneSection } from "@/components/settings/danger-zone-section";
@@ -29,6 +30,7 @@ function sectionContent(settings: Settings): Record<string, ReactNode> {
     advanced: (
       <div className="space-y-6">
         <AdvancedSection settings={settings} />
+        <ApiAccessCard />
         <DiagnosticsCard />
       </div>
     ),

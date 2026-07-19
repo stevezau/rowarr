@@ -267,15 +267,15 @@ function RowSection({ entries }: { entries: RunLibraryBreakdown[] }) {
   const [libKey, setLibKey] = useState(entries[0]?.library_key ?? "");
   const active =
     entries.find((entry) => entry.library_key === libKey) ?? entries[0];
-  const added = entries.reduce((n, entry) => n + entry.added.length, 0);
-  const rowTokens = entries.reduce(
-    (n, entry) => n + (entry.llm_tokens ?? 0),
-    0,
-  );
+  // Title, new-count and tokens all follow the SELECTED library, so a `{library_name}` row title
+  // renders for the tab you're viewing (e.g. "Movies Picked for You" ↔ "TV Shows Picked for You")
+  // instead of being stuck on the first library's rendering.
+  const added = active?.added.length ?? 0;
+  const rowTokens = active?.llm_tokens ?? 0;
   return (
     <div className="space-y-3">
       <div className="flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">{entries[0]?.row_title}</h3>
+        <h3 className="text-sm font-semibold">{active?.row_title}</h3>
         {added > 0 && (
           <span className="text-xs text-success">+{added} new</span>
         )}

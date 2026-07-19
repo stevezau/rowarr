@@ -146,6 +146,52 @@ describe("RunDetailPage — grouped by library", () => {
     expect(screen.queryByText(/war epic/)).not.toBeInTheDocument();
   });
 
+  it("renders the row title for the SELECTED library, not the first one", async () => {
+    // A `{library_name}` title renders differently per library. The header must follow the tab —
+    // it used to stay stuck on the first library's title even after switching tabs.
+    getRun.mockResolvedValue(
+      run([
+        {
+          row_slug: "picked",
+          row_title: "Movies Picked for You",
+          library_key: "1",
+          library_title: "Movies",
+          added: [],
+          removed: [],
+          kept: [],
+          deleted: [],
+          created: true,
+          picks: [{ rank: 1, title: "Heat", reason: "crime", seed_title: "" }],
+        },
+        {
+          row_slug: "picked",
+          row_title: "TV Shows Picked for You",
+          library_key: "2",
+          library_title: "TV Shows",
+          added: [],
+          removed: [],
+          kept: [],
+          deleted: [],
+          created: true,
+          picks: [{ rank: 1, title: "Fargo", reason: "crime", seed_title: "" }],
+        },
+      ]),
+    );
+
+    renderDetail();
+
+    expect(
+      await screen.findByText("Movies Picked for You"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("TV Shows Picked for You"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /TV Shows/ }));
+    expect(screen.getByText("TV Shows Picked for You")).toBeInTheDocument();
+    expect(screen.queryByText("Movies Picked for You")).not.toBeInTheDocument();
+  });
+
   it("groups entries by row, so two different rows render as separate groups", async () => {
     getRun.mockResolvedValue(
       run([

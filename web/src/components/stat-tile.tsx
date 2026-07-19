@@ -19,15 +19,18 @@ export function StatTile({
   value,
   hint,
   tone = "default",
+  title,
 }: {
   icon: LucideIcon;
   label: string;
   value: ReactNode;
   hint?: ReactNode;
   tone?: Tone;
+  /** Optional hover tooltip for guidance that's too long to sit in the visible hint. */
+  title?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-elevated px-4 py-3.5">
+    <div className="rounded-lg border bg-elevated px-4 py-3.5" title={title}>
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <Icon className={cn("h-3.5 w-3.5", TONE[tone])} aria-hidden="true" />
         {label}

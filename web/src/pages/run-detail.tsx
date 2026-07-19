@@ -1,5 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Check, Copy, Info, Loader2 } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  Clock,
+  Copy,
+  Download,
+  Info,
+  Loader2,
+  Search,
+  Shuffle,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -13,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatTile } from "@/components/stat-tile";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -211,6 +224,72 @@ function tokenStepSummary(byStep?: Record<string, number>): string {
 function exaSummary(count?: number): string {
   if (!count) return "";
   return ` · ${count} Exa search${count === 1 ? "" : "es"}`;
+}
+
+/** "final picks 251,295 · web search 126,133" for a by-step map — same as tokenStepSummary, no parens. */
+function tokenStepInline(byStep?: Record<string, number>): string {
+  if (!byStep) return "";
+  return Object.entries(byStep)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([step, n]) => `${STEP_LABELS[step] ?? step} ${n.toLocaleString()}`)
+    .join(" · ");
+}
+
+/** The finished-run stats as at-a-glance tiles (Dashboard style) rather than one dense text line. */
+function RunStatTiles({ run }: { run: RunDetail }) {
+  const s = run.stats;
+  const elapsed = runElapsedMs(run.started_at, run.finished_at);
+  const failed = s.users_error ?? 0;
+  const requested = s.titles_requested ?? 0;
+  const tokens = s.llm_tokens ?? 0;
+  const exa = s.exa_searches ?? 0;
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <StatTile
+        icon={Clock}
+        label="Duration"
+        value={elapsed != null ? formatDuration(elapsed) : "—"}
+        hint="start → finish"
+      />
+      <StatTile
+        icon={Users}
+        label="People"
+        value={s.users_ok ?? 0}
+        hint={failed > 0 ? `${failed} failed` : "all succeeded"}
+        tone={failed > 0 ? "destructive" : "success"}
+      />
+      <StatTile
+        icon={Shuffle}
+        label="Titles changed"
+        value={`+${s.titles_added ?? 0}/−${s.titles_removed ?? 0}`}
+        hint="added / rotated out"
+      />
+      <StatTile
+        icon={Download}
+        label="Requested"
+        value={requested}
+        hint="to Sonarr / Radarr"
+      />
+      {tokens > 0 && (
+        <StatTile
+          icon={Sparkles}
+          label="AI tokens"
+          value={tokens.toLocaleString()}
+          hint={tokenStepInline(s.llm_tokens_by_step) || "curate + AI sources"}
+          title="Total AI tokens this run cost, split by what the AI did. Turn AI sources off in Settings → Recommendations to lower it."
+        />
+      )}
+      {exa > 0 && (
+        <StatTile
+          icon={Search}
+          label="Exa searches"
+          value={exa}
+          hint="web lookups"
+        />
+      )}
+    </div>
+  );
 }
 
 function LibraryPicks({ entry }: { entry: RunLibraryBreakdown }) {
@@ -643,47 +722,18 @@ export function RunDetailPage() {
                     </Button>
                   )}
                 </div>
+                {/* A slim provenance line; the numbers moved into the tiles below so they read at a glance. */}
                 <p className="text-sm text-muted-foreground">
                   {triggerLabel(run.trigger)} · started{" "}
                   {formatDate(run.started_at)}
-                  {/* Counts are only meaningful once the run finalizes them — while running the
-                      stats are empty, which used to render a bare " · ok, failed". */}
                   {run.finished_at
-                    ? ` · finished ${formatDate(run.finished_at)}${
-                        runElapsedMs(run.started_at, run.finished_at) != null
-                          ? ` · took ${formatDuration(runElapsedMs(run.started_at, run.finished_at)!)}`
-                          : ""
-                      } · ${run.stats.users_ok ?? 0} ok${
-                        (run.stats.users_error ?? 0) > 0
-                          ? `, ${run.stats.users_error} failed`
-                          : ""
-                      }`
+                    ? ` · finished ${formatDate(run.finished_at)}`
                     : " · still running"}
-                  {(run.stats.titles_added ?? 0) > 0 ||
-                  (run.stats.titles_removed ?? 0) > 0
-                    ? ` · +${run.stats.titles_added ?? 0}/−${run.stats.titles_removed ?? 0} titles`
-                    : ""}
-                  {run.stats.titles_requested
-                    ? ` · ${run.stats.titles_requested} title${
-                        run.stats.titles_requested === 1 ? "" : "s"
-                      } requested`
-                    : ""}
                 </p>
-                {(run.stats.llm_tokens ?? 0) > 0 && (
-                  <p
-                    className="text-sm text-muted-foreground"
-                    title="Total AI tokens this run cost, split by what the AI did. Turn AI sources off in Settings → Recommendations to lower it."
-                  >
-                    AI this run:{" "}
-                    <strong className="text-foreground">
-                      {run.stats.llm_tokens!.toLocaleString()}
-                    </strong>{" "}
-                    tokens
-                    {tokenStepSummary(run.stats.llm_tokens_by_step)}
-                    {exaSummary(run.stats.exa_searches)}
-                  </p>
-                )}
               </header>
+
+              {/* Stats are only finalized once a run ends; while it's live we show the why-slow note instead. */}
+              {run.finished_at && <RunStatTiles run={run} />}
 
               {!run.finished_at && (
                 <div className="flex gap-3 rounded-lg border bg-muted/40 p-4 text-sm">

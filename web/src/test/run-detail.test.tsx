@@ -146,6 +146,66 @@ describe("RunDetailPage — grouped by library", () => {
     expect(screen.queryByText(/war epic/)).not.toBeInTheDocument();
   });
 
+  it("shows the finished-run stats as at-a-glance tiles", async () => {
+    const r = run([]);
+    r.stats = {
+      users_ok: 2,
+      users_error: 1,
+      titles_added: 5,
+      titles_removed: 3,
+      titles_requested: 4,
+      llm_tokens: 377428,
+      llm_tokens_by_step: { curate: 251295, llm_web: 126133 },
+      exa_searches: 46,
+    };
+    getRun.mockResolvedValue(r);
+
+    renderDetail();
+
+    // Duration is computed from started_at → finished_at (04:18 → 04:24 = 6 minutes).
+    expect(await screen.findByText("Duration")).toBeInTheDocument();
+    expect(screen.getByText("6m 0s")).toBeInTheDocument();
+    expect(screen.getByText("People")).toBeInTheDocument();
+    expect(screen.getByText("1 failed")).toBeInTheDocument(); // 1 of the 3 users errored
+    expect(screen.getByText("+5/−3")).toBeInTheDocument();
+    expect(screen.getByText("377,428")).toBeInTheDocument();
+    expect(screen.getByText(/final picks 251,295/)).toBeInTheDocument();
+    expect(screen.getByText("Exa searches")).toBeInTheDocument();
+    expect(screen.getByText("46")).toBeInTheDocument();
+  });
+
+  it("hides the AI/Exa tiles and reads 'all succeeded' on a clean AI-free run", async () => {
+    const r = run([]);
+    r.stats = {
+      users_ok: 3,
+      users_error: 0,
+      titles_added: 0,
+      titles_removed: 0,
+      titles_requested: 0,
+      llm_tokens: 0,
+      exa_searches: 0,
+    };
+    getRun.mockResolvedValue(r);
+
+    renderDetail();
+
+    expect(await screen.findByText("all succeeded")).toBeInTheDocument();
+    // No AI this run → those tiles don't render at all (0-value tiles would be noise).
+    expect(screen.queryByText("AI tokens")).not.toBeInTheDocument();
+    expect(screen.queryByText("Exa searches")).not.toBeInTheDocument();
+  });
+
+  it("falls back to a plain AI-tokens hint when there's no by-step breakdown", async () => {
+    const r = run([]);
+    r.stats = { users_ok: 1, users_error: 0, llm_tokens: 9000 }; // legacy run: total but no split
+    getRun.mockResolvedValue(r);
+
+    renderDetail();
+
+    expect(await screen.findByText("9,000")).toBeInTheDocument();
+    expect(screen.getByText("curate + AI sources")).toBeInTheDocument();
+  });
+
   it("renders the row title for the SELECTED library, not the first one", async () => {
     // A `{library_name}` title renders differently per library. The header must follow the tab —
     // it used to stay stuck on the first library's title even after switching tabs.

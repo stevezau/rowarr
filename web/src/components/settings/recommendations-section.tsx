@@ -7,6 +7,7 @@ import { FreshnessSlider } from "@/components/settings/freshness-slider";
 import { InlineKeyField } from "@/components/settings/inline-key-field";
 import { WatchedSlider } from "@/components/settings/watched-slider";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAutosavedSettings } from "@/lib/autosave";
@@ -83,6 +84,10 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
   const [freshness, setFreshness] = useState<number>(() =>
     readPercent(settings, "recommendations.freshness", FRESHNESS_DEFAULT),
   );
+  const [recentCount, setRecentCount] = useState<number>(() => {
+    const value = Number(settings["recommendations.recent_count"]);
+    return Number.isFinite(value) ? Math.min(25, Math.max(1, value)) : 10;
+  });
   const [searchBackend, setSearchBackend] = useState<string>(() =>
     webSearchProvider(settings),
   );
@@ -95,11 +100,12 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
   // Persist the owner's INTENT (the enabled set as chosen). A source whose dependency isn't met yet
   // no-ops safely in the engine and shows an inline "here's what's needed" prompt — never a silent lie.
   const save = useAutosavedSettings(
-    { enabled, watchedPct, freshness, searchBackend },
+    { enabled, watchedPct, freshness, recentCount, searchBackend },
     () => ({
       "candidates.sources": enabled,
       "recommendations.watched_pct": watchedPct / 100,
       "recommendations.freshness": freshness / 100,
+      "recommendations.recent_count": recentCount,
       "llm_web.search_provider": searchBackend,
     }),
   );
@@ -221,6 +227,30 @@ export function RecommendationsSection({ settings }: { settings: Settings }) {
               id="freshness"
               value={freshness}
               onChange={setFreshness}
+            />
+          </div>
+          <div className="space-y-2 border-t pt-4">
+            <Label htmlFor="recent-count">Recent watches to search</Label>
+            <p className="text-sm text-muted-foreground">
+              How many of a person’s most recent watches the AI web-search
+              source looks up — one search each, “what to watch if you liked X.”
+              Results are cached for two weeks and shared across people, so a
+              popular title is searched once for the whole server. Fewer =
+              tighter and cheaper. Only affects the AI web-search source; any
+              row can choose its own.
+            </p>
+            <Input
+              id="recent-count"
+              type="number"
+              min={1}
+              max={25}
+              value={recentCount}
+              onChange={(e) =>
+                setRecentCount(
+                  Math.max(1, Math.min(25, Number(e.target.value) || 1)),
+                )
+              }
+              className="w-28"
             />
           </div>
           <div className="pt-1">

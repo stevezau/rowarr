@@ -46,6 +46,7 @@ const SUBSET_ROW: Collection = {
   library_keys: [],
   watched_pct: null,
   freshness: null,
+  recent_count: null,
   placement: "both",
   pin_top: false,
   hub_anchor: {},

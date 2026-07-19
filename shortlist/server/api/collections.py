@@ -90,6 +90,7 @@ class CollectionIn(BaseModel):
     candidate_sources: list[str] = Field(default_factory=list)  # [] -> inherit global candidates.sources
     watched_pct: float | None = Field(default=None, ge=0.0, le=1.0)  # None -> inherit global watched cap
     freshness: float | None = Field(default=None, ge=0.0, le=1.0)  # None -> inherit global freshness
+    recent_count: int | None = Field(default=None, ge=1, le=25)  # None -> inherit global recent_count
     library_keys: list[str] = Field(default_factory=list)  # [] -> every library of the row's media type
     placement: str = "both"  # both | home | library — which surfaces the row shows on
     pin_top: bool = False  # pin to top of the library's Recommended shelf
@@ -188,6 +189,7 @@ def _serialize(session, collection: Collection) -> dict:
         "candidate_sources": list(collection.candidate_sources or []),
         "watched_pct": collection.watched_pct,
         "freshness": collection.freshness,
+        "recent_count": collection.recent_count,
         "placement": collection.placement or "both",
         "pin_top": bool(collection.pin_top),
         "hub_anchor": collection.hub_anchor or {},
@@ -257,6 +259,7 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
             candidate_sources=body.candidate_sources,
             watched_pct=body.watched_pct,
             freshness=body.freshness,
+            recent_count=body.recent_count,
             placement=body.placement,
             pin_top=body.pin_top,
             hub_anchor={k: v.model_dump() for k, v in body.hub_anchor.items()},
@@ -289,6 +292,7 @@ _PATCHABLE_COLUMNS = (
     "candidate_sources",
     "watched_pct",
     "freshness",
+    "recent_count",
     "placement",
     "pin_top",
     "library_keys",

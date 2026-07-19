@@ -32,6 +32,7 @@ export function blankInput(): CollectionInput {
     library_keys: [],
     watched_pct: null,
     freshness: null,
+    recent_count: null,
     placement: "both",
     pin_top: false,
     hub_anchor: {},
@@ -59,6 +60,7 @@ export function toInput(collection: Collection): CollectionInput {
     library_keys: collection.library_keys,
     watched_pct: collection.watched_pct ?? null,
     freshness: collection.freshness ?? null,
+    recent_count: collection.recent_count ?? null,
     placement: collection.placement ?? "both",
     pin_top: collection.pin_top ?? false,
     hub_anchor: collection.hub_anchor ?? {},
@@ -148,6 +150,14 @@ export function rowOverrides(
   // null inherits the global freshness, so only badge a per-row override.
   if (collection.freshness !== null && collection.freshness !== undefined) {
     parts.push(freshnessBadgeLabel(collection.freshness));
+  }
+
+  // null inherits the global recent_count (web-search recency), so only badge a per-row override.
+  if (
+    collection.recent_count !== null &&
+    collection.recent_count !== undefined
+  ) {
+    parts.push(`Recent watches: ${collection.recent_count}`);
   }
 
   // "both" is the default placement (Home + Library), so only badge a narrowed one.

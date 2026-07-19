@@ -15,15 +15,25 @@ recommendation engine is not locked to TMDB's per-seed similarity. Sources today
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from dataclasses import dataclass, field
 
 from loguru import logger
 
-from shortlist.engine.clients.tmdb import TmdbClient
+from shortlist.engine.clients.search import SearchResult
+from shortlist.engine.clients.tmdb import Cache, NullCache, TmdbClient
 from shortlist.engine.curator import NullCurator
-from shortlist.engine.curator.base import build_web_query, build_web_rag_prompt, parse_web_titles
+from shortlist.engine.curator.base import build_web_query_for_title, build_web_rag_prompt, parse_web_titles
 from shortlist.engine.models import Candidate, MediaType, Seed
+
+# One cached web search PER recent title (Exa bills per search): cache the RESULTS by (media, tmdb_id)
+# so a title many users watched is searched once server-wide. 14 days — "if you liked X" doesn't
+# churn fast, and the request pass runs off the critical path so a slightly stale result is harmless.
+WEB_SEARCH_CACHE_TTL_S = 14 * 24 * 3600
+_WEB_SEARCH_PER_TITLE = 5  # results per per-title search (many titles → keep each lean for the RAG)
+_WEB_SEARCH_MAX_TITLES = 10  # default number of recent titles to search; overridden by recent_count
+_WEB_SEARCH_RAG_CAP = 40  # cap the unioned results handed to the curator so the RAG prompt stays bounded
 
 # Every candidate source the engine knows how to run. The owner can enable any subset globally
 # (settings ``candidates.sources``) or per row (``collections.candidate_sources``); an unknown value
@@ -69,7 +79,16 @@ def _web_search_capable(curator, search, mode: str) -> bool:
 
 
 def web_recommendations(
-    curator, search, mode: str, profile, seeds: list[Seed], k: int, stats: GatherStats
+    curator,
+    search,
+    mode: str,
+    profile,
+    seeds: list[Seed],
+    k: int,
+    stats: GatherStats,
+    *,
+    cache: Cache | None = None,
+    recent_count: int = _WEB_SEARCH_MAX_TITLES,
 ) -> list[dict]:
     """Titles to watch next from a web search, as ``[{title, year, media}]`` for TMDB resolution.
 
@@ -82,6 +101,7 @@ def web_recommendations(
       any overlap), so running both roughly doubles the usable pool. Duplicates cost nothing:
       ``gather_candidates`` dedupes by ``(tmdb_id, media_type)`` downstream.
 
+    ``recent_count`` caps how many recent titles the external path searches (one cached search each).
     ``stats`` accumulates this source's token spend (and Exa searches) for per-run AI accounting —
     read ``last_tokens`` right after each LLM call, before the next one overwrites it.
     """
@@ -93,24 +113,60 @@ def web_recommendations(
         stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
         return recs
     if mode == "exa":
-        return _web_via_search(curator, search, profile, seeds, k, stats) if search is not None else []
+        return (
+            _web_via_search(curator, search, profile, seeds, k, stats, cache=cache, recent_count=recent_count)
+            if search is not None
+            else []
+        )
     # auto: union of every available backend.
     recs: list[dict] = []
     if native:
         recs += curator.recommend_web(profile, seeds, k)
         stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
     if search is not None:
-        recs += _web_via_search(curator, search, profile, seeds, k, stats)
+        recs += _web_via_search(curator, search, profile, seeds, k, stats, cache=cache, recent_count=recent_count)
     return recs
 
 
-def _web_via_search(curator, search, profile, seeds: list[Seed], k: int, stats: GatherStats) -> list[dict]:
-    """External-search path: run a web search from the watchlist, let the curator pick from results."""
-    stats.exa_searches += 1  # count the request itself — Exa bills per search, even one that returns nothing
-    results = search.search(build_web_query(profile, seeds))
+def _web_via_search(
+    curator,
+    search,
+    profile,
+    seeds: list[Seed],
+    k: int,
+    stats: GatherStats,
+    *,
+    cache: Cache | None = None,
+    recent_count: int = _WEB_SEARCH_MAX_TITLES,
+) -> list[dict]:
+    """External-search path: one CACHED web search per recent title, then the curator picks from the
+    union. Caching by (media, tmdb_id) means a title many users watched is searched once server-wide —
+    Exa bills per search, so this is what keeps the per-title approach affordable across a big roster.
+    """
+    cache = cache or NullCache()
+    results: list[SearchResult] = []
+    seen_urls: set[str] = set()
+    for seed in seeds[: max(1, recent_count)]:
+        key = f"exasearch:{seed.media_type.value}:{seed.tmdb_id}"
+        cached = cache.get(key)
+        if cached is not None:
+            items = json.loads(cached)
+        else:
+            stats.exa_searches += 1  # a real (uncached) search — count the billable request
+            hits = search.search(build_web_query_for_title(seed.title), num_results=_WEB_SEARCH_PER_TITLE)
+            items = [{"title": r.title, "url": r.url, "text": r.text} for r in hits]
+            cache.set(key, json.dumps(items), WEB_SEARCH_CACHE_TTL_S)
+        for it in items:
+            # Dedup by url, but only when there IS one — Exa maps a missing url to "", and deduping
+            # on "" would collapse every url-less snippet to a single result, dropping usable context.
+            if it["url"] and it["url"] in seen_urls:
+                continue
+            if it["url"]:
+                seen_urls.add(it["url"])
+            results.append(SearchResult(title=it["title"], url=it["url"], text=it["text"]))
     if not results:
         return []
-    system, user = build_web_rag_prompt(profile, results, k)
+    system, user = build_web_rag_prompt(profile, results[:_WEB_SEARCH_RAG_CAP], k)
     titles = parse_web_titles(curator.complete(system, user), k)
     stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
     return titles
@@ -127,6 +183,8 @@ def gather_candidates(
     trakt=None,
     search=None,
     web_search_mode: str = "auto",
+    web_search_cache: Cache | None = None,
+    recent_count: int = _WEB_SEARCH_MAX_TITLES,
     stats: GatherStats | None = None,
 ) -> list[Candidate]:
     """Pool candidates from every enabled source, deduped by (tmdb_id, media_type).
@@ -236,7 +294,17 @@ def gather_candidates(
             # Web search (the provider's own tool, or an external search provider like Exa) proposes
             # titles to watch next; each is resolved to a real TMDB id and (later) library-verified,
             # so a hallucinated title simply resolves to nothing rather than reaching a row.
-            for rec in web_recommendations(curator, search, web_search_mode, profile, seeds, _LLM_WEB_K, stats):
+            for rec in web_recommendations(
+                curator,
+                search,
+                web_search_mode,
+                profile,
+                seeds,
+                _LLM_WEB_K,
+                stats,
+                cache=web_search_cache,
+                recent_count=recent_count,
+            ):
                 media_type = MediaType.SHOW if rec.get("media") == "show" else MediaType.MOVIE
                 found = tmdb.search(rec["title"], media_type, year=rec.get("year"))
                 if found:

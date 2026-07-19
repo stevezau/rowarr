@@ -251,6 +251,11 @@ class RowSpec:
     # best quality), 1.0 = fresh (rotate the whole row + reach deep for novelty). None -> inherit
     # EngineConfig.freshness.
     freshness: float | None = None
+    # How many of this person's most recent watched titles the WEB-SEARCH source searches for this row
+    # — one cached search per title ("what to watch if you liked X"). Fewer = tighter/cheaper, more =
+    # broader reach. Only affects the llm_web source; TMDB/Trakt still use the full seed set. None ->
+    # inherit EngineConfig.recent_count.
+    recent_count: int | None = None
     # Where the row's collection appears once promoted: "both" (Home + Library Recommended, the
     # default and legacy behaviour), "home" (Home only), or "library" (Library Recommended only).
     placement: str = "both"
@@ -449,6 +454,9 @@ class EngineConfig:
     row_name_template: str = DEFAULT_ROW_TEMPLATE
     label_prefix: str = "shortlist"
     candidates_pre_rank: int = 40  # heuristic pre-rank keeps this many for the curator
+    # How many of a person's most recent watched titles the web-search source searches per row (one
+    # cached Exa search each). Row-overridable via RowSpec.recent_count.
+    recent_count: int = 10
     min_history: int = 10  # below this -> cold-start row
     min_completion: float = 0.7  # history completion threshold for "meaningful" watch
     max_seeds: int = 30

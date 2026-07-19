@@ -53,6 +53,8 @@ export interface Collection {
   watched_pct: number | null;
   /** Day-to-day variability (0..1); null inherits the global freshness. */
   freshness: number | null;
+  /** Recent watches the web-search source searches (1..25); null inherits the global recent_count. */
+  recent_count: number | null;
   /** Where the row shows once promoted: both (Home + Library), home only, or library only. */
   placement: "both" | "home" | "library";
   /** Pin the row to the top of its library's Recommended shelf (server-wide, not per viewer). */
@@ -146,6 +148,7 @@ export interface CollectionInput {
   library_keys: string[];
   watched_pct: number | null;
   freshness: number | null;
+  recent_count: number | null;
   placement: "both" | "home" | "library";
   pin_top: boolean;
   hub_anchor: HubAnchorMap;

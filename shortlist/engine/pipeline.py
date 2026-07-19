@@ -119,6 +119,10 @@ class EngineContext:
     # (item count + last-updated). An unchanged library skips its full scan next run. NullCache (the
     # default) disables it — safe, since a stale/missing entry only ever means a re-scan.
     index_cache: Cache = field(default_factory=NullCache)
+    # Cross-run cache for per-title web-search (Exa) results, keyed (media, tmdb_id). A title many
+    # users watched is searched ONCE server-wide (Exa bills per search). NullCache disables it — safe,
+    # since a miss just re-searches.
+    web_search_cache: Cache = field(default_factory=NullCache)
     # Day number of this run (date.toordinal()), the phase for freshness rotation so a row shifts
     # day to day but is reproducible within a day. Set at the start of run(); 0 disables rotation.
     run_day: int = 0

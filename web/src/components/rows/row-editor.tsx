@@ -281,6 +281,42 @@ export function RowEditor({
           </div>
 
           <div className="space-y-3 border-t pt-4">
+            <Label htmlFor="row-recent-count">Recent watches to search</Label>
+            <p className="text-sm text-muted-foreground">
+              How many of a person&rsquo;s most recent watches the AI web-search
+              source looks up for this row (one cached search each). Only
+              affects rows using AI web search. Leave on the global default to
+              follow Settings → Recommendations.
+            </p>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm">Use the global default</span>
+              <Switch
+                checked={input.recent_count === null}
+                onCheckedChange={(on) => set({ recent_count: on ? null : 10 })}
+                aria-label="Use the global recent-watches default"
+              />
+            </div>
+            {input.recent_count !== null && (
+              <Input
+                id="row-recent-count"
+                type="number"
+                min={1}
+                max={25}
+                value={input.recent_count}
+                onChange={(e) =>
+                  set({
+                    recent_count: Math.max(
+                      1,
+                      Math.min(25, Number(e.target.value) || 1),
+                    ),
+                  })
+                }
+                className="w-28"
+              />
+            )}
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
             <Label>Where it shows</Label>
             <p className="text-sm text-muted-foreground">
               Which Plex screens this row appears on once it&rsquo;s built.

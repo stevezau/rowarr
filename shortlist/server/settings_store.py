@@ -81,6 +81,9 @@ DEFAULTS: dict[str, Any] = {
     # every other night the row is reused unchanged (no re-curation, no Plex write). Default weekly so
     # rows feel curated and stable instead of churning completely every night. Per-row overridable.
     "recommendations.freshness": 0.5,
+    # How many of a person's most recent watches the web-search source searches per row (one cached
+    # Exa search each). Row-overridable. Fewer = tighter/cheaper; the DbCache dedups shared titles.
+    "recommendations.recent_count": 10,
     "plextv.throttle_s": 0.0,  # FLOOR between plex.tv writes; 0 = as fast as plex.tv accepts (adaptive 429 backoff)
     # How many users a run processes concurrently. Only their reads + AI curation overlap; every Plex
     # and plex.tv write stays strictly serial. 1 = fully sequential; higher = faster big runs at the

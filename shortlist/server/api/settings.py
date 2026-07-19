@@ -104,6 +104,7 @@ VALIDATORS = {
     "llm_web.search_provider": _one_of("auto", "native", "exa"),
     "recommendations.watched_pct": _bounded_float(0.0, 1.0),
     "recommendations.freshness": _bounded_float(0.0, 1.0),
+    "recommendations.recent_count": _bounded_int(1, 25),
     "log.level": _one_of("TRACE", "DEBUG", "INFO", "WARNING", "ERROR"),
     "curator.provider": _one_of("anthropic", "openai", "google", "ollama", "none"),
     "curator.prompt_tone": _one_of("balanced", "warm", "concise", "cinephile", "playful"),

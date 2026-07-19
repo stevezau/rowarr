@@ -243,6 +243,7 @@ def _candidate_pool(
     media: str = "both",
     catalog: dict[MediaType, list[dict]] | None = None,
     watched_exclusions: set[tuple[int, MediaType]] | None = None,
+    recent_count: int | None = None,
 ) -> tuple[tuple[list[Candidate], list[Candidate], list[Candidate]], candidates_mod.GatherStats]:
     """Gather TMDB candidates for ``seeds`` and intersect them with the library.
 
@@ -276,6 +277,8 @@ def _candidate_pool(
         trakt=ctx.trakt,
         search=ctx.search,
         web_search_mode=ctx.config.web_search_provider,
+        web_search_cache=ctx.web_search_cache,
+        recent_count=recent_count if recent_count is not None else ctx.config.recent_count,
         stats=gather_stats,
     )
     valid = candidates_mod.filter_candidates(
@@ -420,6 +423,9 @@ def _run_user(
     def effective_freshness(spec: RowSpec) -> float:
         return spec.freshness if spec.freshness is not None else cfg.freshness
 
+    def effective_recent_count(spec: RowSpec) -> int:
+        return spec.recent_count if spec.recent_count is not None else cfg.recent_count
+
     def effective_sources(spec: RowSpec) -> tuple[str, ...]:
         # Sorted so two rows with the same sources in a different order share ONE pool (gather is
         # set-based) — otherwise they'd each rebuild it, re-hitting rate-limited/LLM sources and, for
@@ -439,6 +445,10 @@ def _run_user(
             # drops them from the pool; any >0 row keeps them and caps at delivery. Two >0 rows (20%
             # and 50%) share one pool and differ only in their cap, so they must not key apart.
             effective_watched_pct(spec) == 0,
+            # recent_count changes how many titles the WEB-SEARCH source searches, so its candidates
+            # differ — but only for rows that actually use llm_web. Key on it only then, so two non-web
+            # rows differing solely in recent_count still share one pool (no wasted TMDB/curate gather).
+            effective_recent_count(spec) if "llm_web" in effective_sources(spec) else 0,
         )
 
     def pools_for(spec: RowSpec) -> Pool | None:
@@ -460,6 +470,7 @@ def _run_user(
                     excluded_genres=user.excluded_genres,
                     profile=user,
                     sources=list(key[0]),
+                    recent_count=effective_recent_count(spec),
                     media=spec.media,
                     catalog=_row_catalog(ctx, spec),
                     # A 0% row drops finished titles from the pool entirely; a >0 row keeps them (the
@@ -872,6 +883,7 @@ def _shared_row(
         sources=row_sources,
         media=spec.media,
         catalog=_row_catalog(ctx, spec),
+        recent_count=spec.recent_count if spec.recent_count is not None else cfg.recent_count,
     )
     _record_gather(user_report, gather_stats)  # shared-row gather AI cost (llm_web/llm_library + Exa)
     k = spec.size

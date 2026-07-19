@@ -105,6 +105,9 @@ class Collection(Base):
     # Per-row day-to-day variability, as a fraction (0.0 stable .. 1.0 fresh). NULL -> inherit the
     # global recommendations.freshness.
     freshness: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    # How many of a person's most recent watches the web-search source searches for this row (one
+    # cached search each). NULL -> inherit the global recommendations.recent_count.
+    recent_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     # Specific Plex library section keys this row builds in; [] -> every library of its media type.
     library_keys: Mapped[list] = mapped_column(JSON, default=list)
     min_watchers: Mapped[int] = mapped_column(Integer, default=2)  # shared: aggregate-privacy threshold

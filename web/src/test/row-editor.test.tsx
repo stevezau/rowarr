@@ -49,6 +49,7 @@ function row(patch: Partial<Collection> = {}): Collection {
     library_keys: [],
     watched_pct: null,
     freshness: null,
+    recent_count: null,
     placement: "both",
     pin_top: false,
     hub_anchor: {},
@@ -169,5 +170,35 @@ describe("RowEditor — freshness", () => {
     expect(
       (updateCollection.mock.calls.at(0)?.[1] as Collection).freshness,
     ).toBe(0);
+  });
+});
+
+describe("RowEditor — recent watches to search", () => {
+  beforeEach(() => {
+    updateCollection.mockClear();
+  });
+
+  it("shows the number field only when the row overrides the global default", () => {
+    renderEditor(row({ recent_count: 5 }));
+    expect(screen.getByLabelText(/Recent watches to search/i)).toHaveValue(5);
+    expect(
+      screen.getByRole("switch", { name: /global recent-watches default/i }),
+    ).not.toBeChecked();
+  });
+
+  it("round-trips a per-row recent_count into the PATCH body", async () => {
+    renderEditor(row({ recent_count: null }));
+
+    await userEvent.click(
+      screen.getByRole("switch", { name: /global recent-watches default/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Save changes/i }),
+    );
+
+    await waitFor(() => expect(updateCollection).toHaveBeenCalled());
+    expect(
+      (updateCollection.mock.calls.at(0)?.[1] as Collection).recent_count,
+    ).toBe(10);
   });
 });

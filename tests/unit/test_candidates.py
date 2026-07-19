@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from shortlist.engine.candidates import GatherStats, _slice_for_llm, filter_candidates, gather_candidates
 from shortlist.engine.clients.search import SearchResult
 from shortlist.engine.curator import NullCurator
-from shortlist.engine.curator.base import build_web_query, parse_web_titles
+from shortlist.engine.curator.base import parse_web_titles
 from shortlist.engine.models import MediaType, Pick, Seed
 from tests.conftest import make_candidate
 
@@ -454,6 +454,79 @@ class TestLlmWebBackends:
         assert search.queries == []  # heuristic mode never even searches
 
 
+class _DictCache:
+    """A minimal in-memory Cache (get/set) for the per-title web-search cache."""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def set(self, key, value, ttl_s):
+        self.store[key] = value
+
+
+class TestPerTitleWebSearchCache:
+    """One cached web search PER recent title (not one blended query), keyed by (media, tmdb_id) so a
+    title many users watched is searched once server-wide."""
+
+    def _tmdb(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        mock_tmdb.genre_names.return_value = {}
+        mock_tmdb.search.side_effect = lambda title, mt, year=None: None  # resolution isn't what we're testing
+        return mock_tmdb
+
+    def test_searches_once_per_title_and_caches_by_id(self, mock_tmdb):
+        self._tmdb(mock_tmdb)
+        search = _FakeSearch([make_result("Result", "text")])
+        curator = _NonNativeCurator("[]")
+        cache = _DictCache()
+        gather_candidates(
+            mock_tmdb,
+            [seed(1, "Dune"), seed(2, "Arrival")],
+            sources=["llm_web"],
+            curator=curator,
+            profile=web_profile(),
+            search=search,
+            web_search_cache=cache,
+        )
+        assert len(search.queries) == 2  # one search per title, not one blended query
+        assert any("Dune" in q for q in search.queries) and any("Arrival" in q for q in search.queries)
+        assert set(cache.store) == {"exasearch:movie:1", "exasearch:movie:2"}  # cached by (media, tmdb_id)
+
+    def test_a_cached_title_is_not_researched(self, mock_tmdb):
+        self._tmdb(mock_tmdb)
+        search = _FakeSearch([make_result("Result", "text")])
+        cache = _DictCache()
+        cache.set("exasearch:movie:1", "[]", 1)  # Dune already searched by a prior user this window
+        gather_candidates(
+            mock_tmdb,
+            [seed(1, "Dune")],
+            sources=["llm_web"],
+            curator=_NonNativeCurator("[]"),
+            profile=web_profile(),
+            search=search,
+            web_search_cache=cache,
+        )
+        assert search.queries == []  # served from cache — no billable Exa search
+
+    def test_recent_count_caps_how_many_titles_are_searched(self, mock_tmdb):
+        self._tmdb(mock_tmdb)
+        search = _FakeSearch([make_result("Result", "text")])
+        gather_candidates(
+            mock_tmdb,
+            [seed(1, "A"), seed(2, "B"), seed(3, "C")],
+            sources=["llm_web"],
+            curator=_NonNativeCurator("[]"),
+            profile=web_profile(),
+            search=search,
+            web_search_cache=_DictCache(),
+            recent_count=2,
+        )
+        assert len(search.queries) == 2  # only the two most-recent titles searched
+
+
 class TestParseWebTitles:
     def test_parses_a_plain_json_array(self):
         text = '[{"title": "Dune", "year": 2021, "media": "movie"}, {"title": "Severance", "media": "show"}]'
@@ -486,23 +559,20 @@ class TestParseWebTitles:
         assert out == [{"title": "A", "year": None, "media": "movie"}]
 
 
-class TestBuildWebQuery:
-    """The external-search query must be built from what the person actually watched, with sane
-    fallbacks — a constant or empty query would make Exa search return generic junk."""
+class TestBuildWebQueryForTitle:
+    """The per-title external-search query must center on the one title (so it's precise AND cacheable
+    across users) with a sane fallback for an empty title."""
 
-    def test_uses_the_seed_titles(self):
-        query = build_web_query(SimpleNamespace(history=[]), [seed(1, "Arrival"), seed(2, "Dune")])
-        assert "Arrival" in query and "Dune" in query
+    def test_centers_on_the_single_title(self):
+        from shortlist.engine.curator.base import build_web_query_for_title
 
-    def test_falls_back_to_recent_history_when_there_are_no_seeds(self):
-        watch = SimpleNamespace(title="Blade Runner 2049", watched_at=2)
-        older = SimpleNamespace(title="Sicario", watched_at=1)
-        query = build_web_query(SimpleNamespace(history=[older, watch]), [])
-        assert "Blade Runner 2049" in query  # most-recent history title, newest first
+        query = build_web_query_for_title("Arrival")
+        assert "Arrival" in query and "watch" in query.lower()
 
-    def test_cold_start_with_no_seeds_and_no_history_is_a_generic_query(self):
-        query = build_web_query(SimpleNamespace(history=[]), [])
-        assert query and "watch" in query.lower()  # a real, non-empty generic query
+    def test_empty_title_is_a_generic_query(self):
+        from shortlist.engine.curator.base import build_web_query_for_title
+
+        assert build_web_query_for_title("  ") and "watch" in build_web_query_for_title("").lower()
 
 
 class TestSliceForLlm:

@@ -257,19 +257,18 @@ _WEB_RAG_SYSTEM = (
 )
 
 
-def build_web_query(profile: UserProfile, seeds: list) -> str:
-    """A natural-language web-search query built from what this person recently enjoyed.
+def build_web_query_for_title(title: str) -> str:
+    """A web-search query for a SINGLE watched title — the per-title external-search path.
 
-    Used by the EXTERNAL-search ``llm_web`` path (Exa): the app runs this query, then hands the
-    results to any curator. Falls back to recent history titles, then to a generic query when a
-    person has no history yet (cold start).
+    One query per title (vs one blended query for a whole watchlist) is both more precise — an
+    eclectic watcher's kids films and prestige dramas don't muddy each other — and CACHEABLE across
+    users: two people who both watched this title need the same search, so it runs once server-wide
+    (Exa bills per search). Falls back to a generic query for an empty title.
     """
-    liked = [getattr(s, "title", "") for s in seeds if getattr(s, "title", "")][:8]
-    if not liked:
-        liked = [w.title for w in sorted(profile.history, key=lambda w: w.watched_at, reverse=True)[:8]]
-    if not liked:
+    clean = (title or "").strip()
+    if not clean:
         return "best new well-reviewed movies and TV shows to watch right now"
-    return "what to watch next if you liked " + ", ".join(liked) + " — recent, well-reviewed movies and TV shows"
+    return f"what to watch next if you liked {clean} — similar recent, well-reviewed movies and TV shows"
 
 
 def build_web_rag_prompt(profile: UserProfile, results: list, k: int) -> tuple[str, str]:

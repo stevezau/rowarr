@@ -138,6 +138,7 @@ class ContextBuilder:
                 hub_anchors=self._build_hub_anchors(store),
                 watched_pct=float(store.get("recommendations.watched_pct") or 0.0),
                 freshness=float(store.get("recommendations.freshness") or 0.0),
+                recent_count=int(store.get("recommendations.recent_count") or 10),
                 dry_run=dry_run,
                 rows=self._build_rows(session, store),
                 # The server owns the row list: an empty one means every row is DISABLED, not
@@ -180,6 +181,7 @@ class ContextBuilder:
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),
             index_cache=DbCache(self._sessions, kind="library_index"),
+            web_search_cache=DbCache(self._sessions, kind="websearch"),
             mdblist=self._build_mdblist(store),
             concurrency=concurrency,
             previous_picks=previous,
@@ -463,6 +465,7 @@ class ContextBuilder:
                     candidate_sources=list(collection.candidate_sources or []),
                     watched_pct=collection.watched_pct,  # None -> inherit the global watched cap
                     freshness=collection.freshness,  # None -> inherit the global freshness
+                    recent_count=collection.recent_count,  # None -> inherit the global recent_count
                     placement=collection.placement or "both",
                     pin_top=bool(collection.pin_top),
                     hub_anchors=self._row_hub_anchors(collection),

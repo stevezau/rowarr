@@ -128,3 +128,12 @@ async def trigger_run(body: RunRequest, request: Request) -> dict:
         trigger="manual", dry_run=body.dry_run, user_ids=body.user_ids, collection_ids=body.collection_ids
     )
     return {"run_id": run_id}
+
+
+@router.post("/{run_id}/cancel")
+async def cancel_run(run_id: int, request: Request) -> dict:
+    """Ask the in-flight run to stop. Cooperative — it finishes the person it's on, then stops, and
+    still merges the privacy filters + promotes everyone delivered so far. 409 if it isn't running."""
+    if not request.app.state.run_service.cancel_run(run_id):
+        raise HTTPException(status_code=409, detail="This run isn't currently running.")
+    return {"cancelling": True}

@@ -64,6 +64,9 @@ class RunService:
         # SQLite is single-writer, but the engine finishes users on a thread POOL — so the live
         # per-user persist (below) must serialize its commits across those worker threads.
         self._persist_lock = threading.Lock()
+        # run_id -> cancel flag for the one in-flight run, so the /cancel endpoint can ask the engine
+        # to stop. The engine checks it before each user (cooperative), so an in-flight user finishes.
+        self._cancels: dict[int, threading.Event] = {}
         self._tasks: set[asyncio.Task] = set()  # strong refs so in-flight runs aren't GC'd
         # run_id -> the run's stage activity log, in memory so a page reload can replay it. Bounded
         # per run and to the last few runs (the per-user RESULTS are the durable record; this is the
@@ -171,6 +174,7 @@ class RunService:
             session.add(run)
             session.commit()
             run_id = run.id
+        self._cancels[run_id] = threading.Event()  # armed here so /cancel works the instant it's queued
         task = asyncio.create_task(self._execute(run_id, dry_run, user_ids, collection_ids))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -182,12 +186,15 @@ class RunService:
         loop = asyncio.get_running_loop()
         async with self._lock:
             self._bus.publish("run.progress", {"run_id": run_id, "status": "running"})
-            with self._sessions() as session:
-                run = session.get(Run, run_id)
-                run.status = "running"
-                session.commit()
-                profiles = self.enabled_profiles(session, user_ids)
+            cancel = self._cancels.get(run_id)
             try:
+                # Inside the try so a failure here (e.g. reading users) still marks the run errored
+                # AND runs the finally that frees the cancel Event — never leaves a run stuck "running".
+                with self._sessions() as session:
+                    run = session.get(Run, run_id)
+                    run.status = "running"
+                    session.commit()
+                    profiles = self.enabled_profiles(session, user_ids)
                 ctx = self.build_context(
                     dry_run=dry_run,
                     loop=loop,
@@ -195,6 +202,11 @@ class RunService:
                     log_sink=self._new_run_log(run_id),
                     collection_ids=collection_ids,
                 )
+                # Cooperative cancel: the engine checks this before each user and skips the rest. An
+                # in-flight user still finishes (per-user transactional), and the privacy merge +
+                # promote still run for who was delivered, so a cancel leaves a consistent server.
+                if cancel is not None:
+                    ctx.cancelled = cancel.is_set
                 # Persist each user's results the moment they finish, so the run page fills in person by
                 # person instead of staying empty until the whole run ends (the end-of-run persist below
                 # is the backstop + reconciler).
@@ -202,13 +214,14 @@ class RunService:
                     run_id, profile, user_report, dry_run
                 )
                 report = await loop.run_in_executor(None, engine_run, ctx, profiles)
-                self._persist_report(run_id, report)
+                aborted = cancel is not None and cancel.is_set()
+                self._persist_report(run_id, report, status="aborted" if aborted else None)
                 # The engine filled each profile's history in place, so this is the one moment we hold
                 # both "what we recommended" and "what they have since watched". A dry run is a
                 # preview and mutates nothing, matching the rest of persistence.
                 if not dry_run:
                     self._reconcile_watched(profiles)
-                status = "ok" if report.ok else "error"
+                status = "aborted" if aborted else ("ok" if report.ok else "error")
             except Exception as e:
                 logger.exception("run {} failed", run_id)
                 self._mark_run_error(run_id, {"error": f"{type(e).__name__}: {e}"})
@@ -216,12 +229,29 @@ class RunService:
                     "run.finished", {"run_id": run_id, "status": "error", "error": f"{type(e).__name__}: {e}"}
                 )
                 return
+            finally:
+                self._cancels.pop(run_id, None)
             # Carry the reason on failure so the UI (e.g. the wizard's first run) can show it inline
             # rather than only pointing at the Runs page.
             self._bus.publish(
                 "run.finished",
                 {"run_id": run_id, "status": status, "error": None if report.ok else report.error},
             )
+
+    def cancel_run(self, run_id: int) -> bool:
+        """Ask the in-flight run to stop. Returns True if a running run was signalled, False if that
+        run isn't currently executing here (already finished, never ran, or a stale id).
+
+        Cooperative: the engine stops before the next user, so a user already being built finishes and
+        the privacy merge + promote still run for everyone delivered — the server stays consistent.
+        """
+        event = self._cancels.get(run_id)
+        if event is None or event.is_set():
+            return False
+        event.set()
+        self._bus.publish("run.progress", {"run_id": run_id, "status": "cancelling"})
+        logger.info("run {} cancel requested", run_id)
+        return True
 
     def _mark_run_error(self, run_id: int, stats: dict) -> None:
         """Force a run to a finished error state with the given stats (a build failure)."""

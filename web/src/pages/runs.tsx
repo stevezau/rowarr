@@ -42,6 +42,7 @@ import {
   triggerLabel,
 } from "@/lib/format";
 import {
+  useCancelRun,
   useClearRuns,
   useCollections,
   useRuns,
@@ -61,6 +62,7 @@ function RunsSkeleton() {
 }
 
 function RunRow({ run }: { run: Run }) {
+  const cancel = useCancelRun();
   return (
     <TableRow className="group">
       <TableCell>
@@ -92,6 +94,20 @@ function RunRow({ run }: { run: Run }) {
             >
               Test run
             </Badge>
+          )}
+          {!run.finished_at && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              loading={cancel.isPending}
+              disabled={cancel.isPending || cancel.isSuccess}
+              onClick={() => cancel.mutate(run.id)}
+              title="Stop this run. It finishes the person it's on, then stops."
+            >
+              {!cancel.isPending && <X aria-hidden="true" />}
+              {cancel.isSuccess ? "Stopping…" : "Cancel"}
+            </Button>
           )}
         </div>
       </TableCell>

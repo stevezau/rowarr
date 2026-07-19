@@ -23,7 +23,7 @@ import {
   triggerLabel,
 } from "@/lib/format";
 import { githubIssueSnippet } from "@/lib/github";
-import { queryKeys, useRun, useUsers } from "@/lib/queries";
+import { queryKeys, useCancelRun, useRun, useUsers } from "@/lib/queries";
 import { mergeRunLog } from "@/lib/run-log";
 import { countLabel, STAGE_LABELS } from "@/lib/run-stages";
 import { useSSE } from "@/lib/sse";
@@ -537,6 +537,7 @@ export function RunDetailPage() {
   const runQuery = useRun(runId, Number.isFinite(runId));
   const usersQuery = useUsers();
   const queryClient = useQueryClient();
+  const cancel = useCancelRun();
 
   // Run results carry slug/username but no user id, so map slug → id to deep-link each result to
   // its user page. Users removed from Plex since the run won't be in the map — those stay plain text.
@@ -626,6 +627,19 @@ export function RunDetailPage() {
                     <Badge variant="outline">
                       Test run — nothing was written to Plex
                     </Badge>
+                  )}
+                  {!run.finished_at && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ml-auto"
+                      loading={cancel.isPending}
+                      disabled={cancel.isPending || cancel.isSuccess}
+                      onClick={() => cancel.mutate(run.id)}
+                      title="Stop this run. It finishes the person it's on, then stops — everyone already done stays."
+                    >
+                      {cancel.isSuccess ? "Stopping…" : "Cancel run"}
+                    </Button>
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">

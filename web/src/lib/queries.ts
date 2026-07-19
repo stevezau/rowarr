@@ -156,6 +156,15 @@ export function useStartRun() {
   });
 }
 
+export function useCancelRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.cancelRun(id),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs }),
+  });
+}
+
 export function useSaveSettings() {
   const queryClient = useQueryClient();
   return useMutation({

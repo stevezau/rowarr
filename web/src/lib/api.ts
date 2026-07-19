@@ -234,6 +234,10 @@ export const api = {
   startRun: (body: RunRequest = {}): Promise<RunCreated> =>
     request("/api/runs", { method: "POST", body: JSON.stringify(body) }),
 
+  /** Ask an in-flight run to stop (finishes the person it's on, then stops). 409 if not running. */
+  cancelRun: (id: number): Promise<{ cancelling: boolean }> =>
+    request(`/api/runs/${id}/cancel`, { method: "POST" }),
+
   // --- Settings ---
   getSettings: (): Promise<Settings> => request("/api/settings"),
 

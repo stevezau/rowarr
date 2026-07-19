@@ -119,6 +119,12 @@ class EngineContext:
     # plex.tv write is serialized by ``write_lock``, so the leak-safe ordering is preserved exactly.
     concurrency: int = 1
     write_lock: threading.Lock = field(default_factory=threading.Lock)
+    # Cooperative cancel check — returns True once the run has been asked to stop. The deliver phase
+    # checks it before each user and skips the rest; an in-flight user finishes (per-user
+    # transactional, rule 6), so a cancel never leaves a half-applied user. The privacy merge +
+    # promote still run for the users already delivered, so the server stays consistent. Default:
+    # never cancels (direct engine runs and tests can't be cancelled).
+    cancelled: Callable[[], bool] = lambda: False
 
 
 def _emit(ctx: EngineContext, slug: str, stage: str, counts: dict) -> None:
@@ -410,6 +416,12 @@ def _deliver_phase(
 
     def process(user: UserProfile) -> tuple[UserProfile, UserRunReport, bool]:
         user_report = UserRunReport(username=user.username, slug=user.slug)
+        # Cancelled: skip this user's gather/curate/delivery entirely. Checked here (not mid-user) so
+        # a user already in flight finishes cleanly — per-user transactionality means a cancel never
+        # leaves a half-applied user. Queued users fall straight through as "skipped".
+        if ctx.cancelled():
+            user_report.status = "skipped"
+            return user, user_report, False
         # A row swept for this user is part of their story this run — but the swept dict is the
         # run-level record, so a paused user's deletion is never lost just because they have no
         # UserRunReport.
@@ -475,7 +487,9 @@ def _deliver_phase(
     # Shared "popular on this server" rows: built once from aggregate history, delivered UNPROMOTED
     # like the per-person rows so promotion still happens only after the filters are merged.
     shared_to_promote: list[tuple[RowSpec, UserProfile]] = []
-    shared_specs = [s for s in ctx.config.shared_rows() if ctx.config.should_build(s)] if users else []
+    # A cancelled run stops here too — no new shared rows once the user asked to stop.
+    build_shared = bool(users) and not ctx.cancelled()
+    shared_specs = [s for s in ctx.config.shared_rows() if ctx.config.should_build(s)] if build_shared else []
     for spec in shared_specs:
         _shared_report, agg = rows._run_shared(
             ctx, spec, users, seed_index, library_index, stored_labels, report, order_work

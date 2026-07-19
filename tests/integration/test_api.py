@@ -238,6 +238,11 @@ class TestRunsApi:
         detail = client.get(f"/api/runs/{run_id}")
         assert detail.status_code == 200
 
+    def test_cancel_a_run_that_isnt_running_returns_409(self, client: TestClient):
+        # A run that already finished (or never existed) can't be cancelled — the endpoint says so
+        # rather than pretending it stopped something.
+        assert client.post("/api/runs/999999/cancel").status_code == 409
+
     def test_runs_can_be_filtered_to_one_row(self, client: TestClient):
         """?collection=<slug> narrows the list to runs that actually built that row (their picks carry
         its slug), so the Rows page can link a row to its own run history."""

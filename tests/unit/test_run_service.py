@@ -122,6 +122,16 @@ async def _wait_for_run(sessions, run_id: int, timeout_s: float = 3.0) -> Run:
 
 
 class TestRunExecution:
+    def test_cancel_run_signals_an_armed_run_and_ignores_others(self, sessions, tmp_path):
+        import threading
+
+        service = RunService(sessions, EventBus(), tmp_path, SecretBox(tmp_path))
+        assert service.cancel_run(999) is False  # nothing in-flight with that id
+        service._cancels[7] = threading.Event()  # simulate a run currently executing
+        assert service.cancel_run(7) is True
+        assert service._cancels[7].is_set()  # the engine's cooperative cancel flag is now set
+        assert service.cancel_run(7) is False  # already cancelling — not signalled again
+
     def test_run_persists_report_picks_and_events(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))

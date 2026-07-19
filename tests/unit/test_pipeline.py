@@ -880,6 +880,64 @@ class TestPerRowOverrides:
         assert u.breakdown and all(e["llm_tokens"] == 50 for e in u.breakdown)
         assert sum(e["llm_tokens"] for e in u.breakdown) == u.llm_tokens
 
+    def test_a_cancelled_run_skips_every_remaining_user(self, ctx: EngineContext, mock_plextv):
+        """A cancel signalled before delivery skips every user's gather/curate/deliver — no LLM call,
+        no picks — and each is marked 'skipped'. An in-flight user isn't interrupted mid-work (the
+        check is per-user), so this never leaves a half-applied user."""
+        ctx.cancelled = lambda: True
+        sarah = make_profile("sarah", account_id=100)
+        mike = make_profile("mike", account_id=200)
+        mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
+        ctx.curator.curate.side_effect = curated_picks
+
+        report = pipeline_mod.run(ctx, [sarah, mike])
+
+        assert [u.status for u in report.users] == ["skipped", "skipped"]
+        assert not any(u.picks for u in report.users)
+        assert not ctx.curator.curate.called  # cancelled before any gather/curate ran
+
+    def test_a_partial_cancel_still_merges_filters_and_promotes_the_delivered_user(
+        self, ctx: EngineContext, mock_plextv
+    ):
+        """Leak-safety under cancel: cancel firing AFTER the first user must still deliver that user,
+        hide their row on every OTHER account, and promote it — while the rest are skipped. The
+        merge covering a NON-delivered account is the exact guarantee that a cancel can't leave a
+        delivered row visible to the wrong person."""
+        sarah, mike = make_profile("sarah", account_id=100), make_profile("mike", account_id=200)
+        mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
+        ctx.curator.curate.side_effect = curated_picks
+        # Cancel becomes true after the first per-user check: sarah delivers, mike (and shared) skip.
+        seen = {"n": 0}
+
+        def cancelled() -> bool:
+            seen["n"] += 1
+            return seen["n"] > 1
+
+        ctx.cancelled = cancelled
+
+        created_by_label: dict[str, MagicMock] = {}
+
+        def stored_label(collection, label):
+            created_by_label[label.lower()] = collection
+            return label.replace("shortlist", "Shortlist", 1)
+
+        ctx.plex.stored_label.side_effect = stored_label
+        ctx.plex.create_collection.side_effect = lambda section, title, items: MagicMock()
+        ctx.plex.find_owned_collections.side_effect = lambda section, label: (
+            [created_by_label[label.lower()]] if label.lower() in created_by_label else []
+        )
+
+        report = pipeline_mod.run(ctx, [sarah, mike])
+
+        statuses = {u.slug: u.status for u in report.users}
+        assert statuses["sarah"] == "ok" and statuses["mike"] == "skipped"
+        assert ctx.plex.create_collection.call_count == 1  # only the delivered user built a row
+        # Leak-safe: mike (NOT delivered this run) still had sarah's delivered row excluded from his
+        # share — the privacy merge covered every account, not just the ones built.
+        mike_filters = next(u for u in mock_plextv.users if u.id == 200).filters
+        assert mike_filters["filterMovies"] == "label!=Shortlist_sarah"
+        assert ctx.plex.promote.call_count == 1  # only the delivered user was promoted
+
     def test_default_watched_cap_excludes_finished_titles(self, ctx: EngineContext, mock_plextv):
         """watched_pct defaults to 0 (all fresh): a title the user has finished, even if it resurfaces
         as a candidate, is never recommended back. Guards the pool_key/pools_for `== 0` branch — an

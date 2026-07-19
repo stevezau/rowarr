@@ -341,7 +341,8 @@ function UserRow({
       aria-selected={isSelected}
       onClick={() => onSelect(result.slug)}
       className={cn(
-        "flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "flex w-full items-center gap-3 border-l-2 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        failed ? "border-l-destructive/70" : "border-l-transparent",
         isSelected ? "bg-primary/10" : "hover:bg-muted/60",
       )}
     >
@@ -615,15 +616,27 @@ export function RunDetailPage() {
                   const failed = selected.error !== null;
                   const userId = idBySlug.get(selected.slug) ?? null;
                   return (
-                    <div className="space-y-4">
-                      {run.users.length > 1 && (
-                        <UserTabs
-                          results={ordered}
-                          selected={selected.slug}
-                          onSelect={setSelectedSlug}
-                        />
+                    <div
+                      className={cn(
+                        run.users.length > 1 &&
+                          "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start",
                       )}
-                      <Card className={failed ? "border-destructive/50" : ""}>
+                    >
+                      {run.users.length > 1 && (
+                        <div className="lg:sticky lg:top-4">
+                          <UserTabs
+                            results={ordered}
+                            selected={selected.slug}
+                            onSelect={setSelectedSlug}
+                          />
+                        </div>
+                      )}
+                      <Card
+                        className={cn(
+                          "min-w-0",
+                          failed && "border-destructive/50",
+                        )}
+                      >
                         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
                           <CardTitle className="flex items-center gap-2.5">
                             <UserAvatar name={selected.username} size="sm" />

@@ -16,8 +16,14 @@ def _sessions(tmp_path: Path):
     return make_session_factory(make_engine(tmp_path))
 
 
-def _report(queued: list[MissingTitle], *, dry_run: bool = False, present: set | None = None):
-    return SimpleNamespace(dry_run=dry_run, requests=RequestReport(queued=queued), library_present=present or set())
+def _report(
+    queued: list[MissingTitle], *, dry_run: bool = False, present: set | None = None, arr_present: set | None = None
+):
+    return SimpleNamespace(
+        dry_run=dry_run,
+        requests=RequestReport(queued=queued, arr_present=arr_present or set()),
+        library_present=present or set(),
+    )
 
 
 def _title(tmdb_id: int, **kw) -> MissingTitle:
@@ -70,6 +76,21 @@ class TestPersistRequestQueue:
             s.commit()
         with sessions() as s:
             assert {r.tmdb_id for r in s.query(RequestCandidate).all()} == {2}
+
+    def test_pending_titles_an_arr_now_tracks_are_dropped(self, tmp_path: Path):
+        # ONE PIECE case: added to Sonarr by hand (or by a send that predates the ledger) but
+        # unaired/undownloaded, so never in Plex — only the arr-presence prune can clear the row.
+        sessions = _sessions(tmp_path)
+        with sessions() as s:
+            RunService._persist_request_queue(s, 1, _report([_title(1), _title(2, media_type=MediaType.SHOW)]))
+            s.add(RequestCandidate(tmdb_id=1, media_type="show", title="x", rating=1.0, vote_count=1, status="sent"))
+            s.commit()
+        with sessions() as s:
+            RunService._persist_request_queue(s, 2, _report([], arr_present={(1, "movie"), (1, "show"), (2, "show")}))
+            s.commit()
+        with sessions() as s:
+            rows = [(r.tmdb_id, r.media_type, r.status) for r in s.query(RequestCandidate).all()]
+            assert rows == [(1, "show", "sent")]  # both pending pruned; the sent ledger row survives
 
     def test_present_does_not_drop_sent_or_rejected(self, tmp_path: Path):
         sessions = _sessions(tmp_path)

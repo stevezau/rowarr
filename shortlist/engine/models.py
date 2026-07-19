@@ -366,6 +366,12 @@ class MissingTitle:
     # FAILED auto-send is queued back to the inbox with the reason visible instead of vanishing and
     # silently retrying every night. Empty for a title that was never attempted.
     detail: str = ""
+    # A show's resolved TheTVDB id, cached once (Sonarr keys on TVDB) so the arr-presence check and
+    # the eventual send don't each pay a separate TMDB lookup. None until resolved / for movies.
+    tvdb_id: int | None = None
+    # True when the title sits on Sonarr/Radarr's import-exclusion list (from a past delete): it's
+    # surfaced for the owner but never auto-sent, since the Arr would refuse it until un-excluded.
+    excluded: bool = False
 
 
 @dataclass
@@ -394,6 +400,13 @@ class RequestReport:
     # what stops tomorrow's run re-requesting a title that is merely still downloading — and spending
     # one of `max_per_run` on it every night, forever.
     sent: list[MissingTitle] = field(default_factory=list)
+    # Every (tmdb_id, MediaType.value) an Arr already tracks, captured during the arr-state
+    # reconcile. The server uses it to drop stale PENDING inbox rows: a title added to an Arr by
+    # other means (manual add, another tool, an earlier send that predates the sent-ledger) is not
+    # in Plex while it downloads — or ever, if unaired — so the Plex-presence prune never catches
+    # it and the row would sit pending forever. Best-effort: empty when the reconcile skipped a
+    # media type (none in this run's pool) or an Arr fetch failed (fail-open) — no drops that run.
+    arr_present: set[tuple[int, str]] = field(default_factory=set)
 
     @property
     def requested(self) -> int:

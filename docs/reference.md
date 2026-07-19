@@ -151,6 +151,13 @@ shared rows never request). A requested title is tagged with the union of the gl
 wanting user's tag, and the tag of every per-person row that user is in the audience of; the queued
 tags round-trip through `GET /api/requests` (`tags[]`) and are applied on `send`.
 
+Before queuing, the request pass reconciles the missing pool against the Arrs (one bulk fetch each,
+failing open on error): a title Sonarr/Radarr already tracks is dropped — not really "missing", just
+not imported into Plex yet — matched on tmdbId for movies and tvdbId for shows (the candidate's TVDB
+id is resolved once and reused for the send). A title on an Arr import-exclusion list (usually a past
+delete) is kept but flagged (`excluded` on `GET /api/requests`) and never auto-sent, so the inbox can
+warn that approving it is a no-op until the exclusion is removed in the Arr.
+
 All endpoints except `/api/system/health` require the owner session; mutations require the
 `x-shortlist-csrf: 1` header.
 

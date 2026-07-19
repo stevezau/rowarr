@@ -115,6 +115,26 @@ class _ArrClient:
         data = self._get("/api/v3/rootfolder")
         return [{"id": f["id"], "path": f["path"]} for f in data] if isinstance(data, list) else []
 
+    def _id_set(self, path: str, key: str) -> set[int]:
+        """The set of integer ``key`` values across a list endpoint (e.g. every tmdbId in /movie).
+
+        Used to answer "does the Arr already have / has it excluded this title?" without a per-title
+        call. Tolerant of missing/oddly-typed ids so one bad row can't poison the whole set.
+        """
+        return self._ids_from(self._get(path), key)
+
+    @staticmethod
+    def _ids_from(data: object, key: str) -> set[int]:
+        """Extract the integer ``key`` values from an already-fetched list payload (see ``_id_set``)."""
+        out: set[int] = set()
+        for item in data if isinstance(data, list) else []:
+            if isinstance(item, dict) and item.get(key) not in (None, 0):
+                try:
+                    out.add(int(item[key]))
+                except (TypeError, ValueError):
+                    continue
+        return out
+
     def _tag_ids(self, extra: set[str] | None = None) -> list[int]:
         """Resolve the labels to apply for one add: the target's global tag unioned with ``extra``
         (per-user + per-row tags carried on the title). Each distinct label is created in the app if
@@ -153,6 +173,15 @@ class _ArrClient:
 class RadarrClient(_ArrClient):
     app_name = "Radarr"
 
+    def library_tmdb_ids(self) -> set[int]:
+        """Every tmdbId Radarr already tracks — so a title it has (or is still downloading) isn't
+        re-surfaced as 'missing' just because it isn't in Plex yet."""
+        return self._id_set("/api/v3/movie", "tmdbId")
+
+    def excluded_tmdb_ids(self) -> set[int]:
+        """tmdbIds on Radarr's import-exclusion list (usually left by a past delete)."""
+        return self._id_set("/api/v3/exclusions", "tmdbId")
+
     def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         """Request one movie by TMDB id. Returns (status, detail); never raises for a normal skip.
 
@@ -181,6 +210,24 @@ class RadarrClient(_ArrClient):
 
 class SonarrClient(_ArrClient):
     app_name = "Sonarr"
+
+    def library_tvdb_ids(self) -> set[int]:
+        """Every tvdbId Sonarr already tracks (Sonarr keys shows on TVDB, not TMDB)."""
+        return self._id_set("/api/v3/series", "tvdbId")
+
+    def library_ids(self) -> tuple[set[int], set[int]]:
+        """(tvdbIds, tmdbIds) Sonarr already tracks, from ONE /series fetch.
+
+        TVDB is Sonarr's native key — what presence/exclusion matching uses. The TMDB set (Sonarr v4
+        puts ``tmdbId`` on every series; empty on v3) lets callers reconcile tmdb-keyed records —
+        the request inbox — against Sonarr without a per-title TVDB lookup.
+        """
+        data = self._get("/api/v3/series")
+        return self._ids_from(data, "tvdbId"), self._ids_from(data, "tmdbId")
+
+    def excluded_tvdb_ids(self) -> set[int]:
+        """tvdbIds on Sonarr's import-exclusion list (usually left by a past delete)."""
+        return self._id_set("/api/v3/importlistexclusion", "tvdbId")
 
     def add_series(self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         """Request one series by TVDB id. Returns (status, detail); never raises for a normal skip.

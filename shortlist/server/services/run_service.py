@@ -49,6 +49,7 @@ def _candidate_row(m, run_id: int, *, status: str) -> RequestCandidate:
         why=_why_json(m.why),
         status=status,
         detail=m.detail,  # a failed auto-send carries WHY it didn't land, shown as "Last attempt: …"
+        excluded=m.excluded,  # on a Sonarr/Radarr exclusion list — flagged in the inbox
         first_seen_run_id=run_id,
     )
 
@@ -586,13 +587,16 @@ class RunService:
         a dismissed suggestion can't reappear every night.
 
         A pending title that has since ARRIVED in the library (grabbed elsewhere) is dropped, so the
-        inbox never lingers on titles the owner already has.
+        inbox never lingers on titles the owner already has. Same for one an ARR now tracks (added
+        by hand, by another tool, or before the sent-ledger existed): while it downloads — or
+        forever, if unaired — it's absent from Plex, so only the arr-presence prune can catch it.
         """
         if report.requests is None or report.dry_run:
             return
         existing = {(r.tmdb_id, r.media_type): r for r in session.query(RequestCandidate).all()}
         # Drop pending candidates the library now holds; leave sent/rejected alone (owner-actioned).
         present = {(tid, mt.value) for tid, mt in report.library_present}
+        present |= report.requests.arr_present  # best-effort; empty when a check was skipped/failed
         for key in [k for k, r in existing.items() if r.status == "pending" and k in present]:
             session.delete(existing.pop(key))
         for m in report.requests.queued:
@@ -611,6 +615,7 @@ class RunService:
                     row.wanters,
                     row.why,
                     row.detail,
+                    row.excluded,
                 ) = (
                     m.title,
                     m.year,
@@ -622,6 +627,7 @@ class RunService:
                     sorted(m.wanters),
                     _why_json(m.why),
                     m.detail or row.detail,  # keep the last failure reason if this pass didn't set one
+                    m.excluded,  # refresh the exclusion flag each run (a removed exclusion clears it)
                 )
 
         # The titles this run AUTO-SENT are filed as `sent` too. Without this the ledger only knew

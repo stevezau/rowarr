@@ -58,6 +58,7 @@ function candidate(
     why: [],
     status: "pending",
     detail: "",
+    excluded: false,
     updated_at: null,
     ...overrides,
   };
@@ -93,6 +94,20 @@ describe("RequestsPage", () => {
     listRequests.mockResolvedValue([]);
     renderPage();
     expect(await screen.findByText(/Nothing waiting/i)).toBeTruthy();
+  });
+
+  it("warns when a waiting title is on the arr's exclusion list, naming the right app", async () => {
+    listRequests.mockResolvedValue([
+      candidate({
+        id: 1,
+        title: "Amazing Digital Circus",
+        media_type: "show",
+        excluded: true,
+      }),
+    ]);
+    renderPage();
+    expect(await screen.findByText("Amazing Digital Circus")).toBeTruthy();
+    expect(screen.getByText(/Sonarr.s exclusion list/i)).toBeTruthy();
   });
 
   it("shows a distinct 'off' empty state when requests are disabled", async () => {

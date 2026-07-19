@@ -645,6 +645,9 @@ export interface RequestCandidate {
   status: "pending" | "sent" | "rejected";
   /** Send outcome, or why it's queued. */
   detail: string;
+  /** On Sonarr/Radarr's import-exclusion list (usually a past delete) — approving is a no-op until
+   *  the owner removes the exclusion there. */
+  excluded: boolean;
   /** When this row last changed state — the "sent at" for a sent item. */
   updated_at: string | null;
 }

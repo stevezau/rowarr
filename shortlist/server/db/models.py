@@ -290,6 +290,9 @@ class RequestCandidate(Base):
     why: Mapped[list] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | sent | rejected
     detail: Mapped[str] = mapped_column(String(512), default="")  # send outcome, or why it's queued
+    # On Sonarr/Radarr's import-exclusion list (usually from a past delete): surfaced in the inbox so
+    # the owner knows approving it is a no-op until they remove the exclusion in the Arr.
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False)
     first_seen_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # which run first surfaced it
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

@@ -45,6 +45,7 @@ class RequestCandidateOut(BaseModel):
     why: list[RequestWhyOut]  # per (person, row) provenance — which row, and why it got here
     status: str
     detail: str
+    excluded: bool = False  # on a Sonarr/Radarr exclusion list — the inbox warns approving is a no-op
     updated_at: str | None  # when this row last changed state (the "sent at" for a sent item)
 
 
@@ -75,6 +76,7 @@ def list_requests(request: Request) -> list[RequestCandidateOut]:
             why=[RequestWhyOut(**w) for w in (r.why or [])],
             status=r.status,
             detail=r.detail,
+            excluded=bool(r.excluded),
             updated_at=iso_utc(r.updated_at),
         )
         for r in rows

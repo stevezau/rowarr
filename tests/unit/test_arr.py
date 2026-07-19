@@ -335,3 +335,33 @@ class TestArrPlumbing:
         client = RadarrClient(RADARR)
         assert client.quality_profiles() == [{"id": 4, "name": "HD-1080p"}]
         assert client.root_folders() == [{"id": 1, "path": "/movies"}]
+
+
+class TestArrStateIdSets:
+    """The bulk id-set fetches that let the request pass reconcile against what an Arr already knows
+    (already-tracked → drop; on an exclusion list → flag), without a per-title call."""
+
+    @respx.mock
+    def test_radarr_library_and_exclusion_tmdb_ids(self):
+        respx.get("http://radarr.test/api/v3/movie").mock(
+            # A row with no tmdbId (0) and a malformed one must be tolerated, not poison the set.
+            return_value=httpx.Response(200, json=[{"tmdbId": 11}, {"tmdbId": 22}, {"tmdbId": 0}, {"title": "x"}])
+        )
+        respx.get("http://radarr.test/api/v3/exclusions").mock(
+            return_value=httpx.Response(200, json=[{"tmdbId": 99, "movieTitle": "Old"}])
+        )
+        client = RadarrClient(RADARR)
+        assert client.library_tmdb_ids() == {11, 22}
+        assert client.excluded_tmdb_ids() == {99}
+
+    @respx.mock
+    def test_sonarr_library_and_exclusion_tvdb_ids(self):
+        respx.get("http://sonarr.test/api/v3/series").mock(
+            return_value=httpx.Response(200, json=[{"tvdbId": 371980}, {"tvdbId": 81189}])
+        )
+        respx.get("http://sonarr.test/api/v3/importlistexclusion").mock(
+            return_value=httpx.Response(200, json=[{"tvdbId": 12345, "title": "Gone"}])
+        )
+        client = SonarrClient(SONARR)
+        assert client.library_tvdb_ids() == {371980, 81189}
+        assert client.excluded_tvdb_ids() == {12345}

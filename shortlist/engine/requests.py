@@ -155,12 +155,25 @@ def request_missing(
             except Exception as e:  # never fail the run for a link nicety
                 logger.debug("imdb id lookup for {!r} failed: {}", m.title, e)
 
+    # Build the Arr clients once (reused for the state check below and the send), then reconcile the
+    # pool against what the Arrs already know: drop titles they already track (not really "missing" —
+    # a downloading title isn't in Plex yet), and flag titles on an exclusion list so the owner sees
+    # why approving them would be a no-op. Fails OPEN — a fetch error skips the check, never drops.
+    radarr = RadarrClient(cfg.radarr, min_write_interval=min_write_interval) if cfg.radarr else None
+    sonarr = SonarrClient(cfg.sonarr, min_write_interval=min_write_interval) if cfg.sonarr else None
+    qualifying, in_arr, report.arr_present = _apply_arr_state(tmdb, qualifying, radarr, sonarr)
+    if in_arr:
+        logger.info("requests: {} qualifying already in Sonarr/Radarr — dropped", in_arr)
+
     # Hybrid split: the strongest clear the auto-send bar and go now (capped); the rest wait for the
-    # owner. Auto-worthy titles beyond the cap fall through to the queue rather than being lost.
+    # owner. Auto-worthy titles beyond the cap fall through to the queue rather than being lost. An
+    # excluded title is never auto-sent (the Arr would refuse it) — it's surfaced for a manual call.
     cap = max(0, cfg.max_per_run)
     auto: list[MissingTitle] = []
     for m in qualifying:  # already ranked best-first by the gate
-        clears_auto = cfg.auto_send and m.demand >= cfg.auto_min_demand and m.rating >= cfg.auto_min_rating
+        clears_auto = (
+            cfg.auto_send and not m.excluded and m.demand >= cfg.auto_min_demand and m.rating >= cfg.auto_min_rating
+        )
         if clears_auto and len(auto) < cap:
             auto.append(m)
         else:
@@ -170,7 +183,9 @@ def request_missing(
         logger.info("requests: {} qualifying, 0 auto-sent, {} queued for approval", len(qualifying), len(report.queued))
         return report
 
-    report.outcomes = _send(cfg, tmdb, auto, dry_run=dry_run, min_write_interval=min_write_interval)
+    report.outcomes = _send(
+        cfg, tmdb, auto, dry_run=dry_run, min_write_interval=min_write_interval, radarr=radarr, sonarr=sonarr
+    )
     # Only the ones the Arr actually accepted. A send that failed, or was skipped for want of a TVDB
     # id, must stay requestable — suppressing it would lose the title silently.
     # Keyed by (tmdb_id, media_type), never the bare id — movie 550 and TV 550 are different titles,
@@ -223,11 +238,101 @@ def _send(
     *,
     dry_run: bool,
     min_write_interval: float,
+    radarr: RadarrClient | None = None,
+    sonarr: SonarrClient | None = None,
 ) -> list[RequestOutcome]:
-    """Build each Arr client at most once (they throttle their own writes), then route every title."""
-    radarr = RadarrClient(cfg.radarr, min_write_interval=min_write_interval) if cfg.radarr else None
-    sonarr = SonarrClient(cfg.sonarr, min_write_interval=min_write_interval) if cfg.sonarr else None
+    """Route every title to its Arr. Clients are built at most once — passed in when the caller
+    already built them (so the arr-state check and the send share one), else built here."""
+    if radarr is None and cfg.radarr:
+        radarr = RadarrClient(cfg.radarr, min_write_interval=min_write_interval)
+    if sonarr is None and cfg.sonarr:
+        sonarr = SonarrClient(cfg.sonarr, min_write_interval=min_write_interval)
     return [_request_one(title, radarr, sonarr, tmdb, dry_run=dry_run) for title in titles]
+
+
+def _apply_arr_state(
+    tmdb: TmdbClient,
+    pool: list[MissingTitle],
+    radarr: RadarrClient | None,
+    sonarr: SonarrClient | None,
+) -> tuple[list[MissingTitle], int, set[tuple[int, str]]]:
+    """Reconcile the gated pool against what the Arrs already know.
+
+    Drops titles an Arr already tracks (they aren't really "missing" — a downloading title just isn't
+    in Plex yet) and flags titles on an Arr import-exclusion list (``m.excluded``) so the inbox can
+    show why approving one wouldn't add it. Returns ``(kept, dropped_count, arr_present)`` — the last
+    is every (tmdb_id, MediaType.value) the Arrs track, for the server's stale-pending-row prune
+    (see ``RequestReport.arr_present``); shows land in it via Sonarr v4's own ``tmdbId`` (empty on v3).
+
+    Fails OPEN: any fetch error skips that Arr's checks entirely — a redundant request is a far
+    smaller sin than silently dropping a title the owner actually wanted. Shows are matched on TVDB
+    (Sonarr's key), resolved once per title and cached on ``m.tvdb_id`` for the later send.
+    """
+    if not pool:
+        return pool, 0, set()
+    # Only fetch the sets for media types actually present — a movie-only pool shouldn't pay for
+    # Sonarr's two calls, and vice versa.
+    want_movies = any(m.media_type is MediaType.MOVIE for m in pool)
+    want_shows = any(m.media_type is not MediaType.MOVIE for m in pool)
+    movie_present = _safe_ids(radarr.library_tmdb_ids) if radarr and want_movies else set()
+    movie_excluded = _safe_ids(radarr.excluded_tmdb_ids) if radarr and want_movies else set()
+    show_present, show_present_tmdb = _safe_id_pair(sonarr.library_ids) if sonarr and want_shows else (set(), set())
+    show_excluded = _safe_ids(sonarr.excluded_tvdb_ids) if sonarr and want_shows else set()
+    arr_present = {(tid, MediaType.MOVIE.value) for tid in movie_present} | {
+        (tid, MediaType.SHOW.value) for tid in show_present_tmdb
+    }
+
+    kept: list[MissingTitle] = []
+    dropped = 0
+    for m in pool:
+        if m.media_type is MediaType.MOVIE:
+            present, excluded = movie_present, movie_excluded
+            key: int | None = m.tmdb_id
+        else:
+            present, excluded = show_present, show_excluded
+            # Only pay the TVDB lookup when there's actually a Sonarr set to match against.
+            key = _resolve_tvdb(tmdb, m) if (show_present or show_excluded) else None
+        if key is not None and key in present:
+            dropped += 1
+            continue
+        if key is not None and key in excluded:
+            m.excluded = True  # surfaced as its own inbox flag; the app is inferred from media_type
+        kept.append(m)
+    return kept, dropped, arr_present
+
+
+def _safe_ids(fetch) -> set[int]:
+    """Call an Arr id-set fetch, returning an empty set on ANY error so the check truly fails open.
+
+    Deliberately broad: besides ``ArrError`` (connect/auth/non-200), a 200 with a non-JSON body — an
+    SSO interstitial or SPA HTML from a misconfigured reverse proxy — makes ``r.json()`` raise
+    ``ValueError``. Either way, skip the check and request as if the Arr held nothing, never abort the
+    whole pass (which would drop every wanted title on a proxy hiccup).
+    """
+    try:
+        return fetch()
+    except Exception as e:
+        logger.warning("Arr state fetch failed, skipping that check this run: {}", e)
+        return set()
+
+
+def _safe_id_pair(fetch) -> tuple[set[int], set[int]]:
+    """``_safe_ids`` for a fetch returning a pair of id sets (``SonarrClient.library_ids``)."""
+    try:
+        return fetch()
+    except Exception as e:
+        logger.warning("Arr state fetch failed, skipping that check this run: {}", e)
+        return set(), set()
+
+
+def _resolve_tvdb(tmdb: TmdbClient, m: MissingTitle) -> int | None:
+    """A show's TVDB id, cached on the title so presence-check and send don't each look it up."""
+    if m.tvdb_id is None:
+        try:
+            m.tvdb_id = tmdb.tvdb_id(m.tmdb_id, m.media_type)
+        except Exception as e:  # a lookup miss just means we can't dedup this one — never fatal
+            logger.debug("tvdb lookup for {!r} failed: {}", m.title, e)
+    return m.tvdb_id
 
 
 def _gate_by_tmdb(cfg: RequestConfig, pool: list[MissingTitle]) -> list[MissingTitle]:
@@ -299,11 +404,14 @@ def _request_one(
         # whole pass's recorded outcomes (the run-level handler would otherwise lose the audit trail).
         if sonarr is None:
             return outcome("skipped_no_target", "Sonarr isn't configured")
-        try:
-            tvdb_id = tmdb.tvdb_id(title.tmdb_id, title.media_type)
-        except Exception as e:
-            logger.warning("TVDB lookup for {!r} failed: {}", title.title, e)
-            return outcome("error", "could not resolve this show's TheTVDB id")
+        # Reuse the TVDB id if the arr-state check already resolved it this run; else look it up now.
+        tvdb_id = title.tvdb_id
+        if tvdb_id is None:
+            try:
+                tvdb_id = tmdb.tvdb_id(title.tmdb_id, title.media_type)
+            except Exception as e:
+                logger.warning("TVDB lookup for {!r} failed: {}", title.title, e)
+                return outcome("error", "could not resolve this show's TheTVDB id")
         if tvdb_id is None:
             return outcome("skipped_no_tvdb", "no TheTVDB id for this show")
         status, detail = sonarr.add_series(tvdb_id, dry_run=dry_run, extra_tags=title.tags)

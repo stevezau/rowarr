@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Film, PlugZap, Tv } from "lucide-react";
+import { ExternalLink, Film, PlugZap, Tv } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 
 import { SaveStatus } from "@/components/save-status";
@@ -398,7 +398,18 @@ export function RequestsSettings({ settings }: { settings: Settings }) {
                 </p>
                 {form.ratingSource === "imdb" && (
                   <div className="space-y-2 pt-1">
-                    <Label htmlFor={omdbId}>OMDb API key</Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor={omdbId}>OMDb API key</Label>
+                      <a
+                        href="https://www.omdbapi.com/apikey.aspx"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-0.5 text-xs font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        Get a key
+                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                      </a>
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <SecretInput
                         id={omdbId}

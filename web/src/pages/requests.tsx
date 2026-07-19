@@ -236,6 +236,13 @@ function PendingRow({
         <TitleMeta item={item} globalTag={globalTag} />
         <WhyBreakdown why={item.why} />
         <ExternalLinks item={item} />
+        {item.excluded ? (
+          <p className="text-xs text-warning">
+            On {item.media_type === "movie" ? "Radarr" : "Sonarr"}’s exclusion
+            list (from a past delete) — remove it there first, or approving
+            won’t add it.
+          </p>
+        ) : null}
         {item.detail ? (
           <p className="text-xs text-muted-foreground">
             Last attempt: {item.detail}

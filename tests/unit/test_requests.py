@@ -33,12 +33,42 @@ def _cfg(**kw) -> RequestConfig:
 class FakeArr:
     """A stand-in Radarr/Sonarr client that records adds and can be told to fail."""
 
-    def __init__(self, *, raise_on: int | None = None, skip_present: set[int] | None = None):
+    def __init__(
+        self,
+        *,
+        raise_on: int | None = None,
+        skip_present: set[int] | None = None,
+        present: set[int] | None = None,
+        excluded: set[int] | None = None,
+        present_tmdb: set[int] | None = None,
+    ):
         self.movie_calls: list[tuple[int, bool]] = []
         self.series_calls: list[tuple[int, bool]] = []
         self.tag_calls: list[set[str]] = []  # extra_tags passed on each add, in call order
         self.raise_on = raise_on
         self.skip_present = skip_present or set()
+        # Ids the Arr already tracks / has excluded — drives the arr-state reconcile (empty = no-op).
+        self._present = present or set()
+        self._excluded = excluded or set()
+        # As Sonarr: the tracked shows' OWN tmdbIds (v4 payload; empty = v3) for `library_ids`.
+        self._present_tmdb = present_tmdb or set()
+
+    # Movies key on tmdbId, shows on tvdbId — the FakeArr just returns whatever id-set it was given,
+    # regardless of which accessor, since a test uses one FakeArr per app.
+    def library_tmdb_ids(self) -> set[int]:
+        return set(self._present)
+
+    def excluded_tmdb_ids(self) -> set[int]:
+        return set(self._excluded)
+
+    def library_tvdb_ids(self) -> set[int]:
+        return set(self._present)
+
+    def library_ids(self) -> tuple[set[int], set[int]]:
+        return set(self._present), set(self._present_tmdb)
+
+    def excluded_tvdb_ids(self) -> set[int]:
+        return set(self._excluded)
 
     def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
         self.movie_calls.append((tmdb_id, dry_run))
@@ -256,6 +286,79 @@ class TestRequestMissing:
         requests_mod.request_missing(cfg, tmdb, demand, dry_run=False)
         assert radarr.movie_calls == [(10, False)]
         assert sonarr.series_calls == [(55555, False)]  # requested by TVDB id, not TMDB id
+
+    def test_a_title_already_in_radarr_is_dropped_not_requested(self, monkeypatch):
+        # A title Radarr already tracks (or is downloading) isn't really "missing" — it's dropped, not
+        # re-requested and not queued to clutter the inbox.
+        fake = FakeArr(present={5})
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(MissingTitle(5, "have it", MediaType.MOVIE, 2020, rating=8.0, vote_count=500))
+        report = requests_mod.request_missing(_cfg(radarr=RADARR), FakeTmdb(), demand, dry_run=False)
+        assert fake.movie_calls == []
+        assert report.queued == [] and report.sent == []
+
+    def test_a_show_already_in_sonarr_is_dropped_matched_on_tvdb(self, monkeypatch):
+        # Sonarr keys on TVDB, candidates on TMDB — the drop must cross the namespace (the ID gap).
+        sonarr = FakeArr(present={55555})
+        monkeypatch.setattr(requests_mod, "SonarrClient", lambda *a, **k: sonarr)
+        demand = self._demand(MissingTitle(20, "have show", MediaType.SHOW, 2020, rating=8.0, vote_count=500))
+        report = requests_mod.request_missing(_cfg(sonarr=SONARR), FakeTmdb({20: 55555}), demand, dry_run=False)
+        assert sonarr.series_calls == [] and report.queued == []
+
+    def test_an_excluded_title_is_queued_with_a_reason_never_auto_sent(self, monkeypatch):
+        fake = FakeArr(excluded={5})
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(MissingTitle(5, "excluded film", MediaType.MOVIE, 2020, rating=8.0, vote_count=500))
+        report = requests_mod.request_missing(_cfg(radarr=RADARR), FakeTmdb(), demand, dry_run=False)
+        assert fake.movie_calls == []  # the Arr would refuse it, so it's never auto-sent
+        assert len(report.queued) == 1
+        assert report.queued[0].excluded is True  # surfaced as a flag, not a mislabelled "last attempt"
+
+    def test_an_arr_state_fetch_error_drops_nothing(self, monkeypatch):
+        # Fail OPEN: a Radarr hiccup on the presence fetch must not silently drop a wanted title.
+        fake = FakeArr(present={5})
+        fake.library_tmdb_ids = lambda: (_ for _ in ()).throw(ArrError("radarr down"))
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(MissingTitle(5, "film", MediaType.MOVIE, 2020, rating=8.0, vote_count=500))
+        report = requests_mod.request_missing(_cfg(radarr=RADARR), FakeTmdb(), demand, dry_run=False)
+        assert fake.movie_calls == [(5, False)] and report.requested == 1
+
+    def test_a_non_arr_error_on_the_state_fetch_also_fails_open(self, monkeypatch):
+        # A 200-with-HTML proxy response makes r.json() raise ValueError, not ArrError — still must
+        # fail open (request as if the Arr held nothing), never abort the whole pass.
+        fake = FakeArr(present={5})
+        fake.library_tmdb_ids = lambda: (_ for _ in ()).throw(ValueError("expecting value"))
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: fake)
+        demand = self._demand(MissingTitle(5, "film", MediaType.MOVIE, 2020, rating=8.0, vote_count=500))
+        report = requests_mod.request_missing(_cfg(radarr=RADARR), FakeTmdb(), demand, dry_run=False)
+        assert fake.movie_calls == [(5, False)] and report.requested == 1
+
+    def test_an_excluded_show_is_flagged_via_tvdb_never_auto_sent(self, monkeypatch):
+        # The one cell that exercises TVDB crossing AND the exclusion flag together.
+        sonarr = FakeArr(excluded={55555})
+        monkeypatch.setattr(requests_mod, "SonarrClient", lambda *a, **k: sonarr)
+        demand = self._demand(MissingTitle(20, "excluded show", MediaType.SHOW, 2020, rating=8.0, vote_count=500))
+        report = requests_mod.request_missing(_cfg(sonarr=SONARR), FakeTmdb({20: 55555}), demand, dry_run=False)
+        assert sonarr.series_calls == []
+        assert len(report.queued) == 1 and report.queued[0].excluded is True
+
+    def test_arr_present_carries_every_tracked_id_for_the_stale_row_prune(self, monkeypatch):
+        # The report must hand the server EVERYTHING the Arrs track — keyed by tmdb for both types
+        # (shows via Sonarr v4's own tmdbId) — not just the titles in this run's pool, so
+        # _persist_request_queue can prune stale pending rows for titles added by other means.
+        radarr = FakeArr(present={5, 6})
+        sonarr = FakeArr(present={55555}, present_tmdb={20, 21})
+        monkeypatch.setattr(requests_mod, "RadarrClient", lambda *a, **k: radarr)
+        monkeypatch.setattr(requests_mod, "SonarrClient", lambda *a, **k: sonarr)
+        demand = self._demand(
+            MissingTitle(5, "tracked film", MediaType.MOVIE, 2020, rating=8.0, vote_count=500),
+            MissingTitle(20, "tracked show", MediaType.SHOW, 2020, rating=8.0, vote_count=500),
+        )
+        report = requests_mod.request_missing(
+            _cfg(radarr=RADARR, sonarr=SONARR), FakeTmdb({20: 55555}), demand, dry_run=False
+        )
+        assert report.arr_present == {(5, "movie"), (6, "movie"), (20, "show"), (21, "show")}
+        assert radarr.movie_calls == [] and sonarr.series_calls == []  # both tracked -> neither sent
 
     def test_show_without_tvdb_is_skipped_not_requested(self, monkeypatch):
         sonarr = FakeArr()

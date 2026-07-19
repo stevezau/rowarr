@@ -12,10 +12,25 @@ Sonarr/Radarr versions instead of guessing at required metadata fields.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 
 from shortlist.engine.clients import http_retry
 from shortlist.engine.models import ArrTarget
+
+
+def _sanitize_tag(label: str | None) -> str:
+    """Normalise a tag to Radarr/Sonarr's allowed charset: lowercase ``a-z``, ``0-9`` and ``-``.
+
+    A tag with anything else (a capital, space, dot, or ``+`` — e.g. from a username or a row name)
+    is rejected by the Arr with ``HTTP 400: Allowed characters a-z, 0-9 and -``, which fails the whole
+    add. Collapses each run of disallowed characters to a single hyphen and trims stray hyphens;
+    returns ``""`` for a label that reduces to nothing (the caller drops those).
+    """
+    if not label:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
 
 
 class ArrError(RuntimeError):
@@ -106,8 +121,10 @@ class _ArrClient:
         it doesn't exist, then referenced by id. Only ever called on a real add, so a dry-run never
         creates a tag. Label lookups and creations are memoised, so N titles never re-query the tag list.
         """
-        labels = {label for label in ({self._target.tag} | (extra or set())) if (label or "").strip()}
-        ids = {self._resolve_tag(label.strip()) for label in labels}
+        # Sanitize to the Arr's tag charset (a-z 0-9 -) BEFORE resolving, or a tag with a capital/
+        # space/dot (from a username or row name) 400s the whole add — the Evangelion send that failed.
+        labels = {tag for label in ({self._target.tag} | (extra or set())) if (tag := _sanitize_tag(label))}
+        ids = {self._resolve_tag(label) for label in labels}
         return sorted(i for i in ids if i is not None)
 
     def _resolve_tag(self, label: str) -> int | None:

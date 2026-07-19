@@ -9,6 +9,7 @@ merely that a call happened; a call-count-only assertion is exactly the bug clas
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 import pytest
@@ -88,6 +89,29 @@ class TestRadarrAddMovie:
 
         assert create.called  # the tag didn't exist, so it was created
         assert json.loads(post.calls.last.request.content)["tags"] == [7]
+
+    @respx.mock
+    def test_tags_are_sanitized_to_the_arr_charset(self):
+        # Radarr/Sonarr tags allow only a-z 0-9 - ; a capital/space/dot/+ 400s the WHOLE add (the
+        # Evangelion send that failed live). Every tag is normalised before it's created.
+        respx.get("http://radarr.test/api/v3/movie/lookup/tmdb").mock(
+            return_value=httpx.Response(200, json=MOVIE_LOOKUP)
+        )
+        respx.get("http://radarr.test/api/v3/tag").mock(return_value=httpx.Response(200, json=[]))
+        created: list[str] = []
+
+        def make_tag(request):
+            label = json.loads(request.content)["label"]
+            created.append(label)
+            return httpx.Response(201, json={"id": len(created), "label": label})
+
+        respx.post("http://radarr.test/api/v3/tag").mock(side_effect=make_tag)
+        respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201, json={"id": 5}))
+
+        RadarrClient(RADARR).add_movie(273481, dry_run=False, extra_tags={"J.FM", "Sci-Fi Night!", "kids"})
+
+        assert all(re.fullmatch(r"[a-z0-9-]+", t) for t in created)  # nothing the Arr would reject
+        assert set(created) == {"j-fm", "sci-fi-night", "kids"}
 
     @respx.mock
     def test_reuses_an_existing_tag_case_insensitively(self):

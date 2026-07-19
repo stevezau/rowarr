@@ -221,6 +221,13 @@ The "AI web search" card also lets you pick the **search backend** — your cura
 (Claude/GPT/Gemini), an **Exa** key (works with any provider, and the only option for Ollama), or
 **Auto**, which uses both when available because they tend to find different titles.
 
+**Seeing where the tokens go.** Every run records its AI cost so there's no guessing. Open a run
+(Runs → click a run) and you'll see the **total AI tokens** for the run, then per person a breakdown
+by _what the AI did_ — `final picks` (curation), `web search`, `library scan` — plus any **Exa
+searches** (counted separately, since Exa bills per search, not per token). Each row also shows the
+tokens its curation cost. The runs list shows each run's token total at a glance. Use it to spot which
+step or which people cost the most, then tune with the levers above.
+
 ## Requests (Radarr / Sonarr)
 
 Off by default. When on, Shortlist notices the titles your people's taste surfaced that your library

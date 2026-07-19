@@ -855,6 +855,31 @@ class TestPerRowOverrides:
         sections = len({e["library_key"] for e in shared_report.breakdown})
         assert shared_report.llm_tokens == 37 * sections, "shared-row tokens sum across curated libraries"
 
+    def test_per_person_tokens_are_split_by_step_and_stamped_per_row(self, ctx: EngineContext, mock_plextv):
+        """A per-person run records curate tokens into the total, the 'curate' step, AND each
+        (row, library) breakdown entry — so the UI can show per-run, per-user, per-step and per-row
+        AI cost. Default sources are TMDB-only, so every token here is curation (no gather/Exa)."""
+        sarah = make_profile("sarah", account_id=100)
+        mock_plextv.users = [plextv_user(100, "sarah")]
+        ctx.tmdb.suggestions.return_value = [
+            {"id": 10, "title": "Fresh Ten", "genre_ids": [], "vote_average": 8.0},
+            {"id": 20, "title": "Fresh Twenty", "genre_ids": [], "vote_average": 7.0},
+        ]
+        ctx.plex.build_library_index.return_value = ({900: 999, 10: 1010, 20: 1020}, {})
+        ctx.curator.curate.side_effect = curated_picks
+        ctx.curator.last_tokens = 50  # each curated (row, library) section reports this
+
+        report = pipeline_mod.run(ctx, [sarah])
+
+        u = report.users[0]
+        assert u.llm_tokens > 0
+        # Every token is curation (no AI candidate source ran), tracked under the 'curate' step.
+        assert u.llm_tokens_by_step == {"curate": u.llm_tokens}
+        assert u.exa_searches == 0  # no Exa without the llm_web external backend
+        # Per-row: each breakdown entry carries its own curate cost, and they sum to the user total.
+        assert u.breakdown and all(e["llm_tokens"] == 50 for e in u.breakdown)
+        assert sum(e["llm_tokens"] for e in u.breakdown) == u.llm_tokens
+
     def test_default_watched_cap_excludes_finished_titles(self, ctx: EngineContext, mock_plextv):
         """watched_pct defaults to 0 (all fresh): a title the user has finished, even if it resurfaces
         as a candidate, is never recommended back. Guards the pool_key/pools_for `== 0` branch — an

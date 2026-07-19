@@ -202,6 +202,12 @@ export interface RunStats {
   users_error: number;
   /** Titles requested from Sonarr/Radarr this run (0 when requests are off). */
   titles_requested?: number;
+  /** Total AI tokens this run cost (curate + the AI candidate sources). Absent on legacy runs. */
+  llm_tokens?: number;
+  /** That total split by where it went: { curate, llm_web, llm_library }. */
+  llm_tokens_by_step?: Record<string, number>;
+  /** Exa web searches run this run (billed per search, not per token — shown separately). */
+  exa_searches?: number;
 }
 
 /** GET /api/runs — one row per pipeline run. */
@@ -297,6 +303,8 @@ export interface RunLibraryBreakdown {
   deleted: string[];
   created: boolean;
   picks: Pick[];
+  /** AI tokens the curate call for this (row, library) cost. Absent on legacy runs. */
+  llm_tokens?: number;
 }
 
 /** Per-user slice of GET /api/runs/{id}. */
@@ -307,6 +315,10 @@ export interface RunUserResult {
   error: string | null;
   duration_ms: number;
   llm_tokens: number;
+  /** This user's AI tokens split by where they went: { curate, llm_web, llm_library }. */
+  llm_tokens_by_step?: Record<string, number>;
+  /** Exa web searches run for this user (billed per search, not per token). */
+  exa_searches?: number;
   diff: RunDiff;
   picks: Pick[];
   /** Per-(row, library) breakdown; empty on legacy runs (render the merged diff + picks instead). */

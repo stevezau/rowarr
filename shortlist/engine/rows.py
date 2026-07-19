@@ -215,10 +215,11 @@ def _candidate_pool(
     media: str = "both",
     catalog: dict[MediaType, list[dict]] | None = None,
     watched_exclusions: set[tuple[int, MediaType]] | None = None,
-) -> tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]]:
+) -> tuple[tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate]], candidates_mod.GatherStats]:
     """Gather TMDB candidates for ``seeds``, intersect with the library, split by staleness.
 
-    Returns ``(pool, in_library, ranked, held_back)``:
+    Returns ``((pool, in_library, ranked, held_back), gather_stats)`` — the 4-tuple of candidate
+    lists, plus the AI token/Exa spend the gather incurred (for per-run cost accounting):
 
     * ``pool`` — every pooled candidate (used for request-demand bookkeeping before narrowing).
     * ``in_library`` — the ones the delivery libraries actually hold and this user may still see.
@@ -238,6 +239,7 @@ def _candidate_pool(
     # recommendation you've finished is the exact thing the row shouldn't surface. Falls back to the
     # seed set for callers that don't compute the full breakdown (e.g. shared rows).
     watched_ids = watched_exclusions if watched_exclusions is not None else {(s.tmdb_id, s.media_type) for s in seeds}
+    gather_stats = candidates_mod.GatherStats()
     pool = candidates_mod.gather_candidates(
         ctx.tmdb,
         seeds,
@@ -248,6 +250,7 @@ def _candidate_pool(
         trakt=ctx.trakt,
         search=ctx.search,
         web_search_mode=ctx.config.web_search_provider,
+        stats=gather_stats,
     )
     valid = candidates_mod.filter_candidates(
         pool,
@@ -266,7 +269,43 @@ def _candidate_pool(
     cap = ctx.config.candidates_pre_rank
     ranked = [c for kind in kinds for c in ranking.pre_rank([x for x in in_library if x.media_type is kind], cap)]
     held_back = [c for kind in kinds for c in ranking.pre_rank([x for x in held if x.media_type is kind], cap)]
-    return pool, in_library, ranked, held_back
+    return (pool, in_library, ranked, held_back), gather_stats
+
+
+def _add_step_tokens(report: UserRunReport, step: str, n: int) -> None:
+    """Accumulate ``n`` AI tokens under a WHERE-it-went bucket on the user's report (no-op for 0)."""
+    if n:
+        report.llm_tokens_by_step[step] = report.llm_tokens_by_step.get(step, 0) + n
+
+
+def _record_gather(report: UserRunReport, stats: candidates_mod.GatherStats) -> None:
+    """Fold a candidate-gather's AI cost into the user report: per-source tokens (also into the grand
+    total) and Exa searches. Called once per pool COMPUTATION — a cache hit re-adds nothing."""
+    for source, tokens in stats.tokens_by_source.items():
+        report.llm_tokens += tokens
+        _add_step_tokens(report, source, tokens)
+    report.exa_searches += stats.exa_searches
+
+
+def _record_curate(
+    report: UserRunReport, curate_tokens: dict[tuple[str, str], int], slug: str, section_key, n: int
+) -> None:
+    """Record one curate call's cost: into the grand total, the 'curate' step, and this (row, library)
+    so it can be stamped onto the matching breakdown entry for per-row display."""
+    report.llm_tokens += n
+    _add_step_tokens(report, "curate", n)
+    key = (slug, str(section_key))
+    curate_tokens[key] = curate_tokens.get(key, 0) + n
+
+
+def _stamp_row_tokens(report: UserRunReport, curate_tokens: dict[tuple[str, str], int]) -> None:
+    """Attach each (row, library) curate cost to its breakdown entry, so the UI shows per-row tokens.
+
+    Keyed by (row_slug, library_key) — the same pair that uniquely identifies a breakdown entry. Only
+    the curate call is per-row; the AI candidate sources are pooled per user and stay at user level.
+    """
+    for entry in report.breakdown:
+        entry["llm_tokens"] = curate_tokens.get((entry["row_slug"], entry["library_key"]), 0)
 
 
 def _in_audience(user: UserProfile, spec: RowSpec) -> bool:
@@ -392,7 +431,7 @@ def _run_user(
             return None
         if key not in pool_cache:
             try:
-                pool_cache[key] = _candidate_pool(
+                pool_cache[key], gather_stats = _candidate_pool(
                     ctx,
                     seeds,
                     row_library_index(ctx, spec, library_index),
@@ -410,6 +449,8 @@ def _run_user(
                 pool_failures[key] = f"{type(e).__name__}: {e}"
                 logger.warning("{}: row '{}' has no working candidate source ({})", user.username, spec.slug, e)
                 return None
+            # Once per pool computation (this cache miss) — the gather's AI cost belongs to this user.
+            _record_gather(user_report, gather_stats)
         return pool_cache[key]
 
     if cold:
@@ -515,6 +556,8 @@ def _run_user(
     # and it is visible to everyone (the leak we exist to fix).
     all_picks: list[Pick] = []
     delivered_any = False
+    # (row_slug, library_key) -> curate tokens, stamped onto each breakdown entry after the loop.
+    curate_tokens: dict[tuple[str, str], int] = {}
     for spec in specs:
         # A per-row override lets this one person resize or restyle this one row; each field falls
         # through to the row's own setting when unset. Row beats global — the same direction the
@@ -565,7 +608,8 @@ def _run_user(
             sub = _rotate_for_freshness(sub, k, effective_freshness(spec), ctx.run_day)
             try:
                 sec_picks = ctx.curator.curate(row_profile, sub, k)
-                user_report.llm_tokens += ctx.curator.last_tokens
+                toks = getattr(ctx.curator, "last_tokens", 0)
+                _record_curate(user_report, curate_tokens, spec.slug, section.key, toks)
             except CuratorError as e:
                 logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
                 sec_picks = NullCurator().curate(row_profile, sub, k)
@@ -657,6 +701,7 @@ def _run_user(
 
     user_report.picks = all_picks
     user_report.counts.picks = len(all_picks)
+    _stamp_row_tokens(user_report, curate_tokens)  # per-(row, library) curate cost onto each breakdown entry
     if not all_picks:
         logger.warning("{}: no picks produced — existing rows are left as they are", user.username)
     return delivered_any  # nothing delivered -> nothing to promote
@@ -765,7 +810,7 @@ def _shared_row(
     seeds = derive_seeds(agg_history, resolve, max_seeds=cfg.max_seeds)
     row_sources = spec.candidate_sources if spec.candidate_sources else None  # None -> global default
     # Same three narrowings a per-person row gets: its sources, its media, its libraries.
-    _pool, _in_library, ranked, held_back = _candidate_pool(
+    (_pool, _in_library, ranked, held_back), gather_stats = _candidate_pool(
         ctx,
         seeds,
         row_library_index(ctx, spec, library_index),
@@ -776,12 +821,14 @@ def _shared_row(
         media=spec.media,
         catalog=_row_catalog(ctx, spec),
     )
+    _record_gather(user_report, gather_stats)  # shared-row gather AI cost (llm_web/llm_library + Exa)
     k = spec.size
     # Curate PER LIBRARY, exactly like a per-person row: each targeted library gets its own full k
     # from its own contents. One mixed curate over a now media-segregated pool would let a 'both'
     # shared row come back all-movies-no-shows.
     targets = target_sections(ctx.delivery_sections, spec)
     section_picks: dict[str, list[Pick]] = {}
+    curate_tokens: dict[tuple[str, str], int] = {}  # (row_slug, library_key) -> curate cost, stamped below
     freshness = spec.freshness if spec.freshness is not None else cfg.freshness
     for section in targets:
         kind = section_kind(section)
@@ -793,7 +840,8 @@ def _shared_row(
         try:
             sec_picks = ctx.curator.curate(agg, sub, k)
             # Shared-row LLM spend used to vanish — only the per-person path accounted tokens.
-            user_report.llm_tokens += ctx.curator.last_tokens
+            toks = getattr(ctx.curator, "last_tokens", 0)
+            _record_curate(user_report, curate_tokens, spec.slug, section.key, toks)
         except CuratorError:
             sec_picks = NullCurator().curate(agg, sub, k)
         if len(sec_picks) < k:
@@ -844,6 +892,7 @@ def _shared_row(
         breakdown=user_report.breakdown,
         order_work=order_work,
     )
+    _stamp_row_tokens(user_report, curate_tokens)  # per-(row, library) curate cost onto the breakdown
     return agg if picks else None
 
 

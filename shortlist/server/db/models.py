@@ -190,6 +190,10 @@ class RunUser(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     llm_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # `llm_tokens` split by WHERE it went: {"curate": N, "llm_web": M, "llm_library": P}. {} on legacy
+    # rows. Exa is counted apart from tokens — it bills per search request, not per token.
+    llm_tokens_by_step: Mapped[dict] = mapped_column(JSON, default=dict)
+    exa_searches: Mapped[int] = mapped_column(Integer, default=0)
     diff: Mapped[dict] = mapped_column(JSON, default=dict)
     # Per-(row, library) delivery breakdown for the run detail UI; [] on legacy rows (falls back to
     # the merged `diff` + `picks`). Each entry: row_slug/row_title, library_key/library_title,

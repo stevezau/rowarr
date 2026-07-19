@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from shortlist.engine.candidates import _slice_for_llm, filter_candidates, gather_candidates
+from shortlist.engine.candidates import GatherStats, _slice_for_llm, filter_candidates, gather_candidates
 from shortlist.engine.clients.search import SearchResult
 from shortlist.engine.curator import NullCurator
 from shortlist.engine.curator.base import build_web_query, parse_web_titles
@@ -561,3 +561,105 @@ class TestFilterCandidates:
         )
 
         assert [c.title for c in kept] == ["Some Show"]
+
+
+class TestGatherStats:
+    """gather_candidates folds the AI candidate sources' token/Exa spend into a passed-in GatherStats.
+
+    Regression cover for a real gap: llm_web/llm_library set the curator's `last_tokens` but nothing
+    read it, so every AI-source run undercounted its cost. These lock the accounting down per source.
+    """
+
+    def test_native_web_tokens_are_recorded(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        mock_tmdb.genre_names.return_value = {}
+        mock_tmdb.search.side_effect = lambda title, mt, year=None: {
+            "id": 77,
+            "title": title,
+            "genre_ids": [],
+            "vote_average": 8.0,
+        }
+
+        class _C:
+            supports_native_web_search = True
+            last_tokens = 0
+
+            def recommend_web(self, profile, seeds, k):
+                self.last_tokens = 321
+                return [{"title": "Native Pick", "year": 2020, "media": "movie"}]
+
+        stats = GatherStats()
+        gather_candidates(mock_tmdb, [seed(1)], sources=["llm_web"], curator=_C(), profile=web_profile(), stats=stats)
+        assert stats.tokens_by_source == {"llm_web": 321}
+        assert stats.exa_searches == 0  # the native tool doesn't use Exa
+
+    def test_exa_path_counts_a_search_and_its_completion_tokens(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        mock_tmdb.genre_names.return_value = {}
+        mock_tmdb.search.side_effect = lambda title, mt, year=None: {
+            "id": 55,
+            "title": title,
+            "genre_ids": [],
+            "vote_average": 7.0,
+        }
+        search = _FakeSearch([make_result("Best of 2021", "Exa Pick")])
+
+        class _C:
+            supports_native_web_search = False
+            last_tokens = 0
+
+            def complete(self, system, user):
+                self.last_tokens = 99
+                return '[{"title": "Exa Pick", "year": 2021, "media": "movie"}]'
+
+        stats = GatherStats()
+        gather_candidates(
+            mock_tmdb,
+            [seed(1)],
+            sources=["llm_web"],
+            curator=_C(),
+            profile=web_profile(),
+            search=search,
+            stats=stats,
+        )
+        assert stats.tokens_by_source == {"llm_web": 99}
+        assert stats.exa_searches == 1  # the search request itself, billed per search
+
+    def test_llm_library_tokens_are_recorded(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: []
+        catalog = {
+            MediaType.MOVIE: [{"tmdb_id": 500, "rating_key": 1, "title": "Owned A", "year": 2020, "genres": ["Drama"]}]
+        }
+
+        class _C:
+            last_tokens = 0
+
+            def curate(self, profile, candidates, k):
+                self.last_tokens = 210
+                c = candidates[0]
+                return [
+                    Pick(tmdb_id=c.tmdb_id, rating_key=1, title=c.title, rank=1, reason="fits", media_type=c.media_type)
+                ]
+
+        stats = GatherStats()
+        gather_candidates(
+            mock_tmdb, [seed(1)], sources=["llm_library"], curator=_C(), catalog=catalog, profile=object(), stats=stats
+        )
+        assert stats.tokens_by_source == {"llm_library": 210}
+        assert stats.exa_searches == 0
+
+    def test_tmdb_only_sources_record_no_ai_cost(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: [
+            {"id": 1, "title": "S", "genre_ids": [], "vote_average": 7.0}
+        ]
+        stats = GatherStats()
+        gather_candidates(mock_tmdb, [seed(1)], sources=["tmdb_similar"], stats=stats)
+        assert stats.tokens_by_source == {} and stats.exa_searches == 0
+
+    def test_add_tokens_ignores_zero_and_sums(self):
+        stats = GatherStats()
+        stats.add_tokens("curate", 0)  # a NullCurator / skipped call adds nothing
+        assert stats.tokens_by_source == {}
+        stats.add_tokens("curate", 5)
+        stats.add_tokens("curate", 3)
+        assert stats.tokens_by_source == {"curate": 8}

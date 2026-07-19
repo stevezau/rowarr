@@ -16,6 +16,7 @@ recommendation engine is not locked to TMDB's per-seed similarity. Sources today
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass, field
 
 from loguru import logger
 
@@ -35,6 +36,24 @@ _LLM_LIBRARY_K = 40  # how many owned titles the LLM proposes as candidates
 _LLM_WEB_K = 20  # how many titles the web-search LLM proposes (each resolved to TMDB, then verified)
 
 
+@dataclass
+class GatherStats:
+    """AI cost incurred while gathering candidates, so a run can show WHERE its tokens went.
+
+    Keyed by source because only the AI-powered sources (``llm_web`` / ``llm_library``) cost tokens —
+    the TMDB/Trakt sources add nothing here. ``exa_searches`` is tracked separately on purpose: Exa
+    bills per search request, not per token, so it must never be folded into a token total.
+    """
+
+    tokens_by_source: dict[str, int] = field(default_factory=dict)
+    exa_searches: int = 0
+
+    def add_tokens(self, source: str, n: int) -> None:
+        """Add a source's token spend (a no-op for 0, e.g. NullCurator or a skipped call)."""
+        if n:
+            self.tokens_by_source[source] = self.tokens_by_source.get(source, 0) + n
+
+
 def _web_search_capable(curator, search, mode: str) -> bool:
     """Whether the ``llm_web`` source can actually run for this curator + search backend under ``mode``.
 
@@ -49,7 +68,9 @@ def _web_search_capable(curator, search, mode: str) -> bool:
     return native or search is not None  # auto: native tool, else external search
 
 
-def web_recommendations(curator, search, mode: str, profile, seeds: list[Seed], k: int) -> list[dict]:
+def web_recommendations(
+    curator, search, mode: str, profile, seeds: list[Seed], k: int, stats: GatherStats
+) -> list[dict]:
     """Titles to watch next from a web search, as ``[{title, year, media}]`` for TMDB resolution.
 
     ``mode`` chooses the search backend:
@@ -60,28 +81,39 @@ def web_recommendations(curator, search, mode: str, profile, seeds: list[Seed], 
       both are set up, else whichever one. The two surface largely different titles (measured — barely
       any overlap), so running both roughly doubles the usable pool. Duplicates cost nothing:
       ``gather_candidates`` dedupes by ``(tmdb_id, media_type)`` downstream.
+
+    ``stats`` accumulates this source's token spend (and Exa searches) for per-run AI accounting —
+    read ``last_tokens`` right after each LLM call, before the next one overwrites it.
     """
     native = getattr(curator, "supports_native_web_search", False)
     if mode == "native":
-        return curator.recommend_web(profile, seeds, k) if native else []
+        if not native:
+            return []
+        recs = curator.recommend_web(profile, seeds, k)
+        stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
+        return recs
     if mode == "exa":
-        return _web_via_search(curator, search, profile, seeds, k) if search is not None else []
+        return _web_via_search(curator, search, profile, seeds, k, stats) if search is not None else []
     # auto: union of every available backend.
     recs: list[dict] = []
     if native:
         recs += curator.recommend_web(profile, seeds, k)
+        stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
     if search is not None:
-        recs += _web_via_search(curator, search, profile, seeds, k)
+        recs += _web_via_search(curator, search, profile, seeds, k, stats)
     return recs
 
 
-def _web_via_search(curator, search, profile, seeds: list[Seed], k: int) -> list[dict]:
+def _web_via_search(curator, search, profile, seeds: list[Seed], k: int, stats: GatherStats) -> list[dict]:
     """External-search path: run a web search from the watchlist, let the curator pick from results."""
+    stats.exa_searches += 1  # count the request itself — Exa bills per search, even one that returns nothing
     results = search.search(build_web_query(profile, seeds))
     if not results:
         return []
     system, user = build_web_rag_prompt(profile, results, k)
-    return parse_web_titles(curator.complete(system, user), k)
+    titles = parse_web_titles(curator.complete(system, user), k)
+    stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
+    return titles
 
 
 def gather_candidates(
@@ -95,14 +127,19 @@ def gather_candidates(
     trakt=None,
     search=None,
     web_search_mode: str = "auto",
+    stats: GatherStats | None = None,
 ) -> list[Candidate]:
     """Pool candidates from every enabled source, deduped by (tmdb_id, media_type).
 
     ``curator``/``catalog``/``profile`` are only needed by the ``llm_library`` source and ``trakt``
     by the Trakt source; the TMDB sources ignore them. ``search``/``web_search_mode`` drive the
     ``llm_web`` source's external-search backend (Exa) — ``search`` is None when no key is configured.
+
+    Pass a ``stats`` (a :class:`GatherStats`) to have the AI token spend of the ``llm_web`` and
+    ``llm_library`` sources (and Exa searches) accumulated into it, for per-run AI accounting.
     """
     enabled = set(sources) if sources else set(DEFAULT_SOURCES)
+    stats = stats if stats is not None else GatherStats()
     pool: dict[tuple[int, MediaType], Candidate] = {}
     attempted: set[str] = set()
     failures: dict[str, str] = {}  # source -> why it failed; named in the raise when ALL of them do
@@ -199,7 +236,7 @@ def gather_candidates(
             # Web search (the provider's own tool, or an external search provider like Exa) proposes
             # titles to watch next; each is resolved to a real TMDB id and (later) library-verified,
             # so a hallucinated title simply resolves to nothing rather than reaching a row.
-            for rec in web_recommendations(curator, search, web_search_mode, profile, seeds, _LLM_WEB_K):
+            for rec in web_recommendations(curator, search, web_search_mode, profile, seeds, _LLM_WEB_K, stats):
                 media_type = MediaType.SHOW if rec.get("media") == "show" else MediaType.MOVIE
                 found = tmdb.search(rec["title"], media_type, year=rec.get("year"))
                 if found:
@@ -227,6 +264,7 @@ def gather_candidates(
                     for it in _slice_for_llm(items, taste, _LLM_LIBRARY_CAP)
                 ]
                 chosen = {p.tmdb_id for p in curator.curate(profile, owned, _LLM_LIBRARY_K)}
+                stats.add_tokens("llm_library", getattr(curator, "last_tokens", 0))
                 for cand in owned:
                     if cand.tmdb_id in chosen:
                         cand.sources.add("llm_library")

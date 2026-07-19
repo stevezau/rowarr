@@ -141,6 +141,9 @@ class TestRunExecution:
             "rows_swept": 0,
             "shares_updated": 0,
             "titles_requested": 0,
+            "llm_tokens": 0,
+            "llm_tokens_by_step": {},
+            "exa_searches": 0,
             "error": None,
         }
         with sessions() as session:

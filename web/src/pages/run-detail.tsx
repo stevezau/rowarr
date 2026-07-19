@@ -189,6 +189,29 @@ function PickLine({ pick, isNew }: { pick: Pick; isNew: boolean }) {
 }
 
 /** One library's ranked picks: first five, a show-all toggle, and a quiet "removed" footer. */
+/** Plain-English names for the AI steps in an llm_tokens_by_step map. */
+const STEP_LABELS: Record<string, string> = {
+  curate: "final picks",
+  llm_web: "web search",
+  llm_library: "library scan",
+};
+
+/** " (final picks 12,340 · web search 4,100)" for a by-step token map, or "" when empty. */
+function tokenStepSummary(byStep?: Record<string, number>): string {
+  if (!byStep) return "";
+  const parts = Object.entries(byStep)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([step, n]) => `${STEP_LABELS[step] ?? step} ${n.toLocaleString()}`);
+  return parts.length ? ` (${parts.join(" · ")})` : "";
+}
+
+/** " · N Exa search(es)" when any ran, else "". Exa bills per search, so it's shown apart from tokens. */
+function exaSummary(count?: number): string {
+  if (!count) return "";
+  return ` · ${count} Exa search${count === 1 ? "" : "es"}`;
+}
+
 function LibraryPicks({ entry }: { entry: RunLibraryBreakdown }) {
   const [expanded, setExpanded] = useState(false);
   const added = new Set(entry.added);
@@ -245,12 +268,24 @@ function RowSection({ entries }: { entries: RunLibraryBreakdown[] }) {
   const active =
     entries.find((entry) => entry.library_key === libKey) ?? entries[0];
   const added = entries.reduce((n, entry) => n + entry.added.length, 0);
+  const rowTokens = entries.reduce(
+    (n, entry) => n + (entry.llm_tokens ?? 0),
+    0,
+  );
   return (
     <div className="space-y-3">
       <div className="flex items-baseline gap-2">
         <h3 className="text-sm font-semibold">{entries[0]?.row_title}</h3>
         {added > 0 && (
           <span className="text-xs text-success">+{added} new</span>
+        )}
+        {rowTokens > 0 && (
+          <span
+            className="text-xs text-muted-foreground"
+            title="AI tokens the curator spent choosing this row's picks."
+          >
+            {rowTokens.toLocaleString()} AI tokens
+          </span>
         )}
       </div>
       {entries.length > 1 && (
@@ -611,6 +646,20 @@ export function RunDetailPage() {
                       } requested`
                     : ""}
                 </p>
+                {(run.stats.llm_tokens ?? 0) > 0 && (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    title="Total AI tokens this run cost, split by what the AI did. Turn AI sources off in Settings → Recommendations to lower it."
+                  >
+                    AI this run:{" "}
+                    <strong className="text-foreground">
+                      {run.stats.llm_tokens!.toLocaleString()}
+                    </strong>{" "}
+                    tokens
+                    {tokenStepSummary(run.stats.llm_tokens_by_step)}
+                    {exaSummary(run.stats.exa_searches)}
+                  </p>
+                )}
               </header>
 
               {!run.finished_at && (
@@ -738,8 +787,11 @@ export function RunDetailPage() {
                             <p className="text-sm text-muted-foreground">
                               {formatDuration(selected.duration_ms)}
                               {selected.llm_tokens > 0
-                                ? ` · ${selected.llm_tokens.toLocaleString()} AI tokens`
+                                ? ` · ${selected.llm_tokens.toLocaleString()} AI tokens${tokenStepSummary(
+                                    selected.llm_tokens_by_step,
+                                  )}`
                                 : ""}
+                              {exaSummary(selected.exa_searches)}
                             </p>
                           </CardHeader>
                           <CardContent>

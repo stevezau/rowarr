@@ -553,7 +553,15 @@ class UserRunReport:
     privacy_synced: bool = False
     error: str | None = None
     duration_s: float = 0.0
+    # Total AI tokens this user cost this run (curate + the AI candidate sources). WAS curate-only —
+    # the llm_web/llm_library spend used to be discarded, undercounting every AI-source user.
     llm_tokens: int = 0
+    # The same total split by WHERE it went: {"curate": N, "llm_web": M, "llm_library": P}. Lets the
+    # UI answer "what did the AI actually spend tokens on" per person, not just a lump sum.
+    llm_tokens_by_step: dict[str, int] = field(default_factory=dict)
+    # Exa web searches run for this user (the llm_web external backend). Tracked apart from tokens:
+    # Exa bills per search request, not per token, so the two must never be summed together.
+    exa_searches: int = 0
 
 
 @dataclass

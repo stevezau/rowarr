@@ -96,6 +96,10 @@ async def get_run(run_id: int, request: Request) -> dict:
                     "error": run_user.error,
                     "duration_ms": run_user.duration_ms,
                     "llm_tokens": run_user.llm_tokens,
+                    # Where this user's AI tokens went ({} on legacy rows), and Exa searches (billed
+                    # per search, not per token — kept apart from the token totals).
+                    "llm_tokens_by_step": run_user.llm_tokens_by_step or {},
+                    "exa_searches": run_user.exa_searches,
                     "diff": run_user.diff or {},
                     "picks": [
                         {"rank": p.rank, "title": p.title, "reason": p.reason, "seed_title": p.seed_title}

@@ -418,6 +418,8 @@ class RunService:
                 error=user_report.error,
                 duration_ms=int(user_report.duration_s * 1000),
                 llm_tokens=user_report.llm_tokens,
+                llm_tokens_by_step=dict(user_report.llm_tokens_by_step),
+                exa_searches=user_report.exa_searches,
                 diff=user_report.diff.__dict__ if user_report.diff else {},
                 breakdown=user_report.breakdown,
             )
@@ -452,6 +454,8 @@ class RunService:
                     "dry_run": dry_run,
                     "diff": user_report.diff.__dict__ if user_report.diff else {},
                     "privacy_synced": user_report.privacy_synced,
+                    "llm_tokens": user_report.llm_tokens,
+                    "exa_searches": user_report.exa_searches,
                     "error": user_report.error,
                 },
             )
@@ -613,6 +617,12 @@ class RunService:
         # refused to write) has no per-user error to count, and must never report success.
         run.status = status or ("ok" if report.ok else "error")
         run.finished_at = datetime.now(UTC)
+        # Run-total AI cost, summed from every user (real + shared). by_step merges each user's
+        # {curate/llm_web/llm_library: n} so the run header can show WHERE the tokens went.
+        tokens_by_step: dict[str, int] = {}
+        for user_report in report.users:
+            for step, n in user_report.llm_tokens_by_step.items():
+                tokens_by_step[step] = tokens_by_step.get(step, 0) + n
         run.stats = {
             "users_ok": ok,
             "users_error": errors,
@@ -620,5 +630,8 @@ class RunService:
             "rows_swept": sum(len(titles) for titles in report.swept_rows.values()),
             "shares_updated": len(report.filter_writes),
             "titles_requested": report.requests.requested if report.requests else 0,
+            "llm_tokens": sum(u.llm_tokens for u in report.users),
+            "llm_tokens_by_step": tokens_by_step,
+            "exa_searches": sum(u.exa_searches for u in report.users),
             "error": error or report.error,
         }

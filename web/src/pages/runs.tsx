@@ -103,6 +103,12 @@ function RunRow({ run }: { run: Run }) {
             · {run.stats.users_error} failed
           </span>
         )}
+        {(run.stats.llm_tokens ?? 0) > 0 && (
+          <span title="AI tokens this run cost">
+            {" "}
+            · {run.stats.llm_tokens!.toLocaleString()} AI tokens
+          </span>
+        )}
       </TableCell>
     </TableRow>
   );

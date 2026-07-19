@@ -1,4 +1,12 @@
-import { Check, Copy, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  KeyRound,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -15,11 +23,9 @@ import {
 function CopyButton({
   value,
   label = "Copy",
-  className,
 }: {
   value: string;
   label?: string;
-  className?: string;
 }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -27,7 +33,6 @@ function CopyButton({
       type="button"
       variant="outline"
       size="sm"
-      className={className}
       onClick={async () => {
         await navigator.clipboard.writeText(value);
         setCopied(true);
@@ -40,26 +45,42 @@ function CopyButton({
   );
 }
 
+/** The active token, masked by default with a show/hide toggle and copy — like Sonarr/Radarr. */
+function TokenField({ token }: { token: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <code className="flex-1 break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
+        {shown ? token : "•".repeat(Math.min(token.length, 40))}
+      </code>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-pressed={shown}
+        onClick={() => setShown((s) => !s)}
+      >
+        {shown ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+        {shown ? "Hide" : "Show"}
+      </Button>
+      <CopyButton value={token} />
+    </div>
+  );
+}
+
 /**
  * Generate a personal API token so scripts can call Shortlist's API without the browser login.
- * The plaintext is shown exactly once (only its hash is stored); regenerating or revoking
- * invalidates the old one immediately.
+ * The token is stored encrypted and stays revealable here (show/copy any time); regenerating or
+ * revoking invalidates the old one immediately.
  */
 export function ApiAccessCard() {
   const status = useApiToken();
   const create = useCreateApiToken();
   const revoke = useRevokeApiToken();
-  // The freshly-minted token, shown once right after generating. Cleared on revoke.
-  const [freshToken, setFreshToken] = useState<string | null>(null);
 
+  const token = status.data?.token ?? null;
   const enabled = status.data?.enabled ?? false;
   const exampleUrl = apiUrl("/api/runs");
-
-  const generate = () => {
-    create.mutate(undefined, {
-      onSuccess: (result) => setFreshToken(result.token),
-    });
-  };
 
   return (
     <section aria-labelledby="api-access-heading" className="space-y-3">
@@ -81,48 +102,23 @@ export function ApiAccessCard() {
             it like a password.
           </p>
 
-          {/* The one-time reveal, right after generating. */}
-          {freshToken && (
-            <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3">
-              <p className="text-sm font-medium">
-                Copy your token now — it won’t be shown again.
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <code className="flex-1 break-all rounded bg-background px-2 py-1.5 font-mono text-xs">
-                  {freshToken}
-                </code>
-                <CopyButton value={freshToken} label="Copy token" />
-              </div>
-            </div>
-          )}
-
           {status.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
-          ) : enabled ? (
+          ) : enabled && token ? (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                A token is active
-                {status.data?.hint && (
-                  <>
-                    {" "}
-                    (ends in{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                      {status.data.hint}
-                    </code>
-                    )
-                  </>
-                )}
-                {status.data?.created_at && (
-                  <span title={formatDate(status.data.created_at)}>
-                    , created {timeAgo(status.data.created_at)}
-                  </span>
-                )}
-                .
-              </p>
+              <TokenField token={token} />
+              {status.data?.created_at && (
+                <p
+                  className="text-xs text-muted-foreground"
+                  title={formatDate(status.data.created_at)}
+                >
+                  Created {timeAgo(status.data.created_at)}.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
-                  onClick={generate}
+                  onClick={() => create.mutate()}
                   loading={create.isPending}
                 >
                   {!create.isPending && <RefreshCw aria-hidden="true" />}
@@ -131,11 +127,7 @@ export function ApiAccessCard() {
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
-                  onClick={() =>
-                    revoke.mutate(undefined, {
-                      onSuccess: () => setFreshToken(null),
-                    })
-                  }
+                  onClick={() => revoke.mutate()}
                   loading={revoke.isPending}
                 >
                   {!revoke.isPending && <Trash2 aria-hidden="true" />}
@@ -149,7 +141,7 @@ export function ApiAccessCard() {
               </p>
             </div>
           ) : (
-            <Button onClick={generate} loading={create.isPending}>
+            <Button onClick={() => create.mutate()} loading={create.isPending}>
               {!create.isPending && <KeyRound aria-hidden="true" />}
               Generate token
             </Button>

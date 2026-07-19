@@ -9,8 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from shortlist.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
-from shortlist.server.db.models import Server, User
+from shortlist.server.db.models import Server, Setting, User
 from shortlist.server.main import create_app
+from shortlist.server.settings_store import SettingsStore
 
 pytestmark = pytest.mark.integration
 
@@ -82,16 +83,16 @@ class TestApiToken:
         assert made.status_code == 200
         token = made.json()["token"]
         assert token.startswith("shl_")
-        assert made.json()["hint"] == token[-4:]
 
+        # The owner can read the token back (revealable, like Sonarr/Radarr) — encrypted at rest but
+        # returned in plaintext to the authenticated owner on this dedicated, owner-gated endpoint.
         status = client.get("/api/system/api-token").json()
         assert status["enabled"] is True
-        assert status["hint"] == token[-4:]
-        assert "token" not in status and "token_hash" not in status
+        assert status["token"] == token
 
-        # The one-way hash must never surface via the general settings endpoint.
+        # …but it must NEVER surface via the general settings endpoint (private + secret).
         settings = client.get("/api/settings").json()
-        assert not any("token_hash" in key for key in settings)
+        assert not any(key.startswith("api.token") for key in settings)
 
         # A cookie-less, CSRF-less client authenticates with only the Bearer token.
         bare = TestClient(client.app)
@@ -114,6 +115,27 @@ class TestApiToken:
         r = client.get("/api/users", headers={"Authorization": "Bearer shl_wrong"})
         assert r.status_code == 401
         assert r.json()["detail"] == "invalid or revoked API token"
+
+    def test_the_token_is_stored_encrypted_not_plaintext(self, client: TestClient):
+        token = client.post("/api/system/api-token").json()["token"]
+        with client.app.state.sessions() as session:
+            raw = session.get(Setting, "api.token").value["v"]
+        assert raw != token  # ciphertext at rest, not the plaintext
+        # …and the store decrypts it back to the original.
+        with client.app.state.sessions() as session:
+            store = SettingsStore(session, client.app.state.secrets)
+            assert store.get("api.token") == token
+
+    def test_legacy_hash_keys_never_leak_via_settings(self, client: TestClient):
+        # The prior hash-only version stored these as NON-secret keys; on an upgraded DB they must not
+        # surface in GET /api/settings. They're tombstoned in PRIVATE_KEYS regardless of boot purge.
+        with client.app.state.sessions() as session:
+            session.add(Setting(key="api.token_hash", value={"v": "deadbeef"}))
+            session.add(Setting(key="api.token_hint", value={"v": "wxyz"}))
+            session.commit()
+        settings = client.get("/api/settings").json()
+        assert "api.token_hash" not in settings
+        assert "api.token_hint" not in settings
 
     def test_a_non_owner_cannot_mint_a_token(self, client: TestClient):
         cookie = session_serializer(client.app.state.session_secret).dumps({"account_id": 999, "username": "intruder"})

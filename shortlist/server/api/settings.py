@@ -9,11 +9,13 @@ from pydantic import BaseModel
 
 from shortlist.engine.clients.http_retry import redact
 from shortlist.server.auth import require_owner
-from shortlist.server.settings_store import DEFAULTS, SECRET_KEYS, SettingsStore
+from shortlist.server.settings_store import DEFAULTS, PRIVATE_KEYS, SECRET_KEYS, SettingsStore
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_owner)])
 
-KNOWN_KEYS = set(DEFAULTS) | SECRET_KEYS
+# Private keys (e.g. the API token) are managed only via their own endpoints — never settable here,
+# even though the token is a SECRET_KEY (which would otherwise make it PUT-able).
+KNOWN_KEYS = (set(DEFAULTS) | SECRET_KEYS) - PRIVATE_KEYS
 
 
 class SettingsUpdate(BaseModel):

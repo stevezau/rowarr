@@ -112,12 +112,20 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
                 return any(store.get(key) for key in SECRET_KEYS)
 
         def verify_api_token(token: str) -> bool:
-            """True iff ``token`` matches the stored owner API-token hash (constant-time compare)."""
+            """True iff ``token`` matches the stored owner API token (decrypted, constant-time compare).
+
+            Fails closed on any error (e.g. a rotated/corrupt secret.key that can't decrypt) — a bad
+            token must yield a clean 401, never a 500.
+            """
             if not token:
                 return False
-            with sessions() as session:
-                stored = SettingsStore(session, secret_box).get(auth.API_TOKEN_HASH_KEY)
-            return bool(stored) and hmac.compare_digest(str(stored), auth.hash_api_token(token))
+            try:
+                with sessions() as session:
+                    stored = SettingsStore(session, secret_box).get(auth.API_TOKEN_KEY)
+            except Exception:
+                logger.exception("API-token verify failed to read/decrypt the stored token")
+                return False
+            return bool(stored) and hmac.compare_digest(str(stored), token)
 
         app.state.owner_account_id = owner_account_id
         app.state.holds_secrets = holds_secrets
@@ -125,6 +133,7 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
 
         with sessions() as session:
             store = SettingsStore(session, secret_box)
+            store.purge_legacy()  # drop stale rows from removed settings (e.g. old API-token hash)
             store.seed_from_env(dict(os.environ))
             # Configure logging from the DB setting (seeded from LOG_LEVEL on first boot). The
             # rotating file sink under /config/logs always captures DEBUG, so a quiet console still

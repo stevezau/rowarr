@@ -32,7 +32,12 @@ function renderCard() {
   );
 }
 
-const OFF: ApiTokenStatus = { enabled: false, created_at: null, hint: null };
+const OFF: ApiTokenStatus = { enabled: false, created_at: null, token: null };
+const ACTIVE: ApiTokenStatus = {
+  enabled: true,
+  created_at: "2026-07-19T00:00:00Z",
+  token: "shl_secret_value",
+};
 
 describe("ApiAccessCard", () => {
   beforeEach(() => {
@@ -42,52 +47,46 @@ describe("ApiAccessCard", () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn() } });
   });
 
-  it("generates a token and reveals it exactly once, with a copy-now warning", async () => {
+  it("generates a token when none exists", async () => {
     getApiToken.mockResolvedValue(OFF);
     createApiToken.mockResolvedValue({
-      token: "shl_secret_value",
+      token: "shl_new",
       created_at: "2026-07-19T00:00:00Z",
-      hint: "alue",
     });
     renderCard();
 
     await userEvent.click(
       await screen.findByRole("button", { name: /generate token/i }),
     );
-
-    expect(await screen.findByText("shl_secret_value")).toBeInTheDocument();
-    expect(screen.getByText(/won.t be shown again/i)).toBeInTheDocument();
     expect(createApiToken).toHaveBeenCalledOnce();
   });
 
-  it("shows an active token's hint + regenerate/revoke, never the token itself", async () => {
-    getApiToken.mockResolvedValue({
-      enabled: true,
-      created_at: "2026-07-19T00:00:00Z",
-      hint: "wxyz",
-    });
+  it("keeps the active token masked until Show is clicked", async () => {
+    getApiToken.mockResolvedValue(ACTIVE);
     renderCard();
 
-    expect(await screen.findByText(/a token is active/i)).toBeInTheDocument();
-    expect(screen.getByText("wxyz")).toBeInTheDocument();
+    // Masked by default: the real value is not on screen.
     expect(
-      screen.getByRole("button", { name: /regenerate/i }),
+      await screen.findByRole("button", { name: /show/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /revoke/i })).toBeInTheDocument();
+    expect(screen.queryByText("shl_secret_value")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /show/i }));
+    expect(screen.getByText("shl_secret_value")).toBeInTheDocument();
+    // …and can be hidden again.
+    await userEvent.click(screen.getByRole("button", { name: /hide/i }));
+    expect(screen.queryByText("shl_secret_value")).not.toBeInTheDocument();
   });
 
-  it("revokes the active token", async () => {
-    getApiToken.mockResolvedValue({
-      enabled: true,
-      created_at: "2026-07-19T00:00:00Z",
-      hint: "wxyz",
-    });
+  it("offers regenerate and revoke for an active token", async () => {
+    getApiToken.mockResolvedValue(ACTIVE);
     revokeApiToken.mockResolvedValue(OFF);
     renderCard();
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: /revoke/i }),
-    );
+    expect(
+      await screen.findByRole("button", { name: /regenerate/i }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /revoke/i }));
     await waitFor(() => expect(revokeApiToken).toHaveBeenCalledOnce());
   });
 });

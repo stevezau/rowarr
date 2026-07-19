@@ -8,7 +8,6 @@ stored encrypted; it is never logged.
 
 from __future__ import annotations
 
-import hashlib
 import time
 from collections import deque
 
@@ -23,15 +22,11 @@ SESSION_COOKIE = "shortlist_session"
 SESSION_MAX_AGE_S = 14 * 24 * 3600
 CSRF_HEADER = "x-shortlist-csrf"
 
-# Programmatic API access: an owner-generated Bearer token. Only its SHA-256 is stored (never the
-# token itself), so a config/DB leak can't be replayed. Managed via /api/system/api-token.
-API_TOKEN_HASH_KEY = "api.token_hash"
+# Programmatic API access: an owner-generated Bearer token. Stored ENCRYPTED at rest (Fernet, same as
+# the Plex/curator keys) so the owner can reveal it later — like Sonarr/Radarr's API key — while a bare
+# config/DB dump without /config/secret.key still can't read it. Managed via /api/system/api-token.
+API_TOKEN_KEY = "api.token"
 API_TOKEN_PREFIX = "shl_"  # human-recognizable so a leaked token is spotted in logs/history
-
-
-def hash_api_token(token: str) -> str:
-    """SHA-256 hex of an API token — what we persist, so the plaintext is only ever seen once."""
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _bearer_token(request: Request) -> str | None:

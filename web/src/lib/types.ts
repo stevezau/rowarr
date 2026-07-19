@@ -197,18 +197,18 @@ export interface UserPatch {
 
 export type RunTrigger = "schedule" | "manual" | "wizard";
 
-/** Owner API-token status — never carries the token itself, only whether one exists + a hint. */
+/** Owner API-token status. The token is revealable (stored encrypted at rest), so the owner-gated
+ *  endpoint returns it in plaintext for the owner to unhide/copy — like Sonarr/Radarr's key. */
 export interface ApiTokenStatus {
   enabled: boolean;
   created_at: string | null;
-  hint: string | null;
+  token: string | null;
 }
 
-/** The response to generating a token — the plaintext is present here ONCE and never again. */
+/** The response to generating a token. */
 export interface ApiTokenCreated {
   token: string;
   created_at: string;
-  hint: string;
 }
 
 export interface RunStats {

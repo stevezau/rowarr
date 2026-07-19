@@ -105,13 +105,20 @@ SECRET_KEYS = {
     "requests.omdb.apikey",
     "trakt.client_id",
     "exa.apikey",  # Exa web-search API key for the llm_web source
+    "api.token",  # our own programmatic API token (encrypted at rest so the owner can reveal it)
 }
 
 # Keys stored server-side but NEVER returned by all_public() and never writable via the generic
-# settings PUT — they are managed only through their own dedicated endpoints. The API-token hash and
-# its metadata live here: the hash is one-way (safe at rest without encryption), but it must never
-# appear in a settings response nor be settable by a client.
-PRIVATE_KEYS = {"api.token_hash", "api.token_created_at", "api.token_hint"}
+# settings PUT — they are managed only through their own dedicated endpoints (here: the API token and
+# its metadata). `api.token` is ALSO in SECRET_KEYS so it's encrypted at rest; being private keeps it
+# out of the general settings response and the PUT allowlist regardless.
+# `api.token_hash`/`api.token_hint` are tombstones: an earlier hash-only version persisted them as
+# NON-secret keys, so they must stay listed here or an upgraded DB would leak them via all_public()
+# (they're also deleted on boot — see LEGACY_KEYS).
+PRIVATE_KEYS = {"api.token", "api.token_created_at", "api.token_hash", "api.token_hint"}
+
+# Dropped keys purged from the settings table on boot, so stale rows don't linger.
+LEGACY_KEYS = {"api.token_hash", "api.token_hint"}
 
 ENV_SEEDS = {
     "PLEX_URL": "plex.url",
@@ -158,6 +165,15 @@ class SettingsStore:
             else:
                 out[row.key] = row.value["v"]
         return out
+
+    def purge_legacy(self) -> None:
+        """Delete rows for keys we no longer use (e.g. the old hash-only API-token fields), so stale
+        data doesn't linger in the settings table across an upgrade."""
+        rows = self._session.query(Setting).filter(Setting.key.in_(LEGACY_KEYS)).all()
+        if rows:
+            for row in rows:
+                self._session.delete(row)
+            self._session.commit()
 
     def seed_from_env(self, env: dict[str, str]) -> None:
         """One-time env → DB migration on first boot; env is ignored afterwards."""

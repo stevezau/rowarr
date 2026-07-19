@@ -87,7 +87,7 @@ GET  /api/settings/curator/models -> {provider, models[]} (available models for 
 GET  /api/report -> {overall, trend[], per_user[], per_row[], recent[]} (delivered-vs-watched hit rates, from picks.watched_at)
 POST /api/settings/prompt-preview {tone?, guidance?, template?, shared?} -> {system, user}
 GET  /api/system/health · GET /api/system/version · POST /api/system/uninstall {confirm: "UNINSTALL"}
-GET  /api/system/api-token -> {enabled, created_at, hint} · POST /api/system/api-token -> {token, created_at, hint} (plaintext ONCE) · DELETE /api/system/api-token (revoke)
+GET  /api/system/api-token -> {enabled, created_at, token} (owner-gated; token revealable) · POST /api/system/api-token -> {token, created_at} (generate/replace) · DELETE /api/system/api-token (revoke)
 GET  /api/setup/servers (Plex server picker during onboarding) · GET /api/setup/state
 ```
 
@@ -157,9 +157,10 @@ All endpoints except `/api/system/health` require the owner session; mutations r
 **Programmatic access (API token).** For scripting, generate an owner token in Settings → Advanced →
 API access (or `POST /api/system/api-token`) and send it as `Authorization: Bearer <token>`. It
 grants the same owner-level access as the browser session and needs no CSRF header (a browser never
-sends it automatically). Only the token's SHA-256 is stored, so the plaintext is shown once at
-generation; regenerating or revoking (`DELETE /api/system/api-token`) invalidates the old token
-immediately.
+sends it automatically). The token is stored encrypted at rest (Fernet, like the Plex/curator keys)
+and stays revealable to the owner — the Settings card and `GET /api/system/api-token` show it
+(owner-gated) so you can copy it any time; it never appears in `GET /api/settings`. Regenerating or
+revoking (`DELETE /api/system/api-token`) invalidates the old token immediately.
 
 ```
 curl -H "Authorization: Bearer <token>" https://<host>/api/runs

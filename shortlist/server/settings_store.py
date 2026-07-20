@@ -59,6 +59,9 @@ DEFAULTS: dict[str, Any] = {
     # land last, under any co-managing tool like Kometa). Re-applied at end of each run; anchor is
     # read-only, only our rows move.
     "rows.hub_anchor": {},
+    # Master switch for Shortlist touching the Recommended-shelf ORDER. False -> never reorder the
+    # shelf (a co-managing tool like agregarr/Kometa owns the order). Default on.
+    "rows.manage_shelf_order": True,
     # How many past runs to keep. After each run, older ones (and their picks) are pruned to this
     # count — but a run is never pruned while it's still inside the 30-day watch-credit window, so a
     # low value can't cost the report a hit. 0 = keep everything.

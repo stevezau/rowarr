@@ -62,6 +62,7 @@ describe("RowPlacementSection", () => {
         "rows.hub_anchor": {
           "2": { anchor: "New Series (Unwatched)", before: false },
         },
+        "rows.manage_shelf_order": true,
       }),
     );
   });
@@ -99,6 +100,27 @@ describe("RowPlacementSection", () => {
     await waitFor(() =>
       expect(putSettings.mock.calls.at(-1)?.[0]).toEqual({
         "rows.hub_anchor": {},
+        "rows.manage_shelf_order": true,
+      }),
+    );
+  });
+
+  it("hides the per-library controls and skips ordering when the master toggle is off", async () => {
+    renderSection({ "rows.manage_shelf_order": false });
+    await userEvent.click(
+      screen.getByLabelText(/Let Shortlist order the Recommended shelf/i),
+    );
+    // Toggling on reveals the library controls; toggling off hides them.
+    expect(await screen.findByText("TV Shows")).toBeTruthy();
+    await userEvent.click(
+      screen.getByLabelText(/Let Shortlist order the Recommended shelf/i),
+    );
+    expect(screen.queryByText("TV Shows")).toBeNull();
+    expect(screen.getByText(/Shelf ordering is off/i)).toBeTruthy();
+    // The off state must actually persist, not just hide the controls.
+    await waitFor(() =>
+      expect(putSettings.mock.calls.at(-1)?.[0]).toMatchObject({
+        "rows.manage_shelf_order": false,
       }),
     );
   });

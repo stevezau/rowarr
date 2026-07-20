@@ -809,6 +809,11 @@ def _order_phase(ctx: EngineContext, report: RunReport) -> None:
     the global default (``EngineConfig.hub_anchors``). When no row in a library overrides, all of that
     library's rows move together to the default (the simple, robust path). When some rows override,
     rows are grouped by their effective anchor and each group moved as a unit."""
+    if not ctx.config.manage_shelf_order:
+        # The owner turned shelf ordering off (a co-managing tool like agregarr/Kometa owns the order),
+        # so leave the Recommended shelf exactly as it is — deliver + hide + promote still ran above.
+        logger.debug("shelf ordering is off — leaving the Recommended shelf order to Plex / a co-managing tool")
+        return
     global_anchors = ctx.config.hub_anchors
     any_override = any(spec.hub_anchors for spec in ctx.config.rows)
     if not global_anchors and not any_override:

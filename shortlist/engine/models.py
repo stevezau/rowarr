@@ -482,6 +482,11 @@ class EngineConfig:
     # (str). Empty -> leave Plex's default order (rows land wherever they're created — last, under a
     # co-managing tool's collections). Applied at end of run, read-only against the anchor.
     hub_anchors: dict[str, HubAnchor] = field(default_factory=dict)
+    # Master switch for touching the Recommended-shelf ORDER. False -> Shortlist never reorders the
+    # shelf (skips the whole order phase), so a co-managing tool (agregarr/Kometa) owns the order and
+    # the two don't fight. True (default) -> apply the configured anchors. Independent of delivery and
+    # promotion — turning it off still delivers and hides rows; it only stops the reordering.
+    manage_shelf_order: bool = True
     dry_run: bool = False
     # The curated rows to deliver. Empty -> a single default per-person row synthesized from
     # row_name_template/row_size, so existing callers behave exactly as before.

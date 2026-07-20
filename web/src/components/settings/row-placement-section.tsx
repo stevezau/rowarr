@@ -5,7 +5,9 @@ import { SaveStatus } from "@/components/save-status";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useAutosavedSettings } from "@/lib/autosave";
+import { settingBool } from "@/lib/format";
 import { useLibraries, useLibraryCollections } from "@/lib/queries";
 import type { PlexLibrary, Settings } from "@/lib/types";
 
@@ -140,6 +142,9 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
   const [anchors, setAnchors] = useState<AnchorMap>(() =>
     readAnchors(settings),
   );
+  const [manageOrder, setManageOrder] = useState<boolean>(() =>
+    settingBool(settings, "rows.manage_shelf_order", true),
+  );
 
   // Only anchors with a real collection are persisted — a half-set library (mode chosen, no
   // collection yet) is dropped so the engine never tries to anchor to "".
@@ -147,8 +152,9 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
     Object.entries(anchors).filter(([, a]) => a.top || (a.anchor ?? "").trim()),
   );
 
-  const save = useAutosavedSettings({ anchors }, () => ({
+  const save = useAutosavedSettings({ anchors, manageOrder }, () => ({
     "rows.hub_anchor": persistable,
+    "rows.manage_shelf_order": manageOrder,
   }));
 
   const update = (key: string, next: Anchor | undefined) =>
@@ -166,41 +172,66 @@ export function RowPlacementSection({ settings }: { settings: Settings }) {
       </h2>
       <Card>
         <CardContent className="space-y-4 pt-6">
-          <p className="text-sm text-muted-foreground">
-            Where Shortlist’s rows sit within each library’s{" "}
-            <em>Recommended</em> shelf.
-            <br />
-            By default Plex drops new rows at the end of that shelf, so if
-            another tool (like Kometa) also manages rows here, yours can end up
-            buried at the bottom.
-            <br />
-            Pin a row just after — or before — a row you choose, and it stays
-            there on every run.
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="font-medium">
+                Let Shortlist order the Recommended shelf
+              </p>
+              <p className="text-sm text-muted-foreground">
+                When on, Shortlist positions its rows on each library’s{" "}
+                <em>Recommended</em> shelf (below). Turn it{" "}
+                <strong className="text-foreground">off</strong> if another tool
+                (Kometa, agregarr) manages that shelf — Shortlist will leave the
+                order completely alone so the two don’t fight. Your rows are
+                still built, delivered, and kept private either way.
+              </p>
+            </div>
+            <Switch
+              checked={manageOrder}
+              onCheckedChange={setManageOrder}
+              aria-label="Let Shortlist order the Recommended shelf"
+            />
+          </div>
 
-          <QueryBoundary
-            query={librariesQuery}
-            skeleton={<Skeleton className="h-24 w-full" />}
-          >
-            {(libraries) =>
-              libraries.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No Plex libraries found.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {libraries.map((library) => (
-                    <LibraryPlacement
-                      key={library.key}
-                      library={library}
-                      entry={anchors[library.key]}
-                      onChange={(next) => update(library.key, next)}
-                    />
-                  ))}
-                </div>
-              )
-            }
-          </QueryBoundary>
+          {!manageOrder ? (
+            <p className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+              Shelf ordering is off — Shortlist won’t touch the Recommended
+              shelf order. Turn it on to position your rows.
+            </p>
+          ) : (
+            <>
+              <p className="border-t pt-4 text-sm text-muted-foreground">
+                Where Shortlist’s rows sit within each library’s{" "}
+                <em>Recommended</em> shelf. By default Plex drops new rows at
+                the end, so pin a row just after — or before — a collection you
+                choose, and it stays there on every run.
+              </p>
+
+              <QueryBoundary
+                query={librariesQuery}
+                skeleton={<Skeleton className="h-24 w-full" />}
+              >
+                {(libraries) =>
+                  libraries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No Plex libraries found.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {libraries.map((library) => (
+                        <LibraryPlacement
+                          key={library.key}
+                          library={library}
+                          entry={anchors[library.key]}
+                          onChange={(next) => update(library.key, next)}
+                        />
+                      ))}
+                    </div>
+                  )
+                }
+              </QueryBoundary>
+            </>
+          )}
 
           <SaveStatus
             isPending={save.isPending}

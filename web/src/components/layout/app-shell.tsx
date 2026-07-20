@@ -283,10 +283,10 @@ export function AppShell() {
       </aside>
 
       <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
-        {/* Left-aligned (not centred) with a generous cap: next to a left nav, content that hugs the
-            nav uses the width far better than a narrow block floating in the middle — the two-pane
-            Settings page especially. Wide enough to breathe, capped so it never sprawls on ultrawide. */}
-        <div className="max-w-6xl animate-fade-in">
+        {/* Fill the width next to the left nav — dense pages (Runs, Requests, Users) were wasting half
+            the screen at max-w-6xl. A high cap keeps line lengths sane on an ultrawide without floating
+            a narrow block in the middle. Individual pages that want to stay narrow cap their own content. */}
+        <div className="mx-auto max-w-[1800px] animate-fade-in">
           <Outlet />
         </div>
       </main>

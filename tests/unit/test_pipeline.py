@@ -1704,3 +1704,20 @@ class TestCollectionOrderPhase:
 
         _collection_order_phase(ctx, [])
         ctx.plex.order_collection.assert_not_called()
+
+    def test_shelf_ordering_off_skips_all_reordering(self, ctx: EngineContext):
+        """The agregarr/Kometa coexistence toggle: with manage_shelf_order=False the order phase must
+        never touch the Recommended shelf, even when anchors are configured."""
+        from types import SimpleNamespace
+
+        from shortlist.engine.models import HubAnchor
+        from shortlist.engine.pipeline import _order_phase
+
+        ctx.config.hub_anchors = {"1": HubAnchor(anchor_title="Recently Added Movies", before=False)}
+        ctx.config.manage_shelf_order = False
+        report = SimpleNamespace(hub_orderings=[])
+
+        _order_phase(ctx, report)
+
+        ctx.plex.order_owned_hubs.assert_not_called()
+        assert report.hub_orderings == []

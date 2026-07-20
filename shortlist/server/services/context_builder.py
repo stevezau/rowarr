@@ -137,6 +137,7 @@ class ContextBuilder:
                 candidate_sources=list(store.get("candidates.sources") or ["tmdb_similar", "tmdb_discover"]),
                 web_search_provider=store.get("llm_web.search_provider") or "auto",
                 hub_anchors=self._build_hub_anchors(store),
+                manage_shelf_order=bool(store.get("rows.manage_shelf_order")),
                 watched_pct=float(store.get("recommendations.watched_pct") or 0.0),
                 freshness=float(store.get("recommendations.freshness") or 0.0),
                 recent_count=int(store.get("recommendations.recent_count") or 10),

@@ -19,7 +19,8 @@ export const queryKeys = {
   requests: ["requests"] as const,
   arrOptions: (service: "radarr" | "sonarr") =>
     ["arr-options", service] as const,
-  curatorModels: (provider: string) => ["curator-models", provider] as const,
+  curatorModels: (provider: string, credential: string) =>
+    ["curator-models", provider, credential] as const,
   userRows: (id: number) => ["users", id, "rows"] as const,
   userRuns: (id: number) => ["users", id, "runs"] as const,
   userHistory: (id: number) => ["users", id, "history"] as const,
@@ -238,12 +239,36 @@ export function useArrOptions(service: "radarr" | "sonarr", enabled: boolean) {
   });
 }
 
-/** Model ids the saved AI provider offers, for the setup picker — only fetched once a key is on file.
- * Keyed by provider so switching providers refetches; the query reads the saved key server-side. */
-export function useCuratorModels(provider: string, enabled: boolean) {
+/** A short non-crypto fingerprint (FNV-1a) so a credential can key the model-list cache without the
+ * raw api key sitting in the query cache / React Query Devtools. Cache discriminator only. */
+function fingerprint(value: string): string {
+  if (!value) return "";
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** Model ids the AI provider offers, for the model picker. Sends the (possibly unsaved) provider +
+ * key/URL being edited so switching provider or typing a key refetches; keyed on the provider plus a
+ * fingerprint of the credential so the cache distinguishes them without holding the raw key. Callers
+ * should pass a DEBOUNCED credential so typing a key doesn't refetch per keystroke. An empty result
+ * leaves the free-text override. */
+export function useCuratorModels(
+  params: { provider: string; apiKey?: string; ollamaUrl?: string },
+  enabled: boolean,
+) {
+  const credential = params.apiKey || params.ollamaUrl || "";
   return useQuery({
-    queryKey: queryKeys.curatorModels(provider),
-    queryFn: api.getCuratorModels,
+    queryKey: queryKeys.curatorModels(params.provider, fingerprint(credential)),
+    queryFn: () =>
+      api.getCuratorModels({
+        provider: params.provider,
+        api_key: params.apiKey || undefined,
+        ollama_url: params.ollamaUrl || undefined,
+      }),
     enabled,
     staleTime: 60_000,
     retry: false,

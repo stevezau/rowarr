@@ -23,6 +23,7 @@ import {
 import { api, apiErrorMessage } from "@/lib/api";
 import { settingString } from "@/lib/format";
 import { useCuratorModels, useSaveSettings } from "@/lib/queries";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import type { Settings, TestableService } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +49,9 @@ export type ConnectionField =
       kind: "select";
       options: { value: string; label: string }[];
       showIf?: (values: Record<string, string>) => boolean;
+      /** Other field keys to clear when this one changes — e.g. switching AI provider clears the
+          now-wrong saved model and key so the new provider's are entered fresh. */
+      resets?: string[];
     };
 
 /**
@@ -87,24 +91,26 @@ export function ConnectionCard({
   const configured = Boolean(summary);
 
   // A "model" field shows the AI provider's available models in a real dropdown (plus a "Custom…"
-  // escape hatch). Only fetch while the editor is open and this card actually has one — the endpoint
-  // reads the SAVED provider + key server-side, so the query is keyed on the current provider value
-  // for cache correctness and is gated on a saved credential (a key for the API providers, the URL
-  // for Ollama). Mirrors the setup wizard's guard so an unconfigured provider doesn't fire a request
-  // the server can't answer.
+  // escape hatch). The list is fetched for the provider + key CURRENTLY in the form (a redacted key
+  // means "use the saved one"), so switching provider or typing a new key re-queries the right
+  // models. The whole (provider, key, url) generation is debounced TOGETHER: the fetch fires only
+  // once the form settles (the debounced snapshot matches what's on screen), so a provider switch can
+  // never pair the old key with the new provider, and typing a key never refetches per keystroke.
   const provider = values["curator.provider"] ?? "";
+  const enteredKey = values["curator.api_key"] ?? "";
+  const enteredUrl = values["curator.ollama_url"] ?? "";
   const hasModelField = fields.some((f) => f.kind === "model");
-  const hasCuratorCredential =
-    provider === "ollama"
-      ? Boolean(settingString(settings, "curator.ollama_url"))
-      : settingString(settings, "curator.api_key") === REDACTED;
+  const formGeneration = `${provider} ${enteredKey} ${enteredUrl}`;
+  const settled = useDebouncedValue(formGeneration, 500) === formGeneration;
+  const credential = provider === "ollama" ? enteredUrl : enteredKey;
   const models = useCuratorModels(
-    provider,
+    { provider, apiKey: enteredKey, ollamaUrl: enteredUrl },
     editing &&
       hasModelField &&
       Boolean(provider) &&
       provider !== "none" &&
-      hasCuratorCredential,
+      Boolean(credential) &&
+      settled,
   );
   const modelOptions = models.data?.models ?? [];
 
@@ -247,7 +253,12 @@ export function ConnectionCard({
                       value={values[field.key] ?? ""}
                       options={field.options}
                       onChange={(v) =>
-                        setValues((prev) => ({ ...prev, [field.key]: v }))
+                        setValues((prev) => {
+                          const next = { ...prev, [field.key]: v };
+                          // Clear now-stale sibling fields (e.g. the previous provider's model + key).
+                          for (const k of field.resets ?? []) next[k] = "";
+                          return next;
+                        })
                       }
                     />
                   ) : field.kind === "password" ? (

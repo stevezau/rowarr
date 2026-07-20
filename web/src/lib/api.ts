@@ -257,9 +257,18 @@ export const api = {
   getArrOptions: (service: "radarr" | "sonarr"): Promise<ArrOptions> =>
     request(`/api/settings/arr/${service}/options`),
 
-  /** Model ids the saved AI provider offers, for the setup model picker (empty = free-text fallback). */
-  getCuratorModels: (): Promise<{ provider: string; models: string[] }> =>
-    request("/api/settings/curator/models"),
+  /** Model ids a provider offers, for the model picker. The body carries the (possibly unsaved)
+   *  provider + key/URL being edited so the list reflects the current form; blank fields fall back to
+   *  saved settings and a redacted key means "use the saved key" (empty result = free-text fallback). */
+  getCuratorModels: (body: {
+    provider: string;
+    api_key?: string;
+    ollama_url?: string;
+  }): Promise<{ provider: string; models: string[] }> =>
+    request("/api/settings/curator/models", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   /** The server's Plex libraries, for the Rows editor's per-row delivery-target picker. */
   getLibraries: (): Promise<PlexLibrary[]> => request("/api/system/libraries"),

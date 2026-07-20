@@ -22,6 +22,17 @@ class SettingsUpdate(BaseModel):
     values: dict[str, object]
 
 
+class CuratorModelsRequest(BaseModel):
+    """Optional live overrides from the settings form so the model picker can list the provider being
+    edited BEFORE it's saved. Any blank field falls back to the saved setting; a redacted api key
+    ('•••••') means 'use the saved key'. The key is used only to build the client in memory — never
+    logged (only the exception class is)."""
+
+    provider: str | None = None
+    api_key: str | None = None
+    ollama_url: str | None = None
+
+
 def _bounded_int(low: int, high: int):
     def check(value: object) -> str | None:
         try:
@@ -306,21 +317,38 @@ async def arr_options(service: str, request: Request) -> dict:
         raise HTTPException(status_code=502, detail=redact(f"{type(e).__name__}: {e}")) from e
 
 
-@router.get("/curator/models")
-async def curator_models(request: Request) -> dict:
-    """Model ids the configured AI provider offers, for the setup model picker.
+@router.post("/curator/models")
+async def curator_models(request: Request, body: CuratorModelsRequest | None = None) -> dict:
+    """Model ids an AI provider offers, for the model picker.
 
-    Reads the SAVED provider + key server-side (a key is never accepted in the request). Best-effort:
-    a provider that can't list — no key on file yet, an offline Ollama, or a provider/proxy without a
-    models endpoint — returns an empty list, and the UI falls back to the free-text model field.
+    Lists the provider being edited: the request may carry the (unsaved) provider + key/URL from the
+    settings form, so switching provider or typing a new key updates the dropdown live. Blank fields
+    fall back to the SAVED settings, and a redacted key means 'use the saved key'. The key builds the
+    client in memory only — never logged (only the exception CLASS is, since an SDK can embed the key
+    in error text). Best-effort: no key yet, an offline Ollama, or a provider without a models
+    endpoint returns an empty list, and the UI falls back to the free-text override.
     """
     from loguru import logger
 
     from shortlist.server.services.context_builder import curator_kwargs
 
+    body = body or CuratorModelsRequest()
+    overrides = {
+        "curator.provider": body.provider,
+        "curator.api_key": body.api_key,
+        "curator.ollama_url": body.ollama_url,
+    }
     state = request.app.state
     with state.sessions() as session:
-        get = SettingsStore(session, state.secrets).get
+        saved = SettingsStore(session, state.secrets).get
+
+        def get(key: str) -> object:
+            # A supplied override wins, except the redacted placeholder which means "the saved key".
+            override = overrides.get(key)
+            if override and override != "•••••":
+                return override
+            return saved(key)
+
         provider = (get("curator.provider") or "none").lower()
         kwargs = curator_kwargs(get)
     if provider in ("none", "null", ""):

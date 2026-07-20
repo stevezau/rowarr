@@ -712,7 +712,7 @@ class TestSettingsValidation:
 
     def test_curator_models_is_empty_for_the_built_in_picker(self, client: TestClient):
         client.put("/api/settings", json={"values": {"curator.provider": "none"}})
-        assert client.get("/api/settings/curator/models").json() == {"provider": "none", "models": []}
+        assert client.post("/api/settings/curator/models").json() == {"provider": "none", "models": []}
 
     def test_curator_models_lists_the_saved_providers_models(self, client: TestClient, monkeypatch):
         from types import SimpleNamespace
@@ -728,12 +728,53 @@ class TestSettingsValidation:
             return SimpleNamespace(list_models=lambda: ["claude-a", "claude-b"])
 
         monkeypatch.setattr(curator_mod, "make_curator", fake_make)
-        body = client.get("/api/settings/curator/models").json()
+        # No body → fall back to the SAVED provider + key server-side.
+        body = client.post("/api/settings/curator/models").json()
         assert body == {"provider": "anthropic", "models": ["claude-a", "claude-b"]}
-        # The contract this feature owns: read the SAVED key server-side and forward it to the provider
-        # (never from the request). Assert BOTH reached make_curator, or a regression would pass silently.
         assert captured["provider"] == "anthropic"
         assert captured["api_key"] == "sk-secret"
+
+    def test_curator_models_lists_the_provider_being_edited_from_the_request(self, client: TestClient, monkeypatch):
+        from types import SimpleNamespace
+
+        import shortlist.engine.curator as curator_mod
+
+        # A DIFFERENT provider is saved; the form is editing OpenAI with a not-yet-saved key. The picker
+        # must list what's in the request, so the dropdown updates before Save — the bug Steve hit.
+        client.put("/api/settings", json={"values": {"curator.provider": "anthropic", "curator.api_key": "sk-saved"}})
+        captured: dict = {}
+
+        def fake_make(provider, **kw):
+            captured["provider"] = provider
+            captured.update(kw)
+            return SimpleNamespace(list_models=lambda: ["gpt-x", "gpt-y"])
+
+        monkeypatch.setattr(curator_mod, "make_curator", fake_make)
+        body = client.post(
+            "/api/settings/curator/models",
+            json={"provider": "openai", "api_key": "sk-new-openai"},
+        ).json()
+        assert body == {"provider": "openai", "models": ["gpt-x", "gpt-y"]}
+        # The edited provider + its typed key reached make_curator — not the saved anthropic ones.
+        assert captured["provider"] == "openai"
+        assert captured["api_key"] == "sk-new-openai"
+
+    def test_curator_models_redacted_key_falls_back_to_saved(self, client: TestClient, monkeypatch):
+        from types import SimpleNamespace
+
+        import shortlist.engine.curator as curator_mod
+
+        client.put("/api/settings", json={"values": {"curator.provider": "anthropic", "curator.api_key": "sk-saved"}})
+        captured: dict = {}
+
+        def fake_make(provider, **kw):
+            captured.update(kw)
+            return SimpleNamespace(list_models=lambda: ["claude-a"])
+
+        monkeypatch.setattr(curator_mod, "make_curator", fake_make)
+        # The UI sends the redacted placeholder for an unchanged key → use the real saved key.
+        client.post("/api/settings/curator/models", json={"provider": "anthropic", "api_key": "•••••"})
+        assert captured["api_key"] == "sk-saved"
 
     def test_curator_models_degrades_to_empty_when_listing_fails(self, client: TestClient, monkeypatch):
         import shortlist.engine.curator as curator_mod
@@ -744,7 +785,7 @@ class TestSettingsValidation:
             raise RuntimeError("unauthorized at http://api?X-Plex-Token=SEKRET")
 
         monkeypatch.setattr(curator_mod, "make_curator", boom)
-        body = client.get("/api/settings/curator/models").json()
+        body = client.post("/api/settings/curator/models").json()
         assert body == {"provider": "anthropic", "models": []}
 
     def test_web_search_provider_is_validated(self, client: TestClient):

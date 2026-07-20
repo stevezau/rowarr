@@ -78,6 +78,13 @@ function renderCuratorCard(settings: Settings) {
             kind: "model",
             showIf: (v) => v["curator.provider"] !== "none",
           },
+          // The real card has a key field; the model fetch is gated on its (entered) value.
+          {
+            key: "curator.api_key",
+            label: "API key",
+            kind: "password",
+            showIf: (v) => v["curator.provider"] !== "none",
+          },
         ]}
       />
     </QueryClientProvider>,

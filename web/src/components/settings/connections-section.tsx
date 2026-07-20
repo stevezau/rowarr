@@ -119,6 +119,9 @@ export function ConnectionsSection({ settings }: { settings: Settings }) {
               label: "Provider",
               kind: "select",
               options: PROVIDER_OPTIONS,
+              // Switching provider invalidates the old provider's model + key — clear both so the new
+              // provider's models load fresh once its key is entered.
+              resets: ["curator.model", "curator.api_key"],
             },
             {
               key: "curator.model",

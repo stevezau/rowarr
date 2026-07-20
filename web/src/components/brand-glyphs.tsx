@@ -134,6 +134,46 @@ export function TraktGlyph({ className }: GlyphProps) {
   );
 }
 
+export function SonarrGlyph({ className }: GlyphProps) {
+  // Sonarr's mark: a light-blue rounded tile with an "S" — TV downloads.
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <rect x="2" y="2" width="20" height="20" rx="5" fill="#35C5F4" />
+      <text
+        x="12"
+        y="17"
+        textAnchor="middle"
+        fontSize="13"
+        fontWeight="800"
+        fontFamily="Arial, sans-serif"
+        fill="#0b2b3a"
+      >
+        S
+      </text>
+    </svg>
+  );
+}
+
+export function RadarrGlyph({ className }: GlyphProps) {
+  // Radarr's mark: a gold rounded tile with an "R" — movie downloads.
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <rect x="2" y="2" width="20" height="20" rx="5" fill="#FFC230" />
+      <text
+        x="12"
+        y="17"
+        textAnchor="middle"
+        fontSize="13"
+        fontWeight="800"
+        fontFamily="Arial, sans-serif"
+        fill="#3a2c00"
+      >
+        R
+      </text>
+    </svg>
+  );
+}
+
 function ClaudeGlyph({ className }: GlyphProps) {
   // Anthropic/Claude — a radial sunburst of tapered spokes.
   const spokes = Array.from({ length: 12 }, (_, i) => (

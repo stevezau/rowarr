@@ -223,6 +223,23 @@ describe("RequestsPage", () => {
     expect(screen.queryByText("Dune")).toBeNull();
   });
 
+  it("re-orders the waiting queue by rating when 'Top rated' is chosen", async () => {
+    // Default sort is Recent (newest id first), so [Low(id 2), High(id 1)]; 'Top rated' flips it.
+    listRequests.mockResolvedValue([
+      candidate({ id: 1, tmdb_id: 100, title: "High Rated", rating: 9.1 }),
+      candidate({ id: 2, tmdb_id: 200, title: "Low Rated", rating: 5.2 }),
+    ]);
+    renderPage();
+    await screen.findByText("High Rated");
+    await userEvent.click(screen.getByRole("button", { name: "Top rated" }));
+    const high = screen.getByText("High Rated");
+    const low = screen.getByText("Low Rated");
+    // High is rendered before Low once sorted by rating.
+    expect(
+      high.compareDocumentPosition(low) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("offers no library split when the queue is a single media type", async () => {
     listRequests.mockResolvedValue([
       candidate({ id: 1, title: "Dune", media_type: "movie" }),
@@ -455,7 +472,12 @@ describe("RequestsPage", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /Allow all again/i }),
     );
-    await waitFor(() => expect(restoreRequests).toHaveBeenCalledWith([21, 22]));
+    // Bulk restore is a set operation — assert both ids reached it, order-independent (the list is
+    // sorted for display, so the mutate order follows the sort, not insertion order).
+    await waitFor(() => expect(restoreRequests).toHaveBeenCalled());
+    expect(
+      [...(restoreRequests.mock.calls.at(-1)?.[0] ?? [])].sort((a, b) => a - b),
+    ).toEqual([21, 22]);
   });
 
   it("reads as off — and cannot send — when requests are disabled but candidates are on file", async () => {

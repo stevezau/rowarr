@@ -10,7 +10,13 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { ImdbGlyph, TmdbGlyph, TraktGlyph } from "@/components/brand-glyphs";
+import {
+  ImdbGlyph,
+  RadarrGlyph,
+  SonarrGlyph,
+  TmdbGlyph,
+  TraktGlyph,
+} from "@/components/brand-glyphs";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, QueryBoundary } from "@/components/query-boundary";
 import { Segmented } from "@/components/segmented";
@@ -266,6 +272,7 @@ function SentRow({
 }) {
   const isMovie = item.media_type === "movie";
   const app = isMovie ? "Radarr" : "Sonarr";
+  const ArrGlyph = isMovie ? RadarrGlyph : SonarrGlyph;
   const base = (isMovie ? radarrUrl : sonarrUrl).replace(/\/+$/, "");
   // Radarr deep-links a movie by its TMDB id; Sonarr has no TMDB route, so we open the app itself.
   const arrLink = base
@@ -277,7 +284,10 @@ function SentRow({
     <div className="space-y-1.5 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-medium">{item.title}</p>
-        <Badge variant="success">Sent to {app}</Badge>
+        <Badge variant="success" className="gap-1">
+          <ArrGlyph className="h-3.5 w-3.5 rounded-[2px]" />
+          Sent to {app}
+        </Badge>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <TypeBadge mediaType={item.media_type} />
@@ -293,6 +303,7 @@ function SentRow({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
           >
+            <ArrGlyph className="h-3.5 w-3.5 rounded-[2px]" />
             Open in {app}
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
           </a>
@@ -346,6 +357,37 @@ type RequestView = "waiting" | "sent" | "rejected";
 /** A missing title is exactly one media type, so the list can be split by the library it'd land in. */
 type MediaFilter = "all" | "movie" | "show";
 
+/** How the on-screen list is ordered: newest activity, best rated, or most-wanted first. */
+type RequestSort = "recent" | "rating" | "demand";
+
+const SORT_OPTIONS: { value: RequestSort; label: string }[] = [
+  { value: "recent", label: "Recent" },
+  { value: "rating", label: "Top rated" },
+  { value: "demand", label: "Most wanted" },
+];
+
+/** Order a list by the chosen sort. `recent` = newest state change first, falling back to queue order
+ *  (id) for items that were queued but never sent, so a sent log reads newest-first and a waiting
+ *  queue keeps its arrival order. */
+function sortRequests(
+  list: RequestCandidate[],
+  sort: RequestSort,
+): RequestCandidate[] {
+  const copy = [...list];
+  if (sort === "rating") {
+    copy.sort((a, b) => b.rating - a.rating || b.demand - a.demand);
+  } else if (sort === "demand") {
+    copy.sort((a, b) => b.demand - a.demand || b.rating - a.rating);
+  } else {
+    copy.sort((a, b) => {
+      const ta = a.updated_at ? Date.parse(a.updated_at) : 0;
+      const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
+      return tb - ta || b.id - a.id;
+    });
+  }
+  return copy;
+}
+
 export function RequestsPage() {
   const requestsQuery = useRequests();
   const settingsQuery = useSettings();
@@ -366,6 +408,7 @@ export function RequestsPage() {
         : "waiting",
   );
   const [media, setMedia] = useState<MediaFilter>("all");
+  const [sort, setSort] = useState<RequestSort>("recent");
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -399,9 +442,9 @@ export function RequestsPage() {
       list.some((r) => r.media_type === "show");
     return mixed ? list.filter((r) => r.media_type === media) : list;
   };
-  const pendingShown = applyMedia(pending);
-  const sentShown = applyMedia(sent);
-  const rejectedShown = applyMedia(rejected);
+  const pendingShown = sortRequests(applyMedia(pending), sort);
+  const sentShown = sortRequests(applyMedia(sent), sort);
+  const rejectedShown = sortRequests(applyMedia(rejected), sort);
 
   // Only visible pending rows are selectable, so an id lingering in the set after a send/reject or a
   // filter change is harmless, but scoping to what's shown keeps the count honest.
@@ -521,21 +564,34 @@ export function RequestsPage() {
                         }}
                         ariaLabel="Which requests to show"
                       />
-                      {showMediaFilter && (
-                        <Segmented
-                          value={media}
-                          onChange={setMedia}
-                          ariaLabel="Filter by library"
-                          options={[
-                            {
-                              value: "all",
-                              label: `All (${activeFull.length})`,
-                            },
-                            { value: "movie", label: `Movies (${movieCount})` },
-                            { value: "show", label: `Shows (${showCount})` },
-                          ]}
-                        />
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {showMediaFilter && (
+                          <Segmented
+                            value={media}
+                            onChange={setMedia}
+                            ariaLabel="Filter by library"
+                            options={[
+                              {
+                                value: "all",
+                                label: `All (${activeFull.length})`,
+                              },
+                              {
+                                value: "movie",
+                                label: `Movies (${movieCount})`,
+                              },
+                              { value: "show", label: `Shows (${showCount})` },
+                            ]}
+                          />
+                        )}
+                        {activeFull.length > 1 && (
+                          <Segmented
+                            value={sort}
+                            onChange={setSort}
+                            ariaLabel="Sort requests"
+                            options={SORT_OPTIONS}
+                          />
+                        )}
+                      </div>
                     </div>
 
                     {active === "waiting" &&

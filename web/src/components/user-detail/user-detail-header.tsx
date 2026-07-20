@@ -75,16 +75,17 @@ export function UserDetailHeader({ user }: { user: User }) {
             variant="secondary"
             onClick={() => startRun.mutate({ user_ids: [user.id] })}
             loading={startRun.isPending}
+            title={`Rebuilds only ${user.username}'s rows, just for them — no one else is touched.`}
           >
             {!startRun.isPending && <RefreshCw aria-hidden="true" />}
-            Run now
+            Run for {user.username}
           </Button>
         </div>
       </header>
 
       {startRun.isSuccess && (
         <p className="text-sm text-muted-foreground">
-          Run started — watch it live on the Dashboard.
+          Run started for {user.username} only — watch it live on the Dashboard.
         </p>
       )}
 

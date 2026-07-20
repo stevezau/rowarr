@@ -21,6 +21,8 @@ def tautulli_row(**kw) -> dict:
         "year": 1995,
         "rating_key": 42,
         "grandparent_rating_key": None,
+        "parent_media_index": None,
+        "media_index": None,
     }
     return {**base, **kw}
 
@@ -33,16 +35,28 @@ class TestTautulliSource:
         assert items[0].title == "Heat"
         assert items[0].media_type is MediaType.MOVIE
         assert items[0].completion == 1.0
+        # A movie carries no episode detail.
+        assert (items[0].season, items[0].episode, items[0].episode_title) == (None, None, None)
         mock_tautulli.get_history.assert_called_once_with(100, since_ts=None)
 
     def test_episode_rows_collapse_to_show_title(self, mock_tautulli):
         mock_tautulli.get_history.return_value = [
-            tautulli_row(media_type="episode", title="Pilot", grandparent_title="Suits", grandparent_rating_key=7),
+            tautulli_row(
+                media_type="episode",
+                title="Pilot",
+                grandparent_title="Suits",
+                grandparent_rating_key=7,
+                parent_media_index="2",
+                media_index="5",
+            ),
         ]
         items = TautulliSource(mock_tautulli).fetch(make_profile(), min_completion=0.7)
         assert items[0].title == "Suits"
         assert items[0].media_type is MediaType.SHOW
         assert items[0].rating_key == 7
+        # The episode detail is carried for display (show title stays the seed).
+        assert (items[0].season, items[0].episode) == (2, 5)
+        assert items[0].episode_title == "Pilot"
 
     def test_incomplete_watches_filtered_by_threshold(self, mock_tautulli):
         mock_tautulli.get_history.return_value = [tautulli_row(percent_complete=20)]
@@ -55,6 +69,8 @@ class TestPlexHistorySource:
             type="episode",
             grandparentTitle="Suits",
             title="Pilot",
+            parentIndex="2",
+            index="5",
             viewedAt=datetime(2026, 7, 1),
             grandparentRatingKey="7",
             ratingKey="99",
@@ -63,6 +79,9 @@ class TestPlexHistorySource:
         items = PlexHistorySource(mock_plex).fetch(make_profile(account_id=555000100), min_completion=0.7)
         assert items[0].title == "Suits"
         assert items[0].rating_key == 7
+        # PMS parentIndex/index → season/episode, entry.title → episode name.
+        assert (items[0].season, items[0].episode) == (2, 5)
+        assert items[0].episode_title == "Pilot"
         call = mock_plex._server.history.call_args
         assert call.kwargs["accountID"] == 555000100
 

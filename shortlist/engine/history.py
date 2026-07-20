@@ -12,6 +12,16 @@ from shortlist.engine.clients.tautulli import TautulliClient
 from shortlist.engine.models import MediaType, Seed, UserProfile, WatchedItem
 
 
+def _as_int(value: object) -> int | None:
+    """Parse a possibly-str/None index (season/episode) to int, or None if absent/unparseable."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 class HistorySource(Protocol):
     def fetch(
         self, user: UserProfile, *, min_completion: float, since: datetime | None = None
@@ -66,7 +76,8 @@ class TautulliSource:
             completion = int(row.get("percent_complete") or 0) / 100
             if completion < min_completion:
                 continue
-            media_type = MediaType.SHOW if row.get("media_type") == "episode" else MediaType.MOVIE
+            is_episode = row.get("media_type") == "episode"
+            media_type = MediaType.SHOW if is_episode else MediaType.MOVIE
             title = row.get("grandparent_title") or row.get("title") or ""
             if not title:
                 continue
@@ -80,6 +91,11 @@ class TautulliSource:
                     if row.get("grandparent_rating_key") or row.get("rating_key")
                     else None,
                     completion=completion,
+                    # Tautulli keys season/episode as parent_media_index/media_index; the row's own
+                    # `title` is the episode name (the show is grandparent_title, used above).
+                    season=_as_int(row.get("parent_media_index")) if is_episode else None,
+                    episode=_as_int(row.get("media_index")) if is_episode else None,
+                    episode_title=(row.get("title") or None) if is_episode else None,
                 )
             )
         logger.debug("{}: {} meaningful watches from Tautulli", user.username, len(items))
@@ -96,7 +112,8 @@ class PlexHistorySource:
         # PMS history rows carry no completion percentage; presence in history is the signal.
         items = []
         for entry in self._client.history_for_account(user.plex_account_id, since=since):
-            media_type = MediaType.SHOW if entry.type == "episode" else MediaType.MOVIE
+            is_episode = entry.type == "episode"
+            media_type = MediaType.SHOW if is_episode else MediaType.MOVIE
             title = getattr(entry, "grandparentTitle", None) or getattr(entry, "title", "")
             if not title:
                 continue
@@ -113,6 +130,11 @@ class PlexHistorySource:
                     rating_key=int(entry.grandparentRatingKey)
                     if getattr(entry, "grandparentRatingKey", None)
                     else (int(entry.ratingKey) if getattr(entry, "ratingKey", None) else None),
+                    # PMS keys season/episode as parentIndex/index; the entry's own `title` is the
+                    # episode name (the show is grandparentTitle, used above).
+                    season=_as_int(getattr(entry, "parentIndex", None)) if is_episode else None,
+                    episode=_as_int(getattr(entry, "index", None)) if is_episode else None,
+                    episode_title=(getattr(entry, "title", None) or None) if is_episode else None,
                 )
             )
         logger.debug("{}: {} watches from Plex history API", user.username, len(items))

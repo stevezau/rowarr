@@ -298,6 +298,10 @@ export interface WatchItem {
   media_type: string;
   watched_at: string;
   year: number | null;
+  /** For a show watch, the specific episode (title is the show name). Null for movies. */
+  season: number | null;
+  episode: number | null;
+  episode_title: string | null;
 }
 
 /**

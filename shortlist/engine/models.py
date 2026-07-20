@@ -54,6 +54,11 @@ class WatchedItem:
     year: int | None = None
     rating_key: int | None = None
     completion: float = 1.0  # 0..1 fraction watched
+    # For a show watch, the specific episode behind it (the show name is `title`). None for movies
+    # and for sources that don't report episode detail — display only, never used for seeding.
+    season: int | None = None
+    episode: int | None = None
+    episode_title: str | None = None
 
 
 @dataclass(frozen=True)

@@ -275,6 +275,9 @@ class ContextBuilder:
                 "media_type": w.media_type.value,
                 "watched_at": w.watched_at.isoformat(),
                 "year": w.year,
+                "season": w.season,
+                "episode": w.episode,
+                "episode_title": w.episode_title,
             }
             for w in items[:limit]
         ]

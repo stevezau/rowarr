@@ -49,9 +49,6 @@ DEFAULTS: dict[str, Any] = {
     "requests.auto_min_demand": 3,  # auto-send only titles wanted by at least this many people
     "requests.auto_min_rating": 8.0,  # ...and rated at least this high on the chosen source
     "requests.tag": "shortlist",  # tag applied to every title Shortlist adds ("" = no tag)
-    # When on, a user with no manual request tag of their own is tagged with their username slug
-    # automatically — so every request is attributable to a person without editing each user by hand.
-    "requests.auto_user_tag": False,
     # (per-row schedules replaced the old global `schedule.cron` — each row carries its own cron on
     # the collections table; see Collection.schedule and shortlist/server/scheduler.py)
     # Where Shortlist's rows sit in each library's Plex "Recommended" shelf, keyed by library (section)
@@ -130,7 +127,7 @@ SECRET_KEYS = {
 PRIVATE_KEYS = {"api.token", "api.token_created_at", "api.token_hash", "api.token_hint"}
 
 # Dropped keys purged from the settings table on boot, so stale rows don't linger.
-LEGACY_KEYS = {"api.token_hash", "api.token_hint", "requests.omdb.apikey", "staleness_runs"}
+LEGACY_KEYS = {"api.token_hash", "api.token_hint", "requests.omdb.apikey", "staleness_runs", "requests.auto_user_tag"}
 
 ENV_SEEDS = {
     "PLEX_URL": "plex.url",

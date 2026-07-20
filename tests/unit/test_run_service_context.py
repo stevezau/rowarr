@@ -185,10 +185,11 @@ class TestBuildRequests:
         assert cfg.sonarr is not None
 
 
-class TestAutoUserTag:
-    """requests.auto_user_tag: fill an untagged user's request tag with their slug automatically."""
+class TestRequestTag:
+    """Only an EXPLICIT per-user request tag is applied — automatic username-tagging was removed
+    (owner decision 2026-07-20; the requester is already shown in the inbox why-line)."""
 
-    def _users(self, sessions, tmp_path, *, auto: bool) -> dict[str, str]:
+    def test_only_explicit_tags_are_used_never_the_username(self, sessions, tmp_path):
         with sessions() as session:
             session.add_all(
                 [
@@ -203,21 +204,12 @@ class TestAutoUserTag:
                     ),
                 ]
             )
-            SettingsStore(session, SecretBox(tmp_path)).set("requests.auto_user_tag", auto)
             session.commit()
         builder = ContextBuilder(sessions, SecretBox(tmp_path), EventBus())
         with sessions() as session:
-            return {p.username: p.request_tag for p in builder.enabled_profiles(session)}
-
-    def test_on_fills_the_slug_only_when_the_user_has_no_tag(self, sessions, tmp_path):
-        tags = self._users(sessions, tmp_path, auto=True)
-        assert tags["MooHouse"] == "moohouse"  # no tag of their own -> their slug
-        assert tags["Sarah"] == "vip"  # a manual tag always wins
-
-    def test_off_leaves_untagged_users_blank(self, sessions, tmp_path):
-        tags = self._users(sessions, tmp_path, auto=False)
-        assert tags["MooHouse"] == ""
-        assert tags["Sarah"] == "vip"
+            tags = {p.username: p.request_tag for p in builder.enabled_profiles(session)}
+        assert tags["MooHouse"] == ""  # no explicit tag -> no per-user tag (never the username)
+        assert tags["Sarah"] == "vip"  # an explicit tag is used
 
 
 class TestSyncWatched:

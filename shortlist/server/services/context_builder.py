@@ -353,15 +353,16 @@ class ContextBuilder:
                 return []
             query = query.filter(User.id.in_(user_ids))
         overrides = self._row_overrides(session)
-        # Auto-tag: a user with no tag of their own falls back to their slug, so every request is
-        # attributable to a person without hand-editing each user (Settings → Requests).
-        auto_user_tag = bool(store.get("requests.auto_user_tag"))
         profiles = []
         for user in query.all():
             prefs = user.prefs or {}
             if prefs.get("paused"):
                 continue
-            request_tag = (user.request_tag or "").strip() or (user.slug if auto_user_tag else "")
+            # Only an EXPLICIT per-user tag adds a per-person tag in Sonarr/Radarr. Automatic
+            # username-tagging was removed (owner decision 2026-07-20): who wanted a title is already
+            # shown in the Requests inbox why-line, so tagging every title with a username just
+            # cluttered the Arr.
+            request_tag = (user.request_tag or "").strip()
             profiles.append(
                 UserProfile(
                     username=user.username,

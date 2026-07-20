@@ -75,23 +75,31 @@ def _media_filter(items: list, media: str) -> list:
     return [item for item in items if item.media_type is kind]
 
 
+# A season's worth of episodes watched = the person is clearly watching this show, not discovering it.
+# The ``show_pct`` fraction alone is unreachable for a long RETURNING series: it keeps adding episodes,
+# so watched/total never hits 90% even after 160 plays (SFLIX/MooHouse Gold Rush 160/226 = 71%, and
+# even the owner's own watched count topped out at 173/226; 2026-07-20). This floor catches those.
+_ENGAGED_EPISODES = 10
+
+
 def _watched_titles(
     watched_movies: set[int],
     show_plays: dict[int, int],
     episode_counts: dict[int, int],
     show_pct: float,
 ) -> set[tuple[int, MediaType]]:
-    """The (tmdb_id, media_type) titles this person has FINISHED — the ones a watched-cap counts.
+    """The (tmdb_id, media_type) titles this person has already watched — the ones a watched-cap counts.
 
-    Every watched movie, plus every show seen to >= ``show_pct`` of its episodes. A partly-watched
-    show, or one with a new season (its episode count grew, so the fraction dropped), is NOT counted
-    — it can still be recommended. A show whose episode count is unknown is counted as finished
-    rather than risk surfacing one the person has already worked through.
+    Every watched movie, plus every show they've clearly watched: seen to >= ``show_pct`` of its
+    episodes, OR watched at least ``_ENGAGED_EPISODES`` of them (a season's worth — a returning series
+    that keeps airing never reaches the fraction, but a person 160 episodes deep isn't a fresh pick).
+    For a short series the fraction is the tighter bar, so ``min`` keeps it strict there. A show whose
+    episode count is unknown is counted as watched rather than risk re-surfacing one they've worked through.
     """
     finished: set[tuple[int, MediaType]] = {(tid, MediaType.MOVIE) for tid in watched_movies}
     for tid, plays in show_plays.items():
         total = episode_counts.get(tid)
-        if not total or plays >= total * show_pct:
+        if not total or plays >= min(total * show_pct, _ENGAGED_EPISODES):
             finished.add((tid, MediaType.SHOW))
     return finished
 

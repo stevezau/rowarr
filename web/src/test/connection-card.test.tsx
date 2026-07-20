@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,7 +48,7 @@ function renderCard(settings: Settings, fields: ConnectionField[]) {
   );
 }
 
-/** The AI curator card, whose "model" field drives the datalist model fetch. */
+/** The AI curator card, whose "model" field drives the model dropdown fetch. */
 function renderCuratorCard(settings: Settings) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -184,36 +184,91 @@ describe("ConnectionCard", () => {
     );
   });
 
-  it("lists the provider's models in a dropdown yet still saves a typed override", async () => {
-    // The AI curator "model" field: a datalist gives the provider's known models as suggestions,
-    // but it's a free-text input so any id the list doesn't offer still saves.
+  it("lists the provider's models in a real dropdown and saves the chosen one", async () => {
+    // The AI curator "model" field is a native <select> (role combobox), so the models are a visible
+    // dropdown — not a plain text box. Picking one saves it.
     getCuratorModels.mockResolvedValue({
       provider: "anthropic",
       models: ["claude-haiku-4-5", "claude-sonnet-5"],
     });
-    const { container } = renderCuratorCard({
+    renderCuratorCard({
       "curator.provider": "anthropic",
       "curator.api_key": "•••••",
     });
 
     await userEvent.click(screen.getByRole("button", { name: /Edit/i }));
+    const select = screen.getByLabelText("Model") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
 
-    // The provider's models populate the datalist (the dropdown suggestions).
+    // The provider's models are real <option>s in the dropdown once the fetch resolves.
     await waitFor(() =>
-      expect(container.querySelectorAll("datalist option")).toHaveLength(2),
+      expect(
+        within(select).getByRole("option", { name: "claude-sonnet-5" }),
+      ).toBeInTheDocument(),
     );
     expect(
-      Array.from(container.querySelectorAll("datalist option")).map(
-        (o) => (o as HTMLOptionElement).value,
-      ),
-    ).toEqual(["claude-haiku-4-5", "claude-sonnet-5"]);
+      within(select).getByRole("option", { name: "claude-haiku-4-5" }),
+    ).toBeInTheDocument();
 
-    // A custom id the list never offered still saves — the override the user asked for.
-    await userEvent.type(screen.getByLabelText("Model"), "claude-opus-4-8");
+    // Choosing one from the dropdown saves exactly it.
+    await userEvent.selectOptions(select, "claude-sonnet-5");
+    await userEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    expect(putSettings.mock.calls[0]?.[0]).toMatchObject({
+      "curator.model": "claude-sonnet-5",
+    });
+  });
+
+  it("offers a 'Custom…' option that reveals a box for any model id (the override)", async () => {
+    getCuratorModels.mockResolvedValue({
+      provider: "anthropic",
+      models: ["claude-haiku-4-5", "claude-sonnet-5"],
+    });
+    renderCuratorCard({
+      "curator.provider": "anthropic",
+      "curator.api_key": "•••••",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /Edit/i }));
+    const select = screen.getByLabelText("Model") as HTMLSelectElement;
+    await waitFor(() =>
+      expect(
+        within(select).getByRole("option", { name: "Custom…" }),
+      ).toBeInTheDocument(),
+    );
+
+    // No free-text box until the owner asks for one…
+    expect(
+      screen.queryByPlaceholderText(/claude-sonnet-5/),
+    ).not.toBeInTheDocument();
+    await userEvent.selectOptions(select, "__custom__");
+    // …then Custom… reveals it, and a typed id the list never offered still saves.
+    const box = screen.getByPlaceholderText(/claude-sonnet-5/);
+    await userEvent.type(box, "claude-opus-4-8");
     await userEvent.click(screen.getByRole("button", { name: /^Save$/i }));
     expect(putSettings.mock.calls[0]?.[0]).toMatchObject({
       "curator.model": "claude-opus-4-8",
     });
+  });
+
+  it("keeps a saved custom model visible as the selected option", async () => {
+    // A model the provider doesn't list (a custom id already saved) must still show as selected — it
+    // is offered as its own option rather than silently dropped.
+    getCuratorModels.mockResolvedValue({
+      provider: "anthropic",
+      models: ["claude-haiku-4-5", "claude-sonnet-5"],
+    });
+    renderCuratorCard({
+      "curator.provider": "anthropic",
+      "curator.api_key": "•••••",
+      "curator.model": "my-proxy/some-model",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /Edit/i }));
+    const select = screen.getByLabelText("Model") as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("my-proxy/some-model"));
+    expect(
+      within(select).getByRole("option", { name: "my-proxy/some-model" }),
+    ).toBeInTheDocument();
   });
 
   it("does not fetch curator models for a card without a model field", async () => {

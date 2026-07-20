@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ModelField } from "@/components/model-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,9 +31,9 @@ export type ConnectionField =
   | {
       key: string;
       label: string;
-      // "model" renders a free-text input backed by a datalist of the AI provider's available
-      // models — pick one from the dropdown, or type any id to override. Needs a sibling
-      // `curator.provider` field on the same card so it knows whose models to list.
+      // "model" renders a native <select> dropdown of the AI provider's available models plus a
+      // "Custom…" option that reveals a free-text override. Needs a sibling `curator.provider` field
+      // on the same card so it knows whose models to list.
       kind: "text" | "password" | "model";
       placeholder?: string;
       showIf?: (values: Record<string, string>) => boolean;
@@ -85,11 +86,12 @@ export function ConnectionCard({
   const fieldId = useId();
   const configured = Boolean(summary);
 
-  // A "model" field lists the AI provider's available models in a datalist. Only fetch while the
-  // editor is open and this card actually has one — the endpoint reads the SAVED provider + key
-  // server-side, so the query is keyed on the current provider value for cache correctness and is
-  // gated on a saved credential (a key for the API providers, the URL for Ollama). Mirrors the
-  // setup wizard's guard so an unconfigured provider doesn't fire a request the server can't answer.
+  // A "model" field shows the AI provider's available models in a real dropdown (plus a "Custom…"
+  // escape hatch). Only fetch while the editor is open and this card actually has one — the endpoint
+  // reads the SAVED provider + key server-side, so the query is keyed on the current provider value
+  // for cache correctness and is gated on a saved credential (a key for the API providers, the URL
+  // for Ollama). Mirrors the setup wizard's guard so an unconfigured provider doesn't fire a request
+  // the server can't answer.
   const provider = values["curator.provider"] ?? "";
   const hasModelField = fields.some((f) => f.kind === "model");
   const hasCuratorCredential =
@@ -105,7 +107,6 @@ export function ConnectionCard({
       hasCuratorCredential,
   );
   const modelOptions = models.data?.models ?? [];
-  const modelListId = `${fieldId}-models`;
 
   // Auto-test a configured connection once when the page opens, so the dot shows real green/red
   // without the owner clicking Test on every card. Only configured services probe (nothing to test
@@ -260,33 +261,18 @@ export function ConnectionCard({
                       }
                     />
                   ) : field.kind === "model" ? (
-                    <>
-                      <Input
-                        id={id}
-                        type="text"
-                        list={modelListId}
-                        placeholder={field.placeholder}
-                        value={values[field.key] ?? ""}
-                        onChange={(e) =>
-                          setValues((prev) => ({
-                            ...prev,
-                            [field.key]: e.target.value,
-                          }))
-                        }
-                      />
-                      <datalist id={modelListId}>
-                        {modelOptions.map((m) => (
-                          <option key={m} value={m} />
-                        ))}
-                      </datalist>
-                      <p className="text-xs text-muted-foreground">
-                        {models.isLoading
-                          ? "Loading available models…"
-                          : modelOptions.length
-                            ? "Pick one, or type any model id to override. Blank = a sensible default."
-                            : "Type a model id, or leave blank for a sensible default."}
-                      </p>
-                    </>
+                    <ModelField
+                      // Remount on provider switch so a left-open "Custom…" box resets to the dropdown.
+                      key={provider}
+                      id={id}
+                      value={values[field.key] ?? ""}
+                      placeholder={field.placeholder}
+                      models={modelOptions}
+                      loading={models.isLoading}
+                      onChange={(v) =>
+                        setValues((prev) => ({ ...prev, [field.key]: v }))
+                      }
+                    />
                   ) : (
                     <Input
                       id={id}

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { ModelField } from "@/components/model-field";
 import { TestResult } from "@/components/test-result";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +36,6 @@ export function StepCurator({ data, update }: StepProps) {
   const [model, setModel] = useState(selected?.defaultModel ?? "");
   const keyId = useId();
   const modelId = useId();
-  const modelListId = useId();
   const ollamaId = useId();
   const queryClient = useQueryClient();
 
@@ -58,7 +58,8 @@ export function StepCurator({ data, update }: StepProps) {
 
   // Fetch the provider's models once a key is on file (Ollama lists from its URL, no key). The backend
   // reads the SAVED key server-side, so the list reflects the last Save & test; an empty list (no key
-  // yet, or a provider that can't list) just leaves the free-text field.
+  // yet, or a provider that can't list) just leaves the dropdown with its "Sensible default" and
+  // "Custom…" options.
   const hasSavedKey = !!(
     settings.data && settingString(settings.data, "curator.api_key")
   );
@@ -187,28 +188,16 @@ export function StepCurator({ data, update }: StepProps) {
             )}
             <div className="space-y-2">
               <Label htmlFor={modelId}>Model</Label>
-              <Input
+              <ModelField
+                // Remount on provider switch so a left-open "Custom…" box resets to the dropdown.
+                key={selected.id}
                 id={modelId}
                 value={model}
-                onChange={(event) => setModel(event.target.value)}
-                autoComplete="off"
-                list={modelOptions.length > 0 ? modelListId : undefined}
                 placeholder={selected.defaultModel}
+                models={modelOptions}
+                loading={models.isFetching}
+                onChange={setModel}
               />
-              {modelOptions.length > 0 && (
-                <datalist id={modelListId}>
-                  {modelOptions.map((id) => (
-                    <option key={id} value={id} />
-                  ))}
-                </datalist>
-              )}
-              <p className="text-sm text-muted-foreground">
-                {models.isFetching
-                  ? "Loading available models…"
-                  : modelOptions.length > 0
-                    ? `${modelOptions.length} models available — start typing to choose, or keep the recommended ${selected.defaultModel}.`
-                    : "The cheap tier is plenty — the curator only re-ranks ~40 titles you already own."}
-              </p>
             </div>
             <Button
               onClick={() => saveAndTest.mutate(selected)}

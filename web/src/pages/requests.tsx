@@ -8,7 +8,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import {
   ImdbGlyph,
@@ -72,12 +72,27 @@ function wantedByLabel(item: RequestCandidate): string {
   return `Wanted by ${names.slice(0, 3).join(", ")} +${names.length - 3} more`;
 }
 
+type QuickLink = {
+  label: string;
+  icon: ReactNode;
+  href: string;
+  strong?: boolean;
+};
+
 /** Quick look-it-up links: TMDB and Trakt jump straight to the title by its TMDB id; IMDb is a
- *  title search (Shortlist doesn't store an IMDb id). All open in a new tab. */
-function ExternalLinks({ item }: { item: RequestCandidate }) {
+ *  title search (Shortlist doesn't store an IMDb id). `lead` prepends extra links (e.g. the sent
+ *  log's "Open in Sonarr/Radarr") so they sit in the same row. All open in a new tab. */
+function ExternalLinks({
+  item,
+  lead = [],
+}: {
+  item: RequestCandidate;
+  lead?: QuickLink[];
+}) {
   const tmdbPath = item.media_type === "movie" ? "movie" : "tv";
   const traktType = item.media_type === "movie" ? "movie" : "show";
-  const links = [
+  const links: QuickLink[] = [
+    ...lead,
     {
       label: "TMDB",
       icon: <TmdbGlyph className="h-3.5 w-3.5 rounded-[2px]" />,
@@ -105,7 +120,11 @@ function ExternalLinks({ item }: { item: RequestCandidate }) {
           href={link.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline focus-visible:text-foreground"
+          className={
+            link.strong
+              ? "inline-flex items-center gap-1 font-medium text-foreground hover:underline focus-visible:underline"
+              : "inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline focus-visible:text-foreground"
+          }
         >
           {link.icon}
           {link.label}
@@ -274,12 +293,25 @@ function SentRow({
   const app = isMovie ? "Radarr" : "Sonarr";
   const ArrGlyph = isMovie ? RadarrGlyph : SonarrGlyph;
   const base = (isMovie ? radarrUrl : sonarrUrl).replace(/\/+$/, "");
-  // Radarr deep-links a movie by its TMDB id; Sonarr has no TMDB route, so we open the app itself.
-  const arrLink = base
-    ? isMovie
-      ? `${base}/movie/${item.tmdb_id}`
-      : base
-    : "";
+  // Deep-link straight to the title's arr page. Radarr accepts its TMDB id; Sonarr has NO id URL —
+  // only /series/<titleSlug> — so it needs the slug captured at send time. Without a slug (a title
+  // sent before we recorded it) fall back to the app's home page rather than a dead link.
+  const arrPath = isMovie
+    ? `movie/${item.arr_slug ?? item.tmdb_id}`
+    : item.arr_slug
+      ? `series/${item.arr_slug}`
+      : "";
+  const arrLink = base ? `${base}/${arrPath}` : "";
+  const lead = arrLink
+    ? [
+        {
+          label: `Open in ${app}`,
+          icon: <ArrGlyph className="h-3.5 w-3.5 rounded-[2px]" />,
+          href: arrLink,
+          strong: true,
+        },
+      ]
+    : [];
   return (
     <div className="space-y-1.5 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -296,21 +328,10 @@ function SentRow({
           <span>Sent {formatDate(item.updated_at)}</span>
         ) : null}
         {item.detail ? <span>· {item.detail}</span> : null}
-        {arrLink ? (
-          <a
-            href={arrLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-foreground hover:underline"
-          >
-            <ArrGlyph className="h-3.5 w-3.5 rounded-[2px]" />
-            Open in {app}
-            <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          </a>
-        ) : null}
       </div>
       <WhyBreakdown why={item.why} />
-      <ExternalLinks item={item} />
+      {/* The "Open in Sonarr/Radarr" link now sits with the TMDB/IMDb/Trakt look-ups, not up top. */}
+      <ExternalLinks item={item} lead={lead} />
     </div>
   );
 }

@@ -324,6 +324,10 @@ class RequestCandidate(Base):
     why: Mapped[list] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | sent | rejected
     detail: Mapped[str] = mapped_column(String(512), default="")  # send outcome, or why it's queued
+    # The arr's titleSlug, captured when the title is sent, so the inbox deep-links straight to its
+    # Sonarr/Radarr page (Sonarr has only `/series/<slug>`, no id URL). None for titles queued/sent
+    # before this was recorded — the inbox falls back to the arr's home page for those.
+    arr_slug: Mapped[str | None] = mapped_column(String(256), nullable=True)
     # On Sonarr/Radarr's import-exclusion list (usually from a past delete): surfaced in the inbox so
     # the owner knows approving it is a no-op until they remove the exclusion in the Arr.
     excluded: Mapped[bool] = mapped_column(Boolean, default=False)

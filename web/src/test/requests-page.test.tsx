@@ -24,7 +24,9 @@ const {
   restoreRequests: vi.fn((ids: number[]) =>
     Promise.resolve({ restored: ids.length }),
   ),
-  getSettings: vi.fn(() => Promise.resolve({ "requests.enabled": true })),
+  getSettings: vi.fn((): Promise<Record<string, unknown>> =>
+    Promise.resolve({ "requests.enabled": true }),
+  ),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -59,6 +61,7 @@ function candidate(
     status: "pending",
     detail: "",
     excluded: false,
+    arr_slug: null,
     updated_at: null,
     ...overrides,
   };
@@ -143,6 +146,80 @@ describe("RequestsPage", () => {
       screen.getByRole("heading", { name: "Sent to Radarr & Sonarr" }),
     ).toBeTruthy();
     expect(screen.getByText(/added to Sonarr/i)).toBeTruthy();
+  });
+
+  it("deep-links a sent show straight to its Sonarr series page via the captured slug", async () => {
+    // Sonarr has no id-based URL, so the direct link needs the titleSlug captured at send time.
+    getSettings.mockResolvedValueOnce({
+      "requests.enabled": true,
+      "requests.sonarr.url": "https://tv.stevez0.com",
+    });
+    listRequests.mockResolvedValue([
+      candidate({
+        id: 2,
+        tmdb_id: 200,
+        title: "Shogun",
+        media_type: "show",
+        status: "sent",
+        arr_slug: "shogun",
+      }),
+    ]);
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sent (1)" }),
+    );
+    const open = screen.getByRole("link", { name: /Open in Sonarr/i });
+    expect((open as HTMLAnchorElement).href).toBe(
+      "https://tv.stevez0.com/series/shogun",
+    );
+  });
+
+  it("falls back to the Sonarr home for a legacy sent show with no captured slug", async () => {
+    getSettings.mockResolvedValueOnce({
+      "requests.enabled": true,
+      "requests.sonarr.url": "https://tv.stevez0.com",
+    });
+    listRequests.mockResolvedValue([
+      candidate({
+        id: 2,
+        tmdb_id: 200,
+        title: "Shogun",
+        media_type: "show",
+        status: "sent",
+        arr_slug: null, // sent before slugs were recorded — no dead /series/ link
+      }),
+    ]);
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sent (1)" }),
+    );
+    const open = screen.getByRole("link", { name: /Open in Sonarr/i });
+    expect((open as HTMLAnchorElement).href).toBe("https://tv.stevez0.com/");
+  });
+
+  it("deep-links a sent movie to its Radarr page (slug when captured, else TMDB id)", async () => {
+    getSettings.mockResolvedValueOnce({
+      "requests.enabled": true,
+      "requests.radarr.url": "https://movies.stevez0.com",
+    });
+    listRequests.mockResolvedValue([
+      candidate({
+        id: 1,
+        tmdb_id: 603,
+        title: "The Matrix",
+        media_type: "movie",
+        status: "sent",
+        arr_slug: "the-matrix-603",
+      }),
+    ]);
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sent (1)" }),
+    );
+    const open = screen.getByRole("link", { name: /Open in Radarr/i });
+    expect((open as HTMLAnchorElement).href).toBe(
+      "https://movies.stevez0.com/movie/the-matrix-603",
+    );
   });
 
   it("shows the send log on the Sent tab with a findable empty state before the first send", async () => {

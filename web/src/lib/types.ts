@@ -655,6 +655,9 @@ export interface RequestCandidate {
   /** On Sonarr/Radarr's import-exclusion list (usually a past delete) — approving is a no-op until
    *  the owner removes the exclusion there. */
   excluded: boolean;
+  /** The arr's titleSlug, captured at send time — lets the sent log deep-link straight to the
+   *  Sonarr/Radarr page. Null for items sent before this was recorded (falls back to the arr home). */
+  arr_slug: string | null;
   /** When this row last changed state — the "sent at" for a sent item. */
   updated_at: string | null;
 }

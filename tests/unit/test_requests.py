@@ -71,19 +71,23 @@ class FakeArr:
     def excluded_tvdb_ids(self) -> set[int]:
         return set(self._excluded)
 
-    def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
+    def add_movie(
+        self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None
+    ) -> tuple[str, str, str | None]:
         self.movie_calls.append((tmdb_id, dry_run))
         self.tag_calls.append(set(extra_tags or set()))
         if self.raise_on == tmdb_id:
             raise ArrError("boom")
         if tmdb_id in self.skip_present:
-            return ("skipped_present", "already in Radarr")
-        return ("would_request" if dry_run else "requested", "ok")
+            return ("skipped_present", "already in Radarr", f"movie-{tmdb_id}")
+        return ("would_request" if dry_run else "requested", "ok", f"movie-{tmdb_id}")
 
-    def add_series(self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
+    def add_series(
+        self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None
+    ) -> tuple[str, str, str | None]:
         self.series_calls.append((tvdb_id, dry_run))
         self.tag_calls.append(set(extra_tags or set()))
-        return ("would_request" if dry_run else "requested", "ok")
+        return ("would_request" if dry_run else "requested", "ok", f"series-{tvdb_id}")
 
 
 class FakeTmdb:

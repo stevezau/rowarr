@@ -196,6 +196,10 @@ def request_missing(
     # and both can land in one auto batch (see filter_candidates for the same rule).
     landed = {(o.tmdb_id, o.media_type) for o in report.outcomes if o.status in ("requested", "would_request")}
     report.sent = [m for m in auto if (m.tmdb_id, m.media_type) in landed]
+    # Carry each arr's titleSlug onto the sent title so the persisted candidate can deep-link to it.
+    slug_by_key = {(o.tmdb_id, o.media_type): o.arr_slug for o in report.outcomes}
+    for m in report.sent:
+        m.arr_slug = slug_by_key.get((m.tmdb_id, m.media_type))
     # A failed auto-send (status "error" — e.g. a Sonarr/Radarr lookup 5xx) used to vanish: it was in
     # neither `sent` nor `queued`, so it never reached the inbox, retried blindly every night, and its
     # reason was invisible. Queue it WITH the reason so it shows in Waiting, retriable by hand. Only
@@ -394,21 +398,22 @@ def _request_one(
 ) -> RequestOutcome:
     """Route one missing title to the right app; translate any failure into an outcome, never a raise."""
 
-    def outcome(status: str, detail: str) -> RequestOutcome:
+    def outcome(status: str, detail: str, slug: str | None = None) -> RequestOutcome:
         return RequestOutcome(
             tmdb_id=title.tmdb_id,
             title=title.title,
             media_type=title.media_type,
             status=status,
             detail=detail,
+            arr_slug=slug,
         )
 
     try:
         if title.media_type is MediaType.MOVIE:
             if radarr is None:
                 return outcome("skipped_no_target", "Radarr isn't configured")
-            status, detail = radarr.add_movie(title.tmdb_id, dry_run=dry_run, extra_tags=title.tags)
-            return outcome(status, detail)
+            status, detail, slug = radarr.add_movie(title.tmdb_id, dry_run=dry_run, extra_tags=title.tags)
+            return outcome(status, detail, slug)
         # Shows: Sonarr keys on TVDB, so cross the namespace first. The TVDB lookup is a TMDB call,
         # not an Arr one, so it raises RuntimeError/httpx errors rather than ArrError — catch it here
         # so one show's lookup hiccup becomes that title's outcome, never an escape that discards the
@@ -425,8 +430,8 @@ def _request_one(
                 return outcome("error", "could not resolve this show's TheTVDB id")
         if tvdb_id is None:
             return outcome("skipped_no_tvdb", "no TheTVDB id for this show")
-        status, detail = sonarr.add_series(tvdb_id, dry_run=dry_run, extra_tags=title.tags)
-        return outcome(status, detail)
+        status, detail, slug = sonarr.add_series(tvdb_id, dry_run=dry_run, extra_tags=title.tags)
+        return outcome(status, detail, slug)
     except ArrError as e:
         # A request failing is a footnote, never a run failure — Sonarr/Radarr are optional plumbing.
         logger.warning("request for {!r} failed: {}", title.title, e)

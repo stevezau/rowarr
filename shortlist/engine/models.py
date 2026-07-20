@@ -380,6 +380,9 @@ class MissingTitle:
     # A show's resolved TheTVDB id, cached once (Sonarr keys on TVDB) so the arr-presence check and
     # the eventual send don't each pay a separate TMDB lookup. None until resolved / for movies.
     tvdb_id: int | None = None
+    # The arr titleSlug of a sent title, captured at send time so the inbox links straight to its
+    # Sonarr/Radarr page. None until sent / for a title that never resolved on the arr.
+    arr_slug: str | None = None
     # True when the title sits on Sonarr/Radarr's import-exclusion list (from a past delete): it's
     # surfaced for the owner but never auto-sent, since the Arr would refuse it until un-excluded.
     excluded: bool = False
@@ -395,6 +398,10 @@ class RequestOutcome:
     # requested | would_request | skipped_present | skipped_no_tvdb | skipped_no_target | error
     status: str
     detail: str = ""
+    # The arr's own titleSlug (Sonarr/Radarr) for the resolved title, so the inbox can deep-link
+    # straight to the series/movie page: Sonarr has no id-based URL, only `/series/<slug>`. None when
+    # the arr didn't resolve it (error) or for a source that doesn't report one.
+    arr_slug: str | None = None
 
 
 @dataclass

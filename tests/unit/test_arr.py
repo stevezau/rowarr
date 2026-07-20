@@ -49,7 +49,7 @@ class TestRadarrAddMovie:
         )
         post = respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201, json={"id": 5}))
 
-        status, _ = RadarrClient(RADARR).add_movie(273481, dry_run=False)
+        status, _, _ = RadarrClient(RADARR).add_movie(273481, dry_run=False)
 
         assert status == "requested"
         body = json.loads(post.calls.last.request.content)
@@ -61,6 +61,17 @@ class TestRadarrAddMovie:
         assert body["tmdbId"] == 273481  # carried through from the lookup resource
         assert body["tags"] == []  # no tag configured on this target -> no tag call, empty list
         assert post.calls.last.request.headers["X-Api-Key"] == "rk"
+
+    @respx.mock
+    def test_returns_the_titleslug_for_the_inbox_deep_link(self):
+        # The send log deep-links straight to the arr page; Sonarr has no id URL, so the titleSlug
+        # from the lookup resource must be returned to the caller.
+        respx.get("http://radarr.test/api/v3/movie/lookup/tmdb").mock(
+            return_value=httpx.Response(200, json=MOVIE_LOOKUP)
+        )
+        respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201, json={"id": 5}))
+        status, _, slug = RadarrClient(RADARR).add_movie(273481, dry_run=False)
+        assert (status, slug) == ("requested", "sicario-273481")
 
     @respx.mock
     def test_lookup_actually_sends_the_tmdb_id_in_the_query(self):
@@ -209,7 +220,7 @@ class TestRadarrAddMovie:
         tag_get = respx.get("http://radarr.test/api/v3/tag").mock(return_value=httpx.Response(200, json=[]))
         tag_post = respx.post("http://radarr.test/api/v3/tag").mock(return_value=httpx.Response(201, json={"id": 7}))
 
-        status, _ = RadarrClient(tagged).add_movie(273481, dry_run=True)
+        status, _, _ = RadarrClient(tagged).add_movie(273481, dry_run=True)
 
         assert status == "would_request"
         assert not tag_get.called and not tag_post.called  # no tag lookup or creation in a dry run
@@ -221,7 +232,7 @@ class TestRadarrAddMovie:
         )
         post = respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201))
 
-        status, _ = RadarrClient(RADARR).add_movie(273481, dry_run=True)
+        status, _, _ = RadarrClient(RADARR).add_movie(273481, dry_run=True)
 
         assert status == "would_request"
         assert lookup.called
@@ -234,7 +245,7 @@ class TestRadarrAddMovie:
         )
         post = respx.post("http://radarr.test/api/v3/movie").mock(return_value=httpx.Response(201))
 
-        status, detail = RadarrClient(RADARR).add_movie(273481, dry_run=False)
+        status, detail, _ = RadarrClient(RADARR).add_movie(273481, dry_run=False)
 
         assert status == "skipped_present"
         assert not post.called
@@ -271,7 +282,7 @@ class TestSonarrAddSeries:
         )
         post = respx.post("http://sonarr.test/api/v3/series").mock(return_value=httpx.Response(201, json={"id": 3}))
 
-        status, _ = SonarrClient(SONARR).add_series(371980, dry_run=False)
+        status, _, _ = SonarrClient(SONARR).add_series(371980, dry_run=False)
 
         assert status == "requested"
         body = json.loads(post.calls.last.request.content)
@@ -293,7 +304,7 @@ class TestSonarrAddSeries:
         )
         post = respx.post("http://sonarr.test/api/v3/series").mock(return_value=httpx.Response(201))
 
-        status, _ = SonarrClient(SONARR).add_series(371980, dry_run=False)
+        status, _, _ = SonarrClient(SONARR).add_series(371980, dry_run=False)
 
         assert status == "skipped_present"
         assert not post.called
@@ -304,7 +315,7 @@ class TestSonarrAddSeries:
         respx.get("http://sonarr.test/api/v3/series/lookup").mock(
             return_value=httpx.Response(200, json=[{**SERIES_LOOKUP, "tvdbId": 999999}])
         )
-        status, _ = SonarrClient(SONARR).add_series(371980, dry_run=False)
+        status, _, _ = SonarrClient(SONARR).add_series(371980, dry_run=False)
         assert status == "error"
 
 

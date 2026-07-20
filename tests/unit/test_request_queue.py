@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from shortlist.engine.models import MediaType, MissingTitle, RequestReport
+from shortlist.engine.models import MediaType, MissingTitle, RequestOutcome, RequestReport
 from shortlist.server.db.models import RequestCandidate
 from shortlist.server.db.session import make_engine, make_session_factory, run_migrations
 from shortlist.server.services.run_service import RunService
@@ -17,11 +17,19 @@ def _sessions(tmp_path: Path):
 
 
 def _report(
-    queued: list[MissingTitle], *, dry_run: bool = False, present: set | None = None, arr_present: set | None = None
+    queued: list[MissingTitle],
+    *,
+    dry_run: bool = False,
+    present: set | None = None,
+    arr_present: set | None = None,
+    sent: list[MissingTitle] | None = None,
+    outcomes: list[RequestOutcome] | None = None,
 ):
     return SimpleNamespace(
         dry_run=dry_run,
-        requests=RequestReport(queued=queued, arr_present=arr_present or set()),
+        requests=RequestReport(
+            queued=queued, arr_present=arr_present or set(), sent=sent or [], outcomes=outcomes or []
+        ),
         library_present=present or set(),
     )
 
@@ -42,6 +50,41 @@ class TestPersistRequestQueue:
             rows = s.query(RequestCandidate).all()
             assert {r.tmdb_id for r in rows} == {1, 2}
             assert all(r.status == "pending" and r.first_seen_run_id == 7 for r in rows)
+
+    def test_auto_sent_titles_persist_the_arr_slug(self, tmp_path: Path):
+        # The nightly auto-send route must file the arr's titleSlug so the inbox deep-links to it —
+        # both when the title was already queued (existing row) and brand new (fresh insert).
+        sessions = _sessions(tmp_path)
+
+        def _outcome(tmdb_id: int) -> RequestOutcome:
+            return RequestOutcome(
+                tmdb_id=tmdb_id,
+                title=f"t{tmdb_id}",
+                media_type=MediaType.MOVIE,
+                status="requested",
+                detail="queued in Radarr",
+                arr_slug=f"movie-{tmdb_id}",
+            )
+
+        # Existing pending row -> a later run auto-sends it: status flips to sent and the slug lands.
+        with sessions() as s:
+            RunService._persist_request_queue(s, 1, _report([_title(1)]))
+            s.commit()
+        with sessions() as s:
+            RunService._persist_request_queue(
+                s, 2, _report([], sent=[_title(1, arr_slug="movie-1")], outcomes=[_outcome(1)])
+            )
+            s.commit()
+        # A never-queued title auto-sent straight in is inserted as sent WITH its slug.
+        with sessions() as s:
+            RunService._persist_request_queue(
+                s, 3, _report([], sent=[_title(2, arr_slug="movie-2")], outcomes=[_outcome(2)])
+            )
+            s.commit()
+        with sessions() as s:
+            rows = {r.tmdb_id: r for r in s.query(RequestCandidate).all()}
+            assert (rows[1].status, rows[1].arr_slug) == ("sent", "movie-1")
+            assert (rows[2].status, rows[2].arr_slug) == ("sent", "movie-2")
 
     def test_dry_run_persists_nothing(self, tmp_path: Path):
         sessions = _sessions(tmp_path)

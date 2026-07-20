@@ -185,20 +185,24 @@ class RadarrClient(_ArrClient):
         """tmdbIds on Radarr's import-exclusion list (usually left by a past delete)."""
         return self._id_set("/api/v3/exclusions", "tmdbId")
 
-    def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
-        """Request one movie by TMDB id. Returns (status, detail); never raises for a normal skip.
+    def add_movie(
+        self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None
+    ) -> tuple[str, str, str | None]:
+        """Request one movie by TMDB id. Returns (status, detail, slug); never raises for a normal skip.
 
-        ``extra_tags`` are per-user/per-row labels layered onto the target's global tag.
+        ``extra_tags`` are per-user/per-row labels layered onto the target's global tag. ``slug`` is
+        Radarr's titleSlug for the inbox deep-link (None if the title didn't resolve).
         status is one of: would_request (dry-run), requested, skipped_present, error.
         """
         resource = self._get(f"/api/v3/movie/lookup/tmdb?tmdbId={tmdb_id}")
         if not isinstance(resource, dict) or not resource.get("tmdbId"):
-            return "error", "Radarr could not find this title"
+            return "error", "Radarr could not find this title", None
+        slug = resource.get("titleSlug") or None
         if resource.get("id"):  # a non-zero id means Radarr already tracks it
-            return "skipped_present", "already in Radarr"
+            return "skipped_present", "already in Radarr", slug
         if dry_run:
             logger.info("[dry-run] Radarr: would add tmdb {}", tmdb_id)
-            return "would_request", "would add to Radarr"
+            return "would_request", "would add to Radarr", slug
         body = {
             **resource,
             "qualityProfileId": self._target.quality_profile_id,
@@ -209,7 +213,7 @@ class RadarrClient(_ArrClient):
             "addOptions": {"searchForMovie": True},
         }
         self._post("/api/v3/movie", body)
-        return "requested", "added to Radarr and searching"
+        return "requested", "added to Radarr and searching", slug
 
 
 class SonarrClient(_ArrClient):
@@ -233,21 +237,25 @@ class SonarrClient(_ArrClient):
         """tvdbIds on Sonarr's import-exclusion list (usually left by a past delete)."""
         return self._id_set("/api/v3/importlistexclusion", "tvdbId")
 
-    def add_series(self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
-        """Request one series by TVDB id. Returns (status, detail); never raises for a normal skip.
+    def add_series(
+        self, tvdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None
+    ) -> tuple[str, str, str | None]:
+        """Request one series by TVDB id. Returns (status, detail, slug); never raises for a normal skip.
 
-        ``extra_tags`` are per-user/per-row labels layered onto the target's global tag.
+        ``extra_tags`` are per-user/per-row labels layered onto the target's global tag. ``slug`` is
+        Sonarr's titleSlug — the ONLY way to deep-link its series page (Sonarr has no id-based URL).
         status is one of: would_request (dry-run), requested, skipped_present, error.
         """
         results = self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}")
         resource = _match_tvdb(results, tvdb_id)
         if resource is None:
-            return "error", "Sonarr could not find this title"
+            return "error", "Sonarr could not find this title", None
+        slug = resource.get("titleSlug") or None
         if resource.get("id"):  # a non-zero id means Sonarr already tracks it
-            return "skipped_present", "already in Sonarr"
+            return "skipped_present", "already in Sonarr", slug
         if dry_run:
             logger.info("[dry-run] Sonarr: would add tvdb {}", tvdb_id)
-            return "would_request", "would add to Sonarr"
+            return "would_request", "would add to Sonarr", slug
         body = {
             **resource,
             "qualityProfileId": self._target.quality_profile_id,
@@ -258,7 +266,7 @@ class SonarrClient(_ArrClient):
             "addOptions": {"searchForMissingEpisodes": True, "monitor": "all"},
         }
         self._post("/api/v3/series", body)
-        return "requested", "added to Sonarr and searching"
+        return "requested", "added to Sonarr and searching", slug
 
 
 def make_arr_client(service: str, target: ArrTarget) -> _ArrClient:

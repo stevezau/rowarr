@@ -78,10 +78,12 @@ class FakeArr:
         self.movie_calls: list[tuple[int, bool]] = []
         self.tag_calls: list[set[str]] = []
 
-    def add_movie(self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None) -> tuple[str, str]:
+    def add_movie(
+        self, tmdb_id: int, *, dry_run: bool, extra_tags: set[str] | None = None
+    ) -> tuple[str, str, str | None]:
         self.movie_calls.append((tmdb_id, dry_run))
         self.tag_calls.append(set(extra_tags or set()))
-        return ("would_request" if dry_run else "requested", "queued in Radarr")
+        return ("would_request" if dry_run else "requested", "queued in Radarr", f"movie-{tmdb_id}")
 
 
 class FakeTmdb:
@@ -175,6 +177,7 @@ class TestRequestsApi:
         assert fake.tag_calls == [{"kids", "sarah"}]  # the queued tags are applied on send
         rows = {r["tmdb_id"]: r for r in client.get("/api/requests").json()}
         assert rows[10]["status"] == "sent" and rows[10]["detail"] == "queued in Radarr"
+        assert rows[10]["arr_slug"] == "movie-10"  # captured at send time -> the inbox deep-links to it
 
     def test_send_dry_run_previews_without_changing_status(self, client: TestClient, monkeypatch):
         fake = FakeArr()

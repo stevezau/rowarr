@@ -46,6 +46,7 @@ class RequestCandidateOut(BaseModel):
     status: str
     detail: str
     excluded: bool = False  # on a Sonarr/Radarr exclusion list — the inbox warns approving is a no-op
+    arr_slug: str | None = None  # the arr titleSlug -> the sent log deep-links straight to its page
     updated_at: str | None  # when this row last changed state (the "sent at" for a sent item)
 
 
@@ -77,6 +78,7 @@ def list_requests(request: Request) -> list[RequestCandidateOut]:
             status=r.status,
             detail=r.detail,
             excluded=bool(r.excluded),
+            arr_slug=r.arr_slug,
             updated_at=iso_utc(r.updated_at),
         )
         for r in rows
@@ -190,6 +192,8 @@ async def send_requests(body: RequestAction, request: Request) -> dict:
                 if outcome is None:
                     continue
                 row.detail = outcome.detail
+                if outcome.arr_slug:
+                    row.arr_slug = outcome.arr_slug  # so the sent log deep-links to the arr page
                 if not body.dry_run and outcome.status == "requested":
                     row.status = "sent"
                 outcomes.append({"id": row.id, "title": row.title, "status": outcome.status, "detail": outcome.detail})

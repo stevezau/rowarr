@@ -50,6 +50,7 @@ def _candidate_row(m, run_id: int, *, status: str) -> RequestCandidate:
         status=status,
         detail=m.detail,  # a failed auto-send carries WHY it didn't land, shown as "Last attempt: …"
         excluded=m.excluded,  # on a Sonarr/Radarr exclusion list — flagged in the inbox
+        arr_slug=m.arr_slug,  # set for auto-sent titles, so the inbox deep-links to the arr page
         first_seen_run_id=run_id,
     )
 
@@ -653,6 +654,8 @@ class RunService:
                 row.status = "sent"
                 if outcome is not None:
                     row.detail = outcome.detail
+                if m.arr_slug:  # keep an existing slug if this pass somehow didn't resolve one
+                    row.arr_slug = m.arr_slug
 
     @staticmethod
     def _finalize_run(run: Run, report, status: str | None, error: str | None, ok: int, errors: int) -> None:

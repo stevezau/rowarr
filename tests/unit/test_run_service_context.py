@@ -16,6 +16,7 @@ from shortlist.server.services.context_builder import ContextBuilder
 from shortlist.server.services.run_service import RunService
 from shortlist.server.services.secrets import SecretBox
 from shortlist.server.services.sse import EventBus
+from shortlist.server.services.watch_history import StoreHistorySource
 from shortlist.server.settings_store import SettingsStore
 
 
@@ -57,7 +58,9 @@ class TestBuildContext:
 
     def test_no_tautulli_uses_plex_history(self, service, configured):
         ctx = service.build_context(dry_run=True)
-        assert isinstance(ctx.history_source, PlexHistorySource)
+        # The engine reads through the local watch-history store, which wraps the real source.
+        assert isinstance(ctx.history_source, StoreHistorySource)
+        assert isinstance(ctx.history_source._upstream, PlexHistorySource)
         assert ctx.curator.name == "none"
         assert ctx.config.dry_run is True
 
@@ -67,7 +70,8 @@ class TestBuildContext:
             store.set("tautulli.url", "http://taut:8181")
             store.set("tautulli.apikey", "tk")
         ctx = service.build_context(dry_run=False)
-        assert isinstance(ctx.history_source, FallbackHistorySource)
+        assert isinstance(ctx.history_source, StoreHistorySource)
+        assert isinstance(ctx.history_source._upstream, FallbackHistorySource)
 
     def test_ollama_provider_is_built_with_its_url(self, service, sessions, configured):
         """Ollama takes a base URL and no key; the key was previously unstorable, 422ing setup."""

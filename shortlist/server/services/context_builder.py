@@ -55,6 +55,7 @@ from shortlist.server.db.models import (
 )
 from shortlist.server.services.poster_service import load_upload, make_studio
 from shortlist.server.services.sse import EventBus
+from shortlist.server.services.watch_history import StoreHistorySource
 from shortlist.server.settings_store import SettingsStore
 
 
@@ -181,7 +182,11 @@ class ContextBuilder:
             trakt=trakt,
             search=search,
             poster_artist=poster_artist,
-            history_source=history,
+            # The engine reads the COMPLETE watch history from a local store, synced incrementally from
+            # `history` (Plex/Tautulli) — Plex's API only returns the most recent ~200 plays, which hid
+            # a heavy watcher's older watches from the already-watched filter. StoreHistorySource.fetch
+            # syncs-then-reads, so it drops into the existing history_source slot unchanged.
+            history_source=StoreHistorySource(self._sessions, history, min_completion=config.min_completion),
             curator=curator,
             snapshots=DbSnapshotStore(self._sessions),
             index_cache=DbCache(self._sessions, kind="library_index"),

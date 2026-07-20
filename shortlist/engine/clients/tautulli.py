@@ -32,15 +32,36 @@ class TautulliClient:
         self._cmd("status")
         return True
 
-    def get_history(self, plex_account_id: int, *, length: int = 200) -> list[dict]:
-        """Raw history rows for one user, most recent first."""
-        data = self._cmd(
-            "get_history",
-            user_id=plex_account_id,
-            length=length,
-            order_column="date",
-            order_dir="desc",
-        )
-        rows = data.get("data", [])
+    def get_history(self, plex_account_id: int, *, since_ts: int | None = None, page_size: int = 1000) -> list[dict]:
+        """History rows for one user, most recent first — fully paginated, optionally only since a time.
+
+        Was a single 200-row page, which hid a heavy watcher's older watches from the already-watched
+        filter. Pages through the whole history; when ``since_ts`` (a unix timestamp) is given it stops
+        as soon as it reaches rows at or before it, so the incremental sync pulls only new plays.
+        """
+        rows: list[dict] = []
+        start = 0
+        while True:
+            data = self._cmd(
+                "get_history",
+                user_id=plex_account_id,
+                start=start,
+                length=page_size,
+                order_column="date",
+                order_dir="desc",
+            )
+            page = data.get("data", [])
+            if not page:
+                break
+            if since_ts is not None:
+                fresh = [r for r in page if int(r.get("date") or 0) > since_ts]
+                rows.extend(fresh)
+                if len(fresh) < len(page):  # crossed the watermark within this page — done
+                    break
+            else:
+                rows.extend(page)
+            if len(page) < page_size:
+                break
+            start += page_size
         logger.debug("Tautulli history for account {}: {} rows", plex_account_id, len(rows))
         return rows

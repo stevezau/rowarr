@@ -666,6 +666,16 @@ class PlexClient:
         r.raise_for_status()
         return r.json().get("MediaContainer", {}).get("Hub", []) or []
 
-    def history_for_account(self, account_id: int, *, max_results: int = 200) -> list:
-        """Plex-native watch history for one account (fallback when Tautulli is absent)."""
-        return self._server.history(maxresults=max_results, accountID=account_id)
+    def history_for_account(self, account_id: int, *, since=None, max_results: int = 50000) -> list:
+        """Plex-native watch history for one account, full depth (used by the incremental sync).
+
+        The old 200-row cap hid a heavy watcher's older plays from the already-watched filter, so a
+        title watched thousands of plays ago got recommended again (SFLIX/MooHouse 'Hawking',
+        2026-07-20). ``since`` (a datetime) limits the pull to plays after that instant — the sync
+        passes each account's high-water mark so a run fetches only new events. The high ``max_results``
+        bounds a pathological account; plexapi pages internally to reach it.
+        """
+        kwargs: dict = {"maxresults": max_results, "accountID": account_id}
+        if since is not None:
+            kwargs["mindate"] = since
+        return self._server.history(**kwargs)

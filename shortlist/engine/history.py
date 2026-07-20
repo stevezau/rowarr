@@ -13,7 +13,9 @@ from shortlist.engine.models import MediaType, Seed, UserProfile, WatchedItem
 
 
 class HistorySource(Protocol):
-    def fetch(self, user: UserProfile, *, min_completion: float) -> list[WatchedItem]: ...
+    def fetch(
+        self, user: UserProfile, *, min_completion: float, since: datetime | None = None
+    ) -> list[WatchedItem]: ...
 
 
 class FallbackHistorySource:
@@ -30,15 +32,15 @@ class FallbackHistorySource:
         self._fallback = fallback
         self._min_items = min_items
 
-    def fetch(self, user: UserProfile, *, min_completion: float) -> list[WatchedItem]:
+    def fetch(self, user: UserProfile, *, min_completion: float, since: datetime | None = None) -> list[WatchedItem]:
         try:
-            items = self._primary.fetch(user, min_completion=min_completion)
+            items = self._primary.fetch(user, min_completion=min_completion, since=since)
         except Exception as e:
             logger.warning("{}: primary history source failed ({}); using fallback", user.username, e)
-            return self._fallback.fetch(user, min_completion=min_completion)
+            return self._fallback.fetch(user, min_completion=min_completion, since=since)
         if len(items) >= self._min_items:
             return items
-        fallback_items = self._fallback.fetch(user, min_completion=min_completion)
+        fallback_items = self._fallback.fetch(user, min_completion=min_completion, since=since)
         if len(fallback_items) > len(items):
             logger.info(
                 "{}: primary history thin ({} items) — using fallback ({} items)",
@@ -56,8 +58,9 @@ class TautulliSource:
     def __init__(self, client: TautulliClient):
         self._client = client
 
-    def fetch(self, user: UserProfile, *, min_completion: float) -> list[WatchedItem]:
-        rows = self._client.get_history(user.plex_account_id)
+    def fetch(self, user: UserProfile, *, min_completion: float, since: datetime | None = None) -> list[WatchedItem]:
+        since_ts = int(since.timestamp()) if since is not None else None
+        rows = self._client.get_history(user.plex_account_id, since_ts=since_ts)
         items = []
         for row in rows:
             completion = int(row.get("percent_complete") or 0) / 100
@@ -89,22 +92,24 @@ class PlexHistorySource:
     def __init__(self, client: PlexClient):
         self._client = client
 
-    def fetch(self, user: UserProfile, *, min_completion: float) -> list[WatchedItem]:
+    def fetch(self, user: UserProfile, *, min_completion: float, since: datetime | None = None) -> list[WatchedItem]:
         # PMS history rows carry no completion percentage; presence in history is the signal.
         items = []
-        for entry in self._client.history_for_account(user.plex_account_id):
+        for entry in self._client.history_for_account(user.plex_account_id, since=since):
             media_type = MediaType.SHOW if entry.type == "episode" else MediaType.MOVIE
             title = getattr(entry, "grandparentTitle", None) or getattr(entry, "title", "")
             if not title:
                 continue
             viewed_at = getattr(entry, "viewedAt", None)
+            if viewed_at is None:
+                # No timestamp -> can't position it in history, and a `now()` fallback would get a
+                # fresh time on every pull and duplicate in the watch-history store. Skip it.
+                continue
             items.append(
                 WatchedItem(
                     title=title,
                     media_type=media_type,
-                    watched_at=viewed_at.replace(tzinfo=UTC)
-                    if viewed_at and viewed_at.tzinfo is None
-                    else (viewed_at or datetime.now(UTC)),
+                    watched_at=viewed_at.replace(tzinfo=UTC) if viewed_at.tzinfo is None else viewed_at,
                     rating_key=int(entry.grandparentRatingKey)
                     if getattr(entry, "grandparentRatingKey", None)
                     else (int(entry.ratingKey) if getattr(entry, "ratingKey", None) else None),

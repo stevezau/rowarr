@@ -33,7 +33,7 @@ class TestTautulliSource:
         assert items[0].title == "Heat"
         assert items[0].media_type is MediaType.MOVIE
         assert items[0].completion == 1.0
-        mock_tautulli.get_history.assert_called_once_with(100)
+        mock_tautulli.get_history.assert_called_once_with(100, since_ts=None)
 
     def test_episode_rows_collapse_to_show_title(self, mock_tautulli):
         mock_tautulli.get_history.return_value = [

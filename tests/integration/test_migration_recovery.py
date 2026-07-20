@@ -66,32 +66,22 @@ def test_every_revision_is_re_runnable_after_a_crash(tmp_path: Path, revision: s
 
     assert _version(engine) == head
     with engine.connect() as conn:
-        # Recovery must not duplicate the row 0003 seeds: a re-run finishes the job, it does not
-        # redo it. (Re-seeding on every recovery would give the owner two "Picked for You" rows.)
+        # Recovery must not duplicate the default row the initial migration seeds: a re-run finishes
+        # the job, it does not redo it. (Re-seeding would give the owner two "Picked for You" rows.)
         assert [r[0] for r in conn.execute(sa.text("SELECT slug FROM collections")).fetchall()] == ["picked"]
 
 
-def test_0003_reseeds_the_default_row_a_crash_lost(tmp_path: Path):
-    """The live SFLIX partial state: 0003's tables exist but its seed never ran.
-
-    Recovery has to re-seed, and the seed must not depend on parsing the `settings` rows a real
-    install already has — that is what broke on SFLIX.
-    """
+def test_a_crash_before_the_default_seed_still_seeds_it(tmp_path: Path):
+    """A crash mid-initial that created the tables but lost the default-row seed: the re-run must seed
+    it (the initial migration's seed is guarded by 'collections is empty', not by the version stamp)."""
     db_session.run_migrations(tmp_path)
     engine = db_session.make_engine(tmp_path)
-    with engine.connect() as conn:
-        assert conn.execute(sa.text("SELECT count(*) FROM collections")).scalar() == 1
-
     with engine.begin() as conn:
-        conn.execute(sa.text("DELETE FROM collections"))
-        conn.execute(sa.text("UPDATE alembic_version SET version_num='0002'"))
-        conn.execute(
-            sa.text("INSERT INTO settings (key, value, updated_at) VALUES ('row.size', '10', :t)"),
-            {"t": "2026-01-01"},
-        )
+        conn.execute(sa.text("DELETE FROM collections"))  # seed lost
+        conn.execute(sa.text("DELETE FROM alembic_version"))  # stamp never written (crash before it)
 
     db_session.run_migrations(tmp_path)
 
     with engine.connect() as conn:
-        assert conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() >= "0004"
+        assert _version(engine) == "0001"
         assert [r[0] for r in conn.execute(sa.text("SELECT slug FROM collections")).fetchall()] == ["picked"]

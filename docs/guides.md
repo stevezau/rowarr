@@ -9,16 +9,20 @@
   the whole multi-row feature lives — see "Naming a row" and "Row placement" below.
 - **Users** — enable/disable each person or **Enable all / Disable all** at once, pause
   someone (keeps their row, skips them on runs), set a request tag, add per-row overrides
-  (size, curation style, mute), and see each user's restriction status.
+  (size, curation style, mute), and see each user's restriction status. Opening a person shows
+  their recent watch history (with season/episode numbers for TV) and their picks grouped by row,
+  with long pick lists collapsed behind a "show more".
 - **Runs** — a live **Activity** log streams each user through history → candidates → curating →
   delivering as the run happens (seeded from the server so a reload replays it); per-user diffs
   grouped by row then library ("added X to Movies, Y to TV Shows"), each library showing its own
   ranked picks; errors as first-class rows with copy-for-GitHub buttons, LLM token usage.
 - **Requests** — the approval inbox for titles your picks wanted but the library doesn't have
   yet. Approve to send to Radarr/Sonarr, or reject so they never come back (see "Requests" below).
-- **Settings** — every connection re-testable in place; **Recommendations** (which candidate
-  sources to pool); curation style; row defaults; the Danger Zone. (Each row's run schedule lives
-  in that row's editor, not here — see Schedules below.)
+- **Settings** — organised into a grouped sidebar sub-nav so it doesn't read as one long wall:
+  **Connect** (Connections), **Rows** (Recommendations, Curation style, Row defaults, Row
+  placement), **Add-ons** (Requests), and **System** (Advanced, API access, Danger Zone). Every
+  connection is re-testable in place. (Each row's run schedule lives in that row's editor, not
+  here — see Schedules below.)
 
 ## Schedules
 
@@ -272,6 +276,8 @@ The **Requests** tab (in the sidebar) is your approval queue. Each run adds the 
 titles it didn't auto-send — with the title, year, rating, and a full **why it's here** breakdown:
 one line per person and row that wanted it, with the reason (e.g. "Sarah · Comedy Classics · because
 they watched Fawlty Towers"). That answers where a request came from and why, not just a count.
+A long queue can be narrowed by a minimum rating and vote count (and to movies or shows) and
+sorted by **Newest**, **Top rated**, or **Most wanted**, so the best picks triage first.
 Tick the ones you want and click **Send to Sonarr/Radarr**. For the rest you have two choices, and the
 difference is exactly what happens on the next run:
 
@@ -287,7 +293,10 @@ Both buttons carry a hover hint, and an always-visible line under the queue spel
 A title already in the library stops appearing on its own, and one that's already been sent (still
 downloading, say) never re-consumes an auto-request slot, so a slow grab can't starve the queue.
 Everything sent to Sonarr/Radarr moves to the **Sent to Sonarr/Radarr** log — each entry keeping when
-it went, the app's answer (e.g. "added to Radarr"), and the same why-it-was-wanted breakdown.
+it went, the app's answer (e.g. "added to Radarr"), and the same why-it-was-wanted breakdown. Each
+sent entry links straight to the title's page in Sonarr/Radarr, and a **Clear** button tidies items
+out of the log once you're done with them — Clear only hides the entry (the title stays in
+Sonarr/Radarr and is never re-requested), it never un-sends.
 
 It stays cautious on purpose. Missing titles are deduplicated across all your users — three people
 wanting the same one is a single entry, and multi-person demand ranks it higher and can push it over

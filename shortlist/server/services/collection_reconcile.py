@@ -26,6 +26,7 @@ from shortlist.engine.delivery import (
 )
 from shortlist.engine.models import SHARED_LABEL_PREFIX, UserProfile, UserType
 from shortlist.server.db.models import Event, Run, User
+from shortlist.server.safe_mode import force_dry_run
 
 
 def _delivered_titles_by_user(session, slug: str) -> dict[int, dict[str, str]]:
@@ -69,6 +70,7 @@ def _reconcile_row_removal(
     own label — so it can never reach another user's row or a foreign (Kometa) collection.
     ``only_user_ids`` limits the per-person sweep to specific users (audience-shrink cleanup); ``None``
     means everyone (delete-row / manual cleanup). Removal only, so gate-exempt. Runs in an executor."""
+    dry_run = force_dry_run() or dry_run  # honour SHORTLIST_DRY_RUN safe-mode
     ctx = state.run_service.build_context(dry_run=dry_run)
     if build == "shared":
         # A shared row is one collection for everyone; who SEES it is a share-filter concern handled
@@ -102,10 +104,13 @@ def _reconcile_poster_reset(state, *, slug: str, build: str, reset: list[str]) -
     Shared rows go by their own label (one membership, any title); per-person rows are pinned per user
     by the exact titles the last run delivered for THIS row, scoped to that user's own label — so it
     only ever touches OUR collections. Cosmetic + privacy-neutral, so gate-exempt. Runs in an executor."""
-    ctx = state.run_service.build_context(dry_run=False)
+    dry_run = force_dry_run()  # honour SHORTLIST_DRY_RUN safe-mode (this path is otherwise always live)
+    ctx = state.run_service.build_context(dry_run=dry_run)
     if build == "shared":
         reset.extend(
-            reset_row_posters(ctx.plex, ctx.config, label=f"{SHARED_LABEL_PREFIX}{slug}", displays=None, dry_run=False)
+            reset_row_posters(
+                ctx.plex, ctx.config, label=f"{SHARED_LABEL_PREFIX}{slug}", displays=None, dry_run=dry_run
+            )
         )
         return
     with state.sessions() as session:
@@ -117,7 +122,7 @@ def _reconcile_poster_reset(state, *, slug: str, build: str, reset: list[str]) -
             continue
         reset.extend(
             reset_row_posters(
-                ctx.plex, ctx.config, label=f"{ctx.config.label_prefix}_{user.slug}", displays=displays, dry_run=False
+                ctx.plex, ctx.config, label=f"{ctx.config.label_prefix}_{user.slug}", displays=displays, dry_run=dry_run
             )
         )
 
@@ -177,7 +182,8 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
     with state.sessions() as session:
         titles_by_user = _delivered_titles_by_user(session, slug)
         users = session.query(User).all()
-    ctx = state.run_service.build_context(dry_run=False)
+    dry_run = force_dry_run()  # honour SHORTLIST_DRY_RUN safe-mode (this path is otherwise always live)
+    ctx = state.run_service.build_context(dry_run=dry_run)
     for user in users:
         old_titles = titles_by_user.get(user.id, {})  # {delivered title -> library it was delivered in}
         if not old_titles:
@@ -207,7 +213,7 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
                 marker=marker,
                 old_display=old_display,
                 new_display=new_display,
-                dry_run=False,
+                dry_run=dry_run,
             )
             if libraries:
                 entries.append({"user": user.slug, "old": old_display, "new": new_display, "libraries": libraries})

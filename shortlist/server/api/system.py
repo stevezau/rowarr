@@ -16,6 +16,7 @@ from pydantic import BaseModel
 import shortlist
 from shortlist.server.auth import API_TOKEN_KEY, API_TOKEN_PREFIX, require_owner
 from shortlist.server.db.models import Collection, Event, RestrictionSnapshotRow, User, iso_utc
+from shortlist.server.safe_mode import force_dry_run
 from shortlist.server.scheduler import rebuild_schedule
 from shortlist.server.settings_store import SettingsStore
 
@@ -265,6 +266,10 @@ async def uninstall(body: UninstallRequest, request: Request) -> dict:
     dry_run=true previews the plan; the real thing requires the literal confirmation
     string UNINSTALL — this is the one deliberately scary button in the product.
     """
+    if force_dry_run():
+        # Safe mode (a demo/test instance pointed at a real server): uninstall only ever previews —
+        # never restores share filters or deletes collections on the real server.
+        body.dry_run = True
     if not body.dry_run and body.confirm != "UNINSTALL":
         raise HTTPException(status_code=422, detail='type "UNINSTALL" to confirm')
     state = request.app.state

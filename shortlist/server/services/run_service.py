@@ -9,7 +9,6 @@ config, profiles) lives in ``context_builder.ContextBuilder``; this module is on
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 from collections import OrderedDict, deque
 from collections.abc import Callable
@@ -23,17 +22,11 @@ from shortlist.engine.models import SHARED_SLUG_PREFIX
 from shortlist.engine.pipeline import EngineContext
 from shortlist.engine.pipeline import run as engine_run
 from shortlist.server.db.models import Event, PickRow, RequestCandidate, Run, RunUser, User
+from shortlist.server.safe_mode import force_dry_run
 from shortlist.server.services.context_builder import ContextBuilder
 from shortlist.server.services.sse import EventBus
 
 HIT_WINDOW_DAYS = 30  # a pick counts as a hit if it is watched within 30 days of being recommended
-
-
-def _force_dry_run() -> bool:
-    """Global safe-mode toggle. When ``SHORTLIST_DRY_RUN`` is set, EVERY run is forced to dry-run —
-    the engine builds its clients and logs the would-be diff but writes NOTHING to Plex/plex.tv. For a
-    demo or test instance pointed at a real server: even a manual 'Run now' can't modify it."""
-    return os.environ.get("SHORTLIST_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _why_json(why) -> list[dict]:
@@ -108,6 +101,11 @@ class RunService:
         log_sink: Callable[[dict], None] | None = None,
         collection_ids: list[int] | None = None,
     ) -> EngineContext:
+        # Safe-mode chokepoint: EVERY Plex-touching path (runs AND the manual row
+        # delete/rename/poster-reset/disable-user reconciles) gets its context here, so forcing
+        # dry-run on the built context makes SHORTLIST_DRY_RUN cover all of them. Callers read the
+        # effective value back off `ctx.config.dry_run`.
+        dry_run = force_dry_run() or dry_run
         return self._ctx.build(
             dry_run=dry_run, loop=loop, run_id=run_id, log_sink=log_sink, collection_ids=collection_ids
         )
@@ -179,7 +177,7 @@ class RunService:
         own rows); ``None`` builds every enabled row. The leak-safe privacy sync always covers every
         account regardless, so rows not built this run stay hidden.
         """
-        if _force_dry_run() and not dry_run:
+        if force_dry_run() and not dry_run:
             logger.warning("SHORTLIST_DRY_RUN is set — forcing this {} run to dry-run (no Plex writes)", trigger)
             dry_run = True
         with self._sessions() as session:

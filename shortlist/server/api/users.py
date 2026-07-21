@@ -16,6 +16,7 @@ from shortlist.engine.delivery import remove_row_collections
 from shortlist.server.auth import require_owner
 from shortlist.server.db.adapters import unique_slug
 from shortlist.server.db.models import DEFAULT_SLUG, Event, PickRow, Run, RunUser, Server, User, iso_utc
+from shortlist.server.safe_mode import force_dry_run
 from shortlist.server.settings_store import SettingsStore
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_owner)])
@@ -130,10 +131,11 @@ async def _remove_users_rows(state, user_slug: str) -> None:
     removed: list[str] = []
 
     def work() -> None:
-        ctx = state.run_service.build_context(dry_run=False)
+        dry_run = force_dry_run()  # honour SHORTLIST_DRY_RUN safe-mode (this path is otherwise always live)
+        ctx = state.run_service.build_context(dry_run=dry_run)
         removed.extend(
             remove_row_collections(
-                ctx.plex, ctx.config, label=f"{ctx.config.label_prefix}_{user_slug}", displays=None, dry_run=False
+                ctx.plex, ctx.config, label=f"{ctx.config.label_prefix}_{user_slug}", displays=None, dry_run=dry_run
             )
         )
 

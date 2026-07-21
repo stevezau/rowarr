@@ -157,6 +157,14 @@ def create_app(config_dir: Path | None = None) -> FastAPI:
         scheduler = build_scheduler(app)
         scheduler.start()
         app.state.scheduler = scheduler
+        from shortlist.server.safe_mode import force_dry_run, misconfigured_dry_run
+
+        if force_dry_run():
+            logger.warning("SHORTLIST_DRY_RUN is ON — safe mode: nothing will be written to Plex/plex.tv")
+        elif (bad := misconfigured_dry_run()) is not None:
+            logger.warning(
+                "SHORTLIST_DRY_RUN={!r} is not a recognized value (use 1/true/yes/on) — safe mode is OFF", bad
+            )
         logger.info("shortlist server up (config: {})", config_dir)
         try:
             yield

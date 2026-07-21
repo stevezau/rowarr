@@ -191,6 +191,19 @@ class TestRunExecution:
         assert run.dry_run is True  # and the persisted run is marked dry
         assert run.stats["dry_run"] is True
 
+    def test_build_context_forces_dry_run_under_safe_mode(self, sessions, tmp_path, monkeypatch):
+        """Safe-mode chokepoint: build_context is where EVERY Plex-touching path (runs + the manual
+        row delete/rename/poster/disable reconciles) gets its context, so forcing dry-run here covers
+        all of them. Assert a caller's dry_run=False is overridden when the env is set."""
+        monkeypatch.setenv("SHORTLIST_DRY_RUN", "1")
+        service = RunService(sessions, EventBus(), tmp_path, SecretBox(tmp_path))
+        captured: dict = {}
+        monkeypatch.setattr(service._ctx, "build", lambda **kw: captured.update(kw) or SimpleNamespace())
+
+        service.build_context(dry_run=False)
+
+        assert captured["dry_run"] is True  # forced on despite the caller asking for a live context
+
     def _one_user_report(self, slug: str) -> UserRunReport:
         return UserRunReport(
             username=slug,

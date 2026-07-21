@@ -1,4 +1,5 @@
-import { Users as UsersIcon } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, Users as UsersIcon } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -27,8 +28,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { api } from "@/lib/api";
 import { formatHitRate, timeAgo } from "@/lib/format";
-import { useSetAllUsersEnabled, usePatchUser, useUsers } from "@/lib/queries";
+import {
+  queryKeys,
+  useSetAllUsersEnabled,
+  usePatchUser,
+  useUsers,
+} from "@/lib/queries";
 
 function UsersSkeleton() {
   return (
@@ -44,9 +51,18 @@ export function UsersPage() {
   const usersQuery = useUsers();
   const patchUser = usePatchUser();
   const setAll = useSetAllUsersEnabled();
+  const queryClient = useQueryClient();
   const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
   const [confirmEnableOpen, setConfirmEnableOpen] = useState(false);
   const userCount = usersQuery.data?.length ?? 0;
+
+  // The wizard syncs on its way past, but an install that finished setup had NO way to pull the
+  // roster again — so someone newly invited to Plex, and the owner's own row, never appeared.
+  const sync = useMutation({
+    mutationFn: api.syncUsers,
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.users }),
+  });
 
   return (
     <div>
@@ -56,6 +72,14 @@ export function UsersPage() {
         subtitle="Everyone on your Plex server. Turn a user on to give them a nightly Picked-for-You row."
         actions={
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => sync.mutate()}
+              loading={sync.isPending}
+            >
+              <RefreshCw aria-hidden="true" />
+              Sync from Plex
+            </Button>
             <Button
               variant="outline"
               onClick={() => setConfirmEnableOpen(true)}
@@ -72,6 +96,15 @@ export function UsersPage() {
           </div>
         }
       />
+
+      {sync.isError && (
+        <MutationAlert
+          className="mb-4"
+          error={sync.error}
+          fallback="Couldn’t reach plex.tv to refresh the user list. Try again."
+          onRetry={() => sync.mutate()}
+        />
+      )}
 
       {/* The Switch reads the server's answer, so a rejected PATCH just snaps it back — which is
           indistinguishable from the click never landing unless we say what happened. */}
@@ -163,7 +196,7 @@ export function UsersPage() {
         empty={
           <EmptyState
             title="No users yet"
-            hint="Shortlist hasn't imported any Plex users. Finish the setup wizard, or check the Plex connection under Settings."
+            hint="Shortlist hasn’t imported any Plex users. Use “Sync from Plex” above, or check the Plex connection under Settings."
           />
         }
       >

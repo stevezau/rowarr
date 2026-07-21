@@ -9,9 +9,10 @@ import { ApiError } from "@/lib/api";
 import type { User, UserPatch } from "@/lib/types";
 import { UsersPage } from "@/pages/users";
 
-const { getUsers, patchUser, setAllUsersEnabled } = vi.hoisted(() => ({
+const { getUsers, patchUser, setAllUsersEnabled, syncUsers } = vi.hoisted(() => ({
   getUsers: vi.fn(),
   patchUser: vi.fn(),
+  syncUsers: vi.fn(() => Promise.resolve({ added: 1, updated: 48, total: 49 })),
   setAllUsersEnabled: vi.fn((_enabled: boolean) =>
     Promise.resolve({ updated: 1, cleaned: 0, enabled: true }),
   ),
@@ -25,6 +26,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
       getUsers: () => getUsers(),
       patchUser: (id: number, patch: UserPatch) => patchUser(id, patch),
       setAllUsersEnabled: (enabled: boolean) => setAllUsersEnabled(enabled),
+      syncUsers: () => syncUsers(),
     },
   };
 });
@@ -159,5 +161,50 @@ describe("UsersPage", () => {
 
     await waitFor(() => expect(patchUser).toHaveBeenCalledTimes(2));
     expect(patchUser.mock.calls.at(-1)).toEqual([4, { enabled: false }]);
+  });
+});
+
+
+describe("UsersPage — pulling the roster again", () => {
+  beforeEach(() => {
+    getUsers.mockReset();
+    syncUsers.mockClear();
+  });
+
+  it("re-syncs from plex.tv on demand — the only path to it once setup is done", async () => {
+    // Without this the wizard was the sole trigger, so an install that had finished setup could
+    // never pick up a newly-invited user OR the owner's own row (issue #1 shipped inert).
+    //
+    // The whole feature lives in the cache invalidation, not the POST: assert the ROSTER refreshes.
+    // Asserting only that syncUsers was called would pass just as happily with the invalidation
+    // deleted, or pointed at the wrong query key.
+    getUsers
+      .mockResolvedValueOnce([SARAH])
+      .mockResolvedValue([
+        SARAH,
+        { ...SARAH, id: 9, username: "steve", slug: "steve", user_type: "owner" },
+      ]);
+    renderPage();
+    expect(await screen.findByText("sarah")).toBeInTheDocument();
+    expect(screen.queryByText("steve")).toBeNull();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Sync from Plex/i }),
+    );
+
+    await waitFor(() => expect(syncUsers).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("steve")).toBeInTheDocument();
+  });
+
+  it("says plex.tv couldn’t be reached rather than silently doing nothing", async () => {
+    getUsers.mockResolvedValue([SARAH]);
+    syncUsers.mockRejectedValueOnce(new ApiError(502, "plex.tv timed out"));
+    renderPage();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Sync from Plex/i }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/plex.tv/i);
   });
 });

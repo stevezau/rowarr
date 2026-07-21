@@ -1,57 +1,107 @@
 # Shortlist ✨
 
-> A private, AI-curated **"Picked for You"** row for every user on your Plex server.
+> A private, personalized **"Picked for You"** row for every user on your Plex server.
 
 [![CI](https://github.com/stevezau/shortlist/actions/workflows/ci.yml/badge.svg)](https://github.com/stevezau/shortlist/actions/workflows/ci.yml)
 [![Docker](https://github.com/stevezau/shortlist/actions/workflows/docker.yml/badge.svg)](https://github.com/stevezau/shortlist/actions/workflows/docker.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![AI-Assisted](https://img.shields.io/badge/AI-assisted%20development-8A2BE2)
 
-Shortlist watches what each of your users watches, asks an LLM to curate what they should watch
-next **from what you already own**, and puts it on their Home screen — privately,
-automatically, every night. Netflix's killer feature, on Plex, without Plex's involvement.
+> [!IMPORTANT]
+> **Shortlist is a brand-new app in public beta.** It works and it's running in production, but
+> you may hit rough edges. **Please report bugs** — open an issue with what happened and your
+> `Settings → System → Copy diagnostics` bundle. Thank you for helping test it. 🙏
+
+## The problem: "what should I watch next?"
+
+Everyone on your Plex server faces the same blank-screen problem — a huge library and no idea what
+to put on. Plex's built-in rows are the same for everyone and ignore what _you've_ actually watched.
+
+**Shortlist fixes that, per person.** For each user it looks at their own watch history and builds a
+personalized collection — "Picked for You" — of things from your library they haven't seen but
+probably want to, and puts it on their Plex home screen. It's **private**: each person sees only
+their own row, nobody else's. It refreshes automatically. It turns your library into something
+everyone can actually discover from.
 
 ## Why this couldn't exist before 2026
 
 Per-user private collections were impossible until Plex fixed label restrictions on
-Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on that fix: each row
-is a labeled collection excluded on every other account's share, so only its owner ever sees it.
+Home/Recommended (v1.43.1) and Related hubs (v1.43.2). Shortlist is built on that fix: each row is a
+labeled collection excluded on every other account's share, so only its owner ever sees it.
 
 ## Features
 
-- 🔒 **Private by design** — each user's row is a labeled collection excluded on the share of
-  every other account on your server (one row per library, since Plex filters per library).
-  Share filters are snapshotted before the first change and fully restored on uninstall.
-- 🧠 **AI that can't hallucinate** — the LLM (Claude / GPT / Gemini / local Ollama) only
-  re-ranks titles verified to exist in your library. **Works with zero AI** too (heuristic
-  mode) — no keys required.
-- 🌐 **Finds what to watch next** — pool candidates from TMDB, Trakt, your own library, and a
-  **live web search** for current, well-reviewed picks. Web search runs on every provider: the
-  curator's own tool (Claude/GPT/Gemini) or an **Exa** key — the latter also gives a local Ollama
-  model real web search.
-- 💬 **Explainable** — every pick carries "Because you watched X"; every Plex write lands in
-  an audit feed you can read.
-- 🎨 **Custom row posters (optional)** — give a row its own artwork: upload an image, or generate one
-  from text (with `{user}`/`{library_name}` placeholders) reusing your AI provider's key. Generated
-  posters are cached and reused across runs.
-- 📥 **Fills its own gaps (optional)** — when a great pick isn't in your library yet, Shortlist can
-  ask **Radarr/Sonarr** to grab it. Off by default and deliberately cautious: the strongest picks
-  are auto-sent (a few per night, highly rated and widely wanted); everything else waits in a
-  **Requests** inbox for your one-click approval.
-- 🧹 **Kometa-friendly** — Shortlist never touches collections it didn't create.
+**Personalized discovery**
+
+- 👤 **A private row for every user** — built from _their_ watch history, visible only to them. One
+  container serves your whole server.
+- 🧠 **Smart picks, no hallucinations** — an optional LLM (Claude / GPT / Gemini / local Ollama)
+  curates and explains the picks, but only ever from titles verified to exist in your library.
+  **Works with zero AI too** (heuristic mode) — no keys required.
+- 🌐 **Finds what to watch next from everywhere** — pools candidates from TMDB, Trakt, your own
+  library, and a **live web search** for current, well-reviewed titles (via the curator's own web
+  search or an [Exa](https://exa.ai) key).
+- 💬 **Explains itself** — every pick says "Because you watched X".
+- 📚 **Watches whole shows, not episodes** — a 20-episode binge counts as one show, and it looks
+  back through your full history so both movies and TV shape the picks.
+
+**Make it yours**
+
+- 🎞️ **Multiple rows per person + shared rows** — e.g. a personal row, a "New this week" shared
+  row, per-library rows — each with its own sources, size, libraries, curation style, and audience.
+- 🗓️ **Freshness you control** — rows stay stable and refresh on a cadence you set (nightly →
+  fortnightly), so people aren't shown a totally reshuffled row every day.
+- 📍 **Row placement** — choose which Plex shelf each row lands on (Home, the library's Recommended
+  tab, or both) and where it sits, per row.
+- 🎨 **Custom row posters (optional)** — upload artwork or generate it from text, reusing your AI key.
+
+**Grow your library**
+
+- 📥 **Fills its own gaps (optional)** — when a great pick isn't in your library, Shortlist can ask
+  **Radarr/Sonarr** to grab it. Off by default and cautious: the strongest picks auto-send (a few a
+  night); the rest wait in a **Requests** inbox for one-click approval.
+
+**Trust & safety**
+
+- 🔒 **Private by design** — share filters are snapshotted before the first change and fully
+  restored on uninstall; rows are delivered hidden and only revealed once the exclusions exist.
+- 📊 **Know if it's working** — a dashboard tracks what was delivered versus what people actually
+  watched (hit rate), per user and per row.
+- 🧹 **Kometa-friendly** — never touches collections it didn't create.
 - ↩️ **Provable uninstall** — one flow restores your server exactly as Shortlist found it.
-- 📦 **Homelab-native** — one container, `/config` volume, dark UI, GHCR multi-arch,
-  healthcheck, Unraid template.
+- 🧪 **Safe mode** — set `SHORTLIST_DRY_RUN=1` to try it against your real server without writing a
+  single change, until you're happy.
+- 📦 **Homelab-native** — one container, `/config` volume, dark UI, GHCR multi-arch, healthcheck,
+  Unraid template.
 
 ## Quick start
+
+**With Docker Compose:**
 
 ```bash
 mkdir shortlist && cd shortlist
 curl -fsSLO https://raw.githubusercontent.com/stevezau/shortlist/master/docker-compose.example.yml
 mv docker-compose.example.yml docker-compose.yml
 docker compose up -d
-# open http://your-host:5959 → the wizard (connect Plex is step 1) → ~10 min to first rows
 ```
+
+**Or with `docker run`:**
+
+```bash
+docker run -d --name shortlist \
+  -p 5959:5959 \
+  -e TZ=Etc/UTC \
+  -e PUID=1000 -e PGID=1000 \
+  -v /path/to/shortlist/config:/config \
+  --restart unless-stopped \
+  ghcr.io/stevezau/shortlist:latest
+```
+
+Then open **http://your-host:5959** and follow the setup wizard — it connects your Plex account,
+picks your server, and walks you to your first rows (about 10 minutes).
+
+> 💡 Want to try it without touching your server first? Add `-e SHORTLIST_DRY_RUN=1` — Shortlist
+> will show you exactly what it _would_ do and write nothing to Plex.
 
 Requirements: PMS ≥ 1.43.2.10687 · Plex Pass on the admin account · a free TMDB key.
 Optional: Tautulli, an LLM key. Details in [Getting started](docs/getting-started.md).

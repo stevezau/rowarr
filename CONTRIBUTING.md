@@ -11,7 +11,7 @@ pnpm -C web install               # frontend
 pytest                            # unit + integration (no network, ever)
 pnpm -C web test && pnpm -C web build
 ruff check . --fix && ruff format .
-uvicorn shortlist.server.main:app --reload --port 5959   # with SHORTLIST_CONFIG=./devconfig
+SHORTLIST_CONFIG=./devconfig uvicorn --factory shortlist.server.main:create_app --reload --port 5959
 pnpm -C web dev                   # Vite on :5173, proxies /api to :5959
 ```
 

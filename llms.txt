@@ -18,7 +18,10 @@
   byte-preserved. Snapshots precede first mutation; uninstall restores them.
 - Only collections labeled shortlist_* are ever modified or deleted (Kometa coexistence).
 - The owner is never restricted; managed-user restriction profiles are never modified.
-- Real writes are gated on a recorded passing Privacy Check and PMS >= 1.43.2.10687.
+- Rows are made private by leak-safe write ordering: delivered UNPROMOTED, each account's share
+  filter gets `label!=shortlist_<slug>` for every other row, and only THEN are rows promoted — so a
+  row is never visible before the exclusion that hides it exists. (The old automatic Privacy Check
+  write-gate was removed 2026-07-16; the ordering is the guarantee.) Requires PMS >= 1.43.2.10687.
 - Plex title-cases labels; filters must use the stored form.
 - LLM output is validated against the owned-candidate set (no hallucinated titles).
 

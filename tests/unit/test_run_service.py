@@ -168,6 +168,29 @@ class TestRunExecution:
             assert len(events) == 2
             assert any(e.level == "error" for e in events)
 
+    def test_shortlist_dry_run_env_forces_dry_run(self, sessions, tmp_path, monkeypatch):
+        """SHORTLIST_DRY_RUN forces even a non-dry 'Run now' to dry-run — the safety a demo/test
+        instance pointed at a real server relies on (it can never write to Plex)."""
+        monkeypatch.setenv("SHORTLIST_DRY_RUN", "1")
+        service = RunService(sessions, EventBus(), tmp_path, SecretBox(tmp_path))
+        captured: dict = {}
+
+        def fake_build_context(**kw):
+            captured["dry_run"] = kw.get("dry_run")
+            return SimpleNamespace()
+
+        monkeypatch.setattr(service, "build_context", fake_build_context)
+        monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: fake_report(dry_run=True))
+
+        async def scenario():
+            run_id = await service.start_run(trigger="manual", dry_run=False)  # caller asked for a REAL run
+            return await _wait_for_run(sessions, run_id)
+
+        run = asyncio.run(scenario())
+        assert captured["dry_run"] is True  # engine built in dry-run despite the caller's dry_run=False
+        assert run.dry_run is True  # and the persisted run is marked dry
+        assert run.stats["dry_run"] is True
+
     def _one_user_report(self, slug: str) -> UserRunReport:
         return UserRunReport(
             username=slug,

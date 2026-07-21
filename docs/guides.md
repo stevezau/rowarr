@@ -2,16 +2,18 @@
 
 ## The web interface
 
-- **Dashboard** — next scheduled run, per-user cards with their current row, hit rate, and a
-  Run now button. Live-updates during runs.
+- **Dashboard** — the impact report: what Shortlist delivered versus what people actually
+  watched (hit rate over time, per user and per row), recent watches, and a **Sync watched now**
+  button to refresh those numbers on demand.
 - **Rows** — create, edit, and reorder your rows. Each card shows who sees it and how it
   differs from the defaults (sources, libraries, curation style, placement). This is where
   the whole multi-row feature lives — see "Naming a row" and "Row placement" below.
 - **Users** — enable/disable each person or **Enable all / Disable all** at once, pause
   someone (keeps their row, skips them on runs), set a request tag, add per-row overrides
   (size, curation style, mute), and see each user's restriction status. Opening a person shows
-  their recent watch history (with season/episode numbers for TV) and their picks grouped by row,
-  with long pick lists collapsed behind a "show more".
+  their recent watch history (distinct titles, with season/episode numbers for TV), their picks
+  grouped by row (long lists collapse behind a "show more"), and a **Run now** button to rebuild
+  just that person.
 - **Runs** — a live **Activity** log streams each user through history → candidates → curating →
   delivering as the run happens (seeded from the server so a reload replays it); per-user diffs
   grouped by row then library ("added X to Movies, Y to TV Shows"), each library showing its own
@@ -98,7 +100,8 @@ globally and per user. Expect ~20-40% on engaged users after a few weeks.
 ## Recommendation sources
 
 Settings → **Recommendations** controls where candidate titles come from. Shortlist pools every
-source you enable, keeps only what's already in your library, then the AI re-ranks. More sources =
+source you enable, keeps only what's already in your library, then ranks them (a simple, no-AI
+score); if you've set up an AI curator it makes the final pick and writes the "why". More sources =
 wider reach. Available today:
 
 - **TMDB — similar titles**: the baseline — titles TMDB says are similar to what each person watched.
@@ -122,6 +125,23 @@ collection lives in one library, so a row builds one collection per library you 
 ticked (the default) to cover every library, or point a row at just one (e.g. "4K Movies") on a
 server with several libraries of a type. What the row recommends (movies, shows, or both) follows the
 libraries you pick.
+
+### Freshness, already-watched, and cost
+
+Settings → Recommendations has three more dials (each per-row overridable):
+
+- **Freshness** — how often a row's picks change. This is a **cadence, not a nightly shuffle**:
+  `1.0` refreshes every night, lower means every few days, and `0.0` means "build once, then never
+  reshuffle". On most nights an unchanged row is left exactly as-is — no re-curation, no Plex write
+  — which is why a person's row stays familiar instead of being reshuffled daily. On a refresh night
+  the strongest ~two-thirds of picks stay and the weakest third rotates out. Default `0.5`
+  (about weekly). If you trigger two runs the same day, a row that already isn't due won't change —
+  that's expected.
+- **Already-watched titles** — how much of a partly-watched title still counts as "watched" and gets
+  filtered out. Default keeps anything finished out of the picks.
+- **Recent watches to search** — how many of each person's recent titles the AI web-search source
+  looks up (one cached search each). It's the main **cost lever** on that source — lower it to spend
+  fewer tokens/Exa searches.
 
 ### Everything above is only the _default_ — rows override it
 
@@ -165,9 +185,10 @@ audience are its own, exactly like any other row.
 
 ## How Shortlist uses AI (and how to control the cost)
 
-Shortlist works with **no AI at all** — but a curator (Claude, GPT, Gemini, or a local Ollama model)
-makes the picks noticeably better. Here's exactly where AI does and doesn't touch your rows, in plain
-English, so you can decide what to pay for.
+**AI is off by default** (the curator is set to "None" out of the box, and both AI sources are off) —
+Shortlist works fully with **no AI at all**. Turning on a curator (Claude, GPT, Gemini, or a local
+Ollama model) makes the picks noticeably better. Here's exactly where AI does and doesn't touch your
+rows, in plain English, so you can decide what to pay for.
 
 **Building a row happens in four steps:**
 
@@ -197,7 +218,7 @@ English, so you can decide what to pay for.
 
 ### If you don't want to use AI
 
-Set the curator to **None** (Settings → Curation) and leave the two AI sources off. You still get full,
+Leave the curator on **None** (Settings → Curation style — this is the default) and the two AI sources off. You still get full,
 per-person private rows: candidates come from TMDB/Trakt, and the final selection uses the score
 ranking with plain "Because you watched…" reasons instead of AI-written ones. Everything about privacy,
 scheduling and requests works exactly the same. You lose the AI web-search source and the tailored
@@ -246,10 +267,12 @@ Set it up under **Settings → Requests**:
    General_), then click **Test connection**. Save.
 3. Once connected, pick a **Quality** profile and a **Save to** folder from the dropdowns — Shortlist
    reads these straight from the app, so there are no ids to look up.
-4. Tune the **Guardrails**: a minimum rating and minimum number of reviews a title must clear, the
-   fewest people who must want it, an optional **release-year window** (_on or after_ / _on or
-   before_ — leave either blank for no bound; a show is judged by its first-air year), and the most
-   titles to auto-request per night (a hard cap across both apps).
+4. Tune the **Guardrails**: pick a **rating source** — TMDB (no extra setup), or IMDb / Rotten
+   Tomatoes / Metacritic / Trakt (these read scores from **MDBList**, so add a free MDBList API key
+   under Settings → Connections first). Then set a minimum rating and minimum number of reviews a
+   title must clear, the fewest people who must want it, an optional **release-year window** (_on or
+   after_ / _on or before_ — leave either blank for no bound; a show is judged by its first-air
+   year), and the most titles to auto-request per night (a hard cap across both apps).
 5. Set the **Auto-send vs. ask me** bar: titles wanted by enough people _and_ rated highly enough
    are requested automatically each night; everything else that clears the guardrails waits in your
    **Requests** inbox. Turn auto-send off for a fully manual queue.

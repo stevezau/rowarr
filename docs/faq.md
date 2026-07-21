@@ -46,7 +46,9 @@ No. Shortlist only ever modifies or deletes collections carrying a `shortlist_*`
 else — Kometa overlays, your own collections — is detected and left alone.
 
 **What does it send to the LLM?**
-Titles, years and genres only. No usernames, no account ids, no viewing timestamps.
+By default, titles, years and genres only — no usernames, account ids, or viewing timestamps. (The
+one exception: if _you_ write a custom curation prompt that includes the `{user}` placeholder, that
+name is sent — it's your opt-in.)
 
 **What if I uninstall?**
 One flow, with a preview: every user's share filters are restored from the snapshot taken

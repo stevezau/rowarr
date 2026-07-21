@@ -12,11 +12,24 @@
 
 ## Install (Docker)
 
+With Docker Compose:
+
 ```bash
 mkdir shortlist && cd shortlist
 curl -fsSLO https://raw.githubusercontent.com/stevezau/shortlist/master/docker-compose.example.yml
 mv docker-compose.example.yml docker-compose.yml
 docker compose up -d
+```
+
+Or with `docker run`:
+
+```bash
+docker run -d --name shortlist \
+  -p 5959:5959 \
+  -e TZ=Etc/UTC -e PUID=1000 -e PGID=1000 \
+  -v /path/to/shortlist/config:/config \
+  --restart unless-stopped \
+  ghcr.io/stevezau/shortlist:latest
 ```
 
 Open `http://your-host:5959`. A fresh install goes straight into the wizard — there is
@@ -27,7 +40,7 @@ what claims the instance for you); from then on Shortlist only opens for that ac
 > anyone who can open the page could claim it as theirs — so don't put it on the public internet
 > until you've finished the wizard. Once you've claimed it, it's yours.
 
-The wizard then walks:
+The wizard opens on a short welcome screen, then walks (the progress bar reads "step X of 7"):
 
 1. **Connect Plex** — PIN login, pick your server. The capability probe checks your PMS
    version, Plex Pass, and libraries with plain-English results.
@@ -37,11 +50,26 @@ The wizard then walks:
 3. **Choose your curator** — Claude / GPT / Gemini / Ollama / **None** (the built-in picker).
    Keys are yours, stored encrypted, redacted after save.
 4. **Pick your users** — everyone you share with, with history-depth and new-viewer badges.
-5. **Make it yours** — row name, row size, schedule. The name can be plain text or use a
-   placeholder: `{library_name}` (the library — the default `✨ {library_name} Picked for You`
-   becomes "✨ Movies Picked for You"), `{user}` (the person's name — e.g. "Sarah's picks"), or
-   `{top_seed}` (their current favourite — e.g. "Because you watched {top_seed}").
+5. **Make it yours** — row name, row size, and when rows refresh (each row runs on its own
+   schedule; there is no single global schedule). The name can be plain text or use a placeholder:
+   `{library_name}` (the library — the default `✨ {library_name} Picked for You` becomes "✨ Movies
+   Picked for You"), `{user}` (the person's name — e.g. "Sarah's picks"), or `{top_seed}` (their
+   current favourite — e.g. "Because you watched {top_seed}").
 6. **First run** — live per-user progress; when it finishes, each user has their private row.
+
+## Trying it safely
+
+Shortlist is new and modifies real Plex share permissions, so it's fair to want to watch it before
+trusting it. Two ways to de-risk your first run:
+
+- **Safe mode** — start the container with `-e SHORTLIST_DRY_RUN=1`. Every run then logs exactly what
+  it _would_ change and writes **nothing** to Plex. Walk the whole flow, read the run activity, and
+  only remove the flag (and recreate the container) once you're happy.
+- **One user first** — on the Users page, disable everyone except a test account, run, then sign in
+  as that account (not the owner — the owner sees every row) and confirm they see only their own row.
+
+The **first real run is the slowest**: it builds every enabled user's rows and merges every account's
+share filter. Later runs are much faster — most rows are unchanged and skipped.
 
 Every row is kept private automatically: it's a labeled collection excluded on every other
 account's share, delivered hidden and only promoted once those exclusions are in place. Your share

@@ -8,7 +8,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/stevezau/shortlist/issues</Support>
   <Project>https://github.com/stevezau/shortlist</Project>
-  <Overview>A private, AI-curated "Picked for You" row for every user on your Plex server. Each user gets a personal collection row built nightly from their own watch history — visible only to them (Plex Pass + PMS 1.43.2+). Built-in Privacy Check proves rows stay private before anything is written; fully reversible uninstall; works with or without an LLM key.</Overview>
+  <Overview>A private, AI-curated "Picked for You" row for every user on your Plex server. Each user gets a personal collection row built nightly from their own watch history — visible only to them (Plex Pass + PMS 1.43.2+). Each row is a labeled collection excluded on every other account's share — delivered hidden and only promoted once those exclusions are in place; fully reversible uninstall; works with or without an LLM key.</Overview>
   <Category>MediaServer:Other Tools:</Category>
   <WebUI>http://[IP]:[PORT:5959]</WebUI>
   <Icon>https://raw.githubusercontent.com/stevezau/shortlist/master/web/public/favicon.svg</Icon>

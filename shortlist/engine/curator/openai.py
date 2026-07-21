@@ -28,12 +28,14 @@ class OpenAICurator:
     supports_native_web_search = True  # Responses API web_search tool (see recommend_web)
     last_tokens = ThreadLocalTokens()  # per-thread, so parallel per-user curation doesn't race
 
-    def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0):
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL, timeout: float = 60.0, base_url: str | None = None):
         try:
             import openai
         except ImportError as e:
             raise ImportError("OpenAI provider needs `pip install shortlist[openai]`") from e
-        self._client = openai.OpenAI(api_key=api_key, timeout=timeout, max_retries=2)
+        # `base_url` points the same client at any server speaking the OpenAI API — llama.cpp,
+        # LM Studio, vLLM, LocalAI, OpenRouter (issue #7). None keeps OpenAI's own endpoint.
+        self._client = openai.OpenAI(api_key=api_key, timeout=timeout, max_retries=2, base_url=base_url)
         self._model = model
 
     def ping(self) -> str:

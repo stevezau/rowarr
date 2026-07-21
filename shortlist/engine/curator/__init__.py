@@ -9,7 +9,7 @@ __all__ = ["Curator", "CuratorError", "NullCurator", "make_curator"]
 
 
 def make_curator(provider: str, **kwargs) -> Curator:
-    """Build a curator by provider name: anthropic | openai | google | ollama | none.
+    """Build a curator by provider name: anthropic | openai | openai_compatible | google | ollama | none.
 
     Raises:
         ValueError: Unknown provider name.
@@ -26,6 +26,10 @@ def make_curator(provider: str, **kwargs) -> Curator:
         from shortlist.engine.curator.openai import OpenAICurator
 
         return OpenAICurator(**kwargs)
+    if provider in ("openai_compatible", "openai-compatible"):
+        from shortlist.engine.curator.openai_compatible import OpenAICompatibleCurator
+
+        return OpenAICompatibleCurator(**kwargs)
     if provider == "google":
         from shortlist.engine.curator.google import GoogleCurator
 

@@ -52,7 +52,11 @@ the row is built:
   "✨ Movies Picked for You" in your Movies library and "✨ TV Shows Picked for You" in your TV
   library. This is the default row name, so a server with several libraries gets distinct titles
   instead of two identical "Picked for You" rows.
-- `{user}` — the person's name. `{user}'s picks` becomes "Sarah's picks".
+- `{user}` — the person's name. `{user}'s picks` becomes "Sarah's picks". That name is their
+  **nickname** if you've set one (Users → open someone → "What to call them"), otherwise whatever
+  Tautulli calls them, otherwise their Plex username — which is often a handle nobody uses. Changing
+  a nickname renames their existing rows on Plex; it never changes their label, so their privacy is
+  unaffected.
 - `{top_seed}` — the title that most drove their recommendations. `Because you watched {top_seed}`
   becomes "Because you watched The Bear".
 
@@ -98,6 +102,21 @@ Each row can have its own artwork on Plex. In the **Row editor** → **Poster**,
 Hit **Preview** to see a sample before saving. Generated images are made once and reused across
 runs (they refresh when you change the text or style), so posters don't slow a run down or cost per
 user. Posters are cosmetic — a poster that can't be made never blocks a row from building.
+
+## Ignoring a title
+
+Not everything someone watches should shape what they're shown — one Western, one football match,
+one thing watched out of curiosity, and the row fills with more of the same. Every pick (on a
+person's page, and on the Runs page) has two ignore controls:
+
+- **Never suggest this** — the title is dropped from that person's pool from the next run on. It
+  stays blocked even on a row that allows already-watched titles.
+- **Never let this inspire** — the "inspired by" title stops seeding their recommendations. It's
+  removed *before* the seed budget is spent, so the remaining slots refill from the rest of their
+  history rather than being wasted.
+
+Both are per person — one person's "never again" is another's favourite — and both are listed and
+reversible under **Ignore list** on their page.
 
 ## Hit rate
 

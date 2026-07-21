@@ -466,6 +466,62 @@ def test_the_owners_history_is_never_confused_with_a_shared_users(fakes, tmp_pat
     assert {i.title for i in owner_items}.isdisjoint({i.title for i in sarah_items})
 
 
+def test_a_blocked_title_is_never_recommended_and_never_inspires(fakes, tmp_path):
+    """Issue #5, through the real engine: a person can say "stop suggesting this" and "stop taking
+    inspiration from this", and both must actually hold in the delivered row.
+
+    Blocking the seed is the interesting half — the point is not just that the blocked title is
+    absent, but that the row still FILLS, from the rest of their history, because the block is
+    applied before the seed budget is spent.
+    """
+    state, pms_url, _tmdb_app = fakes
+    plex = PlexClient(pms_url, state.owner_token)
+    plextv = PlexTvClient(state.owner_token, plex.machine_id, min_write_interval=0.0)
+
+    def run_with(profile: UserProfile):
+        ctx = EngineContext(
+            config=EngineConfig(row_size=10, min_history=5, candidates_pre_rank=40, max_seeds=12),
+            plex=plex,
+            plextv=plextv,
+            tmdb=TmdbClient("test-key"),
+            history_source=PlexHistorySource(plex),
+            curator=NullCurator(),
+            snapshots=FileSnapshotStore(tmp_path / profile.slug),
+        )
+        report = engine_run(ctx, [profile])
+        return next(u for u in report.users if u.slug == profile.slug)
+
+    baseline = run_with(UserProfile(username="sarah", plex_account_id=201, user_type=UserType.SHARED))
+    assert baseline.picks, "the fixture must produce picks, or this test proves nothing"
+    victim = baseline.picks[0]
+
+    # Blocking it as a PICK removes it from the row…
+    blocked = run_with(
+        UserProfile(
+            username="sarah",
+            plex_account_id=201,
+            user_type=UserType.SHARED,
+            blocked_picks={(victim.tmdb_id, victim.media_type)},
+        )
+    )
+    assert victim.tmdb_id not in {p.tmdb_id for p in blocked.picks}, "a blocked title was still recommended"
+    # …and the row still fills: blocking one title must not cost a slot.
+    assert len(blocked.picks) >= len(baseline.picks) - 1
+
+    # Blocking every SEED of a media type leaves that type unable to inspire anything.
+    seeded_by = {p.seed_tmdb_id for p in baseline.picks if p.seed_tmdb_id}
+    assert seeded_by, "the fixture's picks must carry seeds, or the seed half proves nothing"
+    no_seeds = run_with(
+        UserProfile(
+            username="sarah",
+            plex_account_id=201,
+            user_type=UserType.SHARED,
+            blocked_seeds={(tid, MediaType.MOVIE) for tid in seeded_by} | {(tid, MediaType.SHOW) for tid in seeded_by},
+        )
+    )
+    assert not (seeded_by & {p.seed_tmdb_id for p in no_seeds.picks}), "a blocked seed still inspired a pick"
+
+
 def _watch(state: FakePlexState, account_id: int, rating_key: int) -> None:
     """Record that an account watched a title (used to create shared-history overlap in tests)."""
     state.history.append(FakeHistoryEntry(account_id=account_id, rating_key=rating_key, viewed_at=1_752_100_000))

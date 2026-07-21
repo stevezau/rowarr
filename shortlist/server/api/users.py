@@ -13,11 +13,23 @@ from sqlalchemy.orm import Session
 
 from shortlist.engine.clients.http_retry import redact
 from shortlist.engine.clients.plextv import PlexTvClient
+from shortlist.engine.clients.tautulli import TautulliClient
 from shortlist.engine.delivery import remove_row_collections
 from shortlist.engine.models import UserType
 from shortlist.server.auth import require_owner
 from shortlist.server.db.adapters import unique_slug
-from shortlist.server.db.models import DEFAULT_SLUG, Event, PickRow, Run, RunUser, Server, User, iso_utc
+from shortlist.server.db.models import (
+    DEFAULT_SLUG,
+    BlockedTitle,
+    Event,
+    PickRow,
+    Run,
+    RunUser,
+    Server,
+    User,
+    WatchEvent,
+    iso_utc,
+)
 from shortlist.server.safe_mode import force_dry_run
 from shortlist.server.services.setup_probe import plextv_account
 from shortlist.server.settings_store import SettingsStore
@@ -29,6 +41,9 @@ def _pick_dict(pick: PickRow) -> dict:
     return {
         "rank": pick.rank,
         "title": pick.title,
+        # The ids the UI needs to block a title, or the title that inspired it (issue #5).
+        "tmdb_id": pick.tmdb_id,
+        "seed_tmdb_id": pick.seed_tmdb_id,
         "reason": pick.reason,
         "media_type": pick.media_type,
         "collection_slug": pick.collection_slug or DEFAULT_SLUG,  # legacy blank rows are the default row
@@ -51,6 +66,10 @@ class UserPrefs(BaseModel):
 
 class UserPatch(BaseModel):
     enabled: bool | None = None
+    # What to call them in a row title. "" clears the override and falls back to Tautulli's friendly
+    # name, then their Plex username. Never touches the slug, so their label (and every share filter
+    # that excludes it) is unaffected.
+    nickname: str | None = Field(default=None, max_length=255)
     request_tag: str | None = Field(default=None, max_length=64)  # tag added to titles requested for this user
     prefs: UserPrefs | None = None
 
@@ -71,6 +90,11 @@ def _serialize(
         "plex_account_id": user.plex_account_id,
         "username": user.username,
         "slug": user.slug,
+        "nickname": user.nickname or "",
+        # What Tautulli calls them, when it has its own name for them — the default a blank
+        # nickname falls back to, shown in the UI so the field's placeholder can be honest.
+        "friendly_name": user.friendly_name or "",
+        "display_name": user.nickname or user.friendly_name or user.username,
         "avatar_url": user.avatar_url,
         "user_type": user.user_type,
         "enabled": user.enabled,
@@ -85,9 +109,30 @@ def _serialize(
     }
 
 
+def _watch_depths(session) -> dict[int, int]:
+    """user_id -> how many DISTINCT titles we have watch events for.
+
+    Read from the local watch mirror rather than `prefs["history_depth"]`, which is only written
+    after a run actually processes someone — so a user who was skipped, or who has simply never had
+    a successful run, showed "0 titles" forever. A beta user was looking at a Users page reporting 0
+    for all 42 of his accounts while the log showed 170 events synced for one of them, which is a
+    terrible thing to be told while working out why nothing was recommended.
+
+    Distinct rating_key, not row count: watch_events holds one row per PLAY, so a 40-episode binge
+    is one title here — matching what "N titles" claims.
+    """
+    rows = (
+        session.query(WatchEvent.user_id, func.count(func.distinct(WatchEvent.rating_key)))
+        .group_by(WatchEvent.user_id)
+        .all()
+    )
+    return {user_id: count for user_id, count in rows}
+
+
 @router.get("")
 async def list_users(request: Request) -> list[dict]:
     with request.app.state.sessions() as session:
+        depths = _watch_depths(session)
         out = []
         for user in session.query(User).order_by(User.username).all():
             # DISTINCT title, not pick row: a title recommended over several runs is one title, and a
@@ -122,8 +167,9 @@ async def list_users(request: Request) -> list[dict]:
                     .limit(3)
                     .all()
                 ]
-            history_depth = (user.prefs or {}).get("history_depth", 0)
-            out.append(_serialize(user, history_depth, last.run.finished_at if last else None, hit_rate, preview))
+            out.append(
+                _serialize(user, depths.get(user.id, 0), last.run.finished_at if last else None, hit_rate, preview)
+            )
         return out
 
 
@@ -191,6 +237,7 @@ async def set_all_users_enabled(body: BulkEnabled, request: Request) -> dict:
 async def patch_user(user_id: int, patch: UserPatch, request: Request) -> dict:
     state = request.app.state
     disabled_slug: str | None = None
+    renamed_slug: str | None = None
     with state.sessions() as session:
         user = session.get(User, user_id)
         if user is None:
@@ -200,6 +247,10 @@ async def patch_user(user_id: int, patch: UserPatch, request: Request) -> dict:
                 # Turned off → remove their rows from Plex now, not just stop delivering to them.
                 disabled_slug = user.slug
             user.enabled = patch.enabled
+        if patch.nickname is not None:
+            nickname = patch.nickname.strip()
+            renamed_slug = user.slug if nickname != (user.nickname or "") else None
+            user.nickname = nickname
         if patch.request_tag is not None:
             user.request_tag = patch.request_tag.strip()
         if patch.prefs is not None:
@@ -207,10 +258,99 @@ async def patch_user(user_id: int, patch: UserPatch, request: Request) -> dict:
             prefs.update({k: v for k, v in patch.prefs.model_dump().items() if v is not None})
             user.prefs = prefs
         session.commit()
-        result = _serialize(user, (user.prefs or {}).get("history_depth", 0), None, None)
+        result = _serialize(user, _watch_depths(session).get(user.id, 0), None, None)
     if disabled_slug is not None:
         await _remove_users_rows(state, disabled_slug)
+    if renamed_slug is not None:
+        # A nickname changes what `{user}` renders to, so this person's existing collections carry a
+        # title no future run will write. Renaming them in place is the same reconcile a row rename
+        # uses; without it a multi-row user keeps the old-named copy alongside the new one.
+        await _rename_after_nickname(state)
     return result
+
+
+async def _rename_after_nickname(state) -> None:
+    """Re-render every per-person row's titles so a nickname change lands on Plex now, not next run.
+
+    Reuses the row-rename reconcile with each row's UNCHANGED template: it renames only the users
+    whose rendered title actually drifted, which after one nickname edit is exactly that person.
+    Best-effort and privacy-neutral — titles move, the label (and every filter excluding it) doesn't.
+    """
+    from shortlist.server.db.models import Collection
+    from shortlist.server.services.collection_reconcile import run_row_rename
+
+    with state.sessions() as session:
+        rows = [
+            (c.slug, c.name_template)
+            for c in session.query(Collection).filter_by(enabled=True, build="per_person").all()
+        ]
+    for slug, template in rows:
+        if "{user}" not in (template or ""):
+            continue  # this row's title doesn't mention them, so a nickname can't have changed it
+        await run_row_rename(state, slug=slug, new_template=template, scope="user.nickname")
+
+
+class BlockedTitleIn(BaseModel):
+    tmdb_id: int
+    media_type: str = Field(pattern="^(movie|show)$")
+    title: str = Field(default="", max_length=512)
+    # Two independent switches: stop suggesting it, and/or stop letting it inspire suggestions.
+    # Both false is a request to un-block, so the row is deleted rather than left inert.
+    block_pick: bool = True
+    block_seed: bool = False
+
+
+def _blocked_dict(row: BlockedTitle) -> dict:
+    return {
+        "id": row.id,
+        "tmdb_id": row.tmdb_id,
+        "media_type": row.media_type,
+        "title": row.title,
+        "block_pick": row.block_pick,
+        "block_seed": row.block_seed,
+    }
+
+
+@router.get("/{user_id}/blocked")
+async def list_blocked(user_id: int, request: Request) -> list[dict]:
+    """Titles this person has asked never to be recommended, or never to be inspired by (issue #5)."""
+    with request.app.state.sessions() as session:
+        if session.get(User, user_id) is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        rows = session.query(BlockedTitle).filter_by(user_id=user_id).order_by(BlockedTitle.title).all()
+        return [_blocked_dict(r) for r in rows]
+
+
+@router.put("/{user_id}/blocked")
+async def set_blocked(user_id: int, body: BlockedTitleIn, request: Request) -> dict:
+    """Block (or un-block) one title for this person. Idempotent — same title, new switches.
+
+    Takes effect on their next run: the pool drops blocked picks unconditionally, and blocked seeds
+    are removed before seeds are derived, so the seed budget refills from the rest of their history.
+    """
+    with request.app.state.sessions() as session:
+        if session.get(User, user_id) is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        row = (
+            session.query(BlockedTitle)
+            .filter_by(user_id=user_id, tmdb_id=body.tmdb_id, media_type=body.media_type)
+            .one_or_none()
+        )
+        if not body.block_pick and not body.block_seed:
+            # Neither switch set = "un-block this". Deleting beats keeping an inert row, so the
+            # list only ever shows titles that are actually doing something.
+            if row is not None:
+                session.delete(row)
+                session.commit()
+            return {"blocked": False}
+        if row is None:
+            row = BlockedTitle(user_id=user_id, tmdb_id=body.tmdb_id, media_type=body.media_type)
+            session.add(row)
+        row.title = body.title or row.title
+        row.block_pick = body.block_pick
+        row.block_seed = body.block_seed
+        session.commit()
+        return {"blocked": True, **_blocked_dict(row)}
 
 
 @router.get("/{user_id}/runs")
@@ -333,8 +473,11 @@ async def sync_users(request: Request) -> dict:
     machine_id = server.machine_id
     owner_account_id = server.owner_account_id
     client_id = state.client_id
+    with state.sessions() as session:
+        store = SettingsStore(session, state.secrets)
+        tautulli_url, tautulli_key = store.get("tautulli.url"), store.get("tautulli.apikey")
 
-    def fetch() -> tuple[list, dict | None]:
+    def fetch() -> tuple[list, dict | None, dict[int, str]]:
         # machine_id comes from the server table — no PMS round-trip needed to talk to plex.tv.
         users = PlexTvClient(token, machine_id).list_users()
         try:
@@ -344,9 +487,16 @@ async def sync_users(request: Request) -> dict:
             # the whole sync over it would leave the roster stale for everybody.
             logger.warning("could not read the owner account from plex.tv ({})", type(e).__name__)
             account = None
-        return users, account
+        friendly: dict[int, str] = {}
+        if tautulli_url:
+            try:
+                friendly = TautulliClient(tautulli_url, tautulli_key or "").friendly_names()
+            except Exception as e:
+                # Nicer row titles are a bonus too — never fail a roster sync for them.
+                logger.warning("could not read friendly names from Tautulli ({})", type(e).__name__)
+        return users, account, friendly
 
-    remote, owner_account = await asyncio.get_running_loop().run_in_executor(None, fetch)
+    remote, owner_account, friendly_names = await asyncio.get_running_loop().run_in_executor(None, fetch)
     added = updated = 0
     roster = [r for r in remote if r.id != owner_account_id]  # if plex.tv ever does list the owner,
     with state.sessions() as session:  # `_sync_owner` is the one that writes them — not both
@@ -360,6 +510,7 @@ async def sync_users(request: Request) -> dict:
                         slug=unique_slug(session, r.username),
                         avatar_url=r.avatar_url,
                         user_type=r.user_type.value,
+                        friendly_name=friendly_names.get(r.id, ""),
                     )
                 )
                 added += 1
@@ -367,6 +518,9 @@ async def sync_users(request: Request) -> dict:
                 user.username = r.username
                 user.avatar_url = r.avatar_url
                 user.user_type = r.user_type.value
+                # Refreshed every sync so a rename in Tautulli follows through — but `nickname`
+                # (the owner's own choice) is never touched, so an override always survives.
+                user.friendly_name = friendly_names.get(r.id, user.friendly_name)
                 updated += 1
         session.commit()
 

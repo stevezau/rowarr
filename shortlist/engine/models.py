@@ -179,8 +179,19 @@ class UserProfile:
     plex_account_id: int
     user_type: UserType
     slug: str = ""
+    # What a human should be called in a row title: their Shortlist nickname, else the friendly name
+    # Tautulli knows them by, else their Plex username. Purely cosmetic — the SLUG (and therefore the
+    # `shortlist_<slug>` label every share filter excludes) is derived from the username and never
+    # moves, so renaming someone can't strand the exclusions that keep their row private.
+    nickname: str = ""
     history: list[WatchedItem] = field(default_factory=list)
     excluded_genres: set[str] = field(default_factory=set)
+    # (tmdb_id, media_type) this person never wants RECOMMENDED — dropped from every row's pool
+    # regardless of the row's watched-cap, because "stop suggesting this" is unconditional (issue #5).
+    blocked_picks: set[tuple[int, MediaType]] = field(default_factory=set)
+    # (tmdb_id, media_type) that must never INSPIRE recommendations. Watching one Western (or a
+    # football match) shouldn't turn a whole row into more of the same.
+    blocked_seeds: set[tuple[int, MediaType]] = field(default_factory=set)
     row_name_template: str | None = None
     prompt: PromptConfig | None = None  # resolved effective recipe; None -> built-in defaults
     request_tag: str = ""  # tag added to titles requested for this user (layered onto global + row tags)
@@ -190,6 +201,11 @@ class UserProfile:
     def __post_init__(self) -> None:
         if not self.slug:
             self.slug = slugify(self.username)
+
+    @property
+    def display_name(self) -> str:
+        """What `{user}` renders as — the nickname when they have one, else their Plex username."""
+        return self.nickname.strip() or self.username
 
     @property
     def label(self) -> str:

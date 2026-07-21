@@ -208,3 +208,33 @@ describe("UsersPage — pulling the roster again", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/plex.tv/i);
   });
 });
+
+describe("UsersPage — the Type column", () => {
+  beforeEach(() => getUsers.mockReset());
+
+  it("names every account's type, instead of an em dash for the common case", async () => {
+    // "owner" for one person and "—" for everyone else read as "unknown"; the answer for most
+    // people is simply "Shared", which is the ordinary case.
+    getUsers.mockResolvedValue([
+      SARAH,
+      { ...SARAH, id: 5, username: "kid", user_type: "managed" },
+      { ...SARAH, id: 9, username: "steve", user_type: "owner" },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("Shared")).toBeInTheDocument();
+    expect(screen.getByText("Managed")).toBeInTheDocument();
+    expect(screen.getByText("Owner")).toBeInTheDocument();
+  });
+
+  it("puts 'New viewer' beside the watch history it explains, not under Type", async () => {
+    getUsers.mockResolvedValue([{ ...SARAH, cold_start: true, history_depth: 0 }]);
+
+    renderPage();
+
+    const badge = await screen.findByText("New viewer");
+    // Its cell is the watch-history one, so it reads as "0 titles · New viewer".
+    expect(badge.closest("td")).toHaveTextContent(/0 titles/);
+  });
+});

@@ -44,6 +44,7 @@ from shortlist.engine.pipeline import EngineContext
 from shortlist.server.db.adapters import DbCache, DbSnapshotStore
 from shortlist.server.db.models import (
     DEFAULT_SLUG,
+    BlockedTitle,
     Collection,
     CollectionAudience,
     CollectionUserOverride,
@@ -72,12 +73,21 @@ def _prompt_from_recipe(recipe: dict) -> PromptConfig:
 
 def curator_kwargs(get: Callable[[str], object]) -> dict:
     """Assemble ``make_curator`` kwargs from settings. Ollama takes a base_url and no key (a key
-    would be rejected by its ctor); every other provider takes an api_key; an optional model applies
-    to all. The single source of truth the runtime context and the settings 'Test' probe both build
-    from — so a change to how a provider is configured can't drift between them."""
+    would be rejected by its ctor); an OpenAI-compatible server takes a base_url and an OPTIONAL key;
+    every other provider takes an api_key; an optional model applies to all.
+
+    The single source of truth the runtime context and the settings 'Test' probe both build from —
+    so a change to how a provider is configured can't drift between them."""
     kwargs: dict = {}
-    if get("curator.provider") == "ollama":
+    provider = get("curator.provider")
+    if provider == "ollama":
         kwargs["base_url"] = get("curator.ollama_url")
+    elif provider == "openai_compatible":
+        # A local server usually wants no key at all, but a hosted gateway (OpenRouter) does — so
+        # the key is passed when set and the curator substitutes a placeholder when it isn't.
+        kwargs["base_url"] = get("curator.openai_base_url")
+        if get("curator.api_key"):
+            kwargs["api_key"] = get("curator.api_key")
     elif get("curator.api_key"):
         kwargs["api_key"] = get("curator.api_key")
     if get("curator.model"):
@@ -353,6 +363,19 @@ class ContextBuilder:
             )
         return out
 
+    @staticmethod
+    def _blocked(session: Session) -> tuple[dict[int, set], dict[int, set]]:
+        """user_id -> the (tmdb_id, media_type) sets they've blocked, as picks and as seeds."""
+        picks: dict[int, set] = {}
+        seeds: dict[int, set] = {}
+        for row in session.query(BlockedTitle).all():
+            key = (row.tmdb_id, MediaType(row.media_type))
+            if row.block_pick:
+                picks.setdefault(row.user_id, set()).add(key)
+            if row.block_seed:
+                seeds.setdefault(row.user_id, set()).add(key)
+        return picks, seeds
+
     def enabled_profiles(self, session: Session, user_ids: list[int] | None = None) -> list[UserProfile]:
         """Enabled users, optionally narrowed to user_ids — never widened past enabled=True.
 
@@ -369,6 +392,7 @@ class ContextBuilder:
                 return []
             query = query.filter(User.id.in_(user_ids))
         overrides = self._row_overrides(session)
+        blocked_picks, blocked_seeds = self._blocked(session)
         profiles = []
         for user in query.all():
             prefs = user.prefs or {}
@@ -385,7 +409,11 @@ class ContextBuilder:
                     plex_account_id=user.plex_account_id,
                     user_type=UserType(user.user_type),
                     slug=user.slug,
+                    # The owner's own nickname wins; Tautulli's friendly name is only the default.
+                    nickname=user.nickname or user.friendly_name,
                     excluded_genres=set(prefs.get("excluded_genres") or []),
+                    blocked_picks=blocked_picks.get(user.id, set()),
+                    blocked_seeds=blocked_seeds.get(user.id, set()),
                     row_name_template=prefs.get("row_name_tpl"),
                     prompt=self._resolve_prompt(store, prefs),
                     request_tag=request_tag,

@@ -67,6 +67,50 @@ def effective_row_sources(spec: RowSpec, default_sources: list[str]) -> tuple[st
     return tuple(sorted(spec.candidate_sources or default_sources))
 
 
+def _sections_of(ctx: EngineContext, library_keys: list) -> dict[int, str]:
+    """ratingKey -> section key, for the given libraries (all of them when none are pinned).
+
+    Built by inverting the per-section tmdb->ratingKey index the run already holds, so it costs no
+    extra Plex reads. Lets a WATCHED title be traced back to the library it lives in.
+    """
+    wanted = {str(k) for k in library_keys}
+    out: dict[int, str] = {}
+    for section_key, index in ctx.section_index.items():
+        if wanted and str(section_key) not in wanted:
+            continue
+        for rating_key in index.values():
+            out[rating_key] = str(section_key)
+    return out
+
+
+def _history_for_row(ctx: EngineContext, history: list[WatchedItem], spec: RowSpec) -> list[WatchedItem]:
+    """The watches that should SEED this row: the ones from the libraries it delivers into.
+
+    A row's libraries used to narrow only what could be delivered, never what was searched — so a
+    Movies row on a server whose owner mostly watches sport and TV spent all `max_seeds` slots on
+    titles it could never deliver, TMDB returned more of the same, the library intersection threw
+    nearly all of it away, and the row came back thin and reported "ok" (issue #1 follow-up).
+
+    Filtering BEFORE `derive_seeds` is what makes the fix work: the seed budget is then filled from
+    the relevant watches, looking as far back through the history as it needs to.
+
+    Falls back to the unfiltered history when nothing survives — a weak row beats no row, and that
+    is exactly what this person would have got before.
+    """
+    by_media = _media_filter(history, spec.media)
+    if not spec.library_keys:
+        return by_media
+    sections = _sections_of(ctx, spec.library_keys)
+    in_library = [w for w in by_media if w.rating_key is not None and w.rating_key in sections]
+    if in_library:
+        return in_library
+    logger.debug(
+        "row '{}': nothing in this person's history comes from its libraries — seeding from all of it",
+        spec.slug,
+    )
+    return by_media
+
+
 def _media_filter(items: list, media: str) -> list:
     """Keep only items of the row's media type ('both' keeps everything)."""
     if media == "both":
@@ -274,6 +318,14 @@ def _candidate_pool(
     # recommendation you've finished is the exact thing the row shouldn't surface. Falls back to the
     # seed set for callers that don't compute the full breakdown (e.g. shared rows).
     watched_ids = watched_exclusions if watched_exclusions is not None else {(s.tmdb_id, s.media_type) for s in seeds}
+    # Blocked titles ride along with the watched exclusions — same "don't surface this" machinery —
+    # but UNCONDITIONALLY: a watched-cap above 0 re-admits finished titles, and "stop suggesting
+    # this" must not be re-admitted by it (issue #5).
+    if profile is not None and profile.blocked_picks:
+        watched_ids = watched_ids | profile.blocked_picks
+    # Blocked titles ride along with the watched exclusions — same "don't surface this" machinery —
+    # but UNCONDITIONALLY: a watched-cap above 0 re-admits finished titles, and "stop suggesting
+    # this" must not be re-admitted by it (issue #5).
     gather_stats = candidates_mod.GatherStats()
     pool = candidates_mod.gather_candidates(
         ctx.tmdb,
@@ -446,7 +498,6 @@ def _run_user(
     Pool = tuple[list[Candidate], list[Candidate], list[Candidate]]
     pool_cache: dict[tuple, Pool] = {}
     pool_failures: dict[tuple, str] = {}  # pool key -> why every source for it failed
-    seeds: list = []
     # This person's watched breakdown, filled in the non-cold branch and read by pools_for: watched
     # movie tmdb_ids, and show tmdb_id -> episode-play count (for the finished-show fraction). The
     # derived set of FINISHED (tmdb_id, media_type) titles is computed once the breakdown is in.
@@ -502,7 +553,7 @@ def _run_user(
             try:
                 pool_cache[key], gather_stats = _candidate_pool(
                     ctx,
-                    seeds,
+                    seeds_for(spec),
                     row_library_index(ctx, spec, library_index),
                     excluded_genres=user.excluded_genres,
                     profile=user,
@@ -528,8 +579,30 @@ def _run_user(
         user_report.status = "cold_start"
     else:
         resolve = _rating_key_resolver(seed_index)
-        seeds = derive_seeds(user.history, resolve, max_seeds=cfg.max_seeds)
-        user_report.counts.seeds = len(seeds)
+        seed_cache: dict[tuple, list] = {}
+
+        def seeds_for(spec: RowSpec) -> list:
+            """This row's seeds, from the watches its own libraries hold. Memoised per (media,
+            libraries) so rows that target the same thing derive them once."""
+            key = (spec.media, tuple(sorted(str(k) for k in spec.library_keys)))
+            if key not in seed_cache:
+                relevant = _history_for_row(ctx, user.history, spec)
+                if user.blocked_seeds:
+                    # Dropped BEFORE derive_seeds, so a blocked title doesn't occupy a seed slot and
+                    # the budget refills from the rest of their history (issue #5).
+                    relevant = [
+                        w
+                        for w in relevant
+                        if ((w.tmdb_id if w.tmdb_id is not None else resolve(w)), w.media_type)
+                        not in user.blocked_seeds
+                    ]
+                seed_cache[key] = derive_seeds(relevant, resolve, max_seeds=cfg.max_seeds)
+            return seed_cache[key]
+
+        # Reported as the widest seed set any of this person's rows uses — the "both media, every
+        # library" case when they have one, so the number still means "how much of their history fed
+        # tonight's rows" rather than one arbitrary row's slice.
+        user_report.counts.seeds = max((len(seeds_for(spec)) for spec in specs), default=0)
         # Full watched breakdown (not just the seeds): every watched movie, and each show's
         # episode-play count. History is already completion-filtered, so this is meaningful watches.
         for item in user.history:
@@ -543,7 +616,7 @@ def _run_user(
         # The finished-title set, derived once: read by pools_for (0% hard-exclude) and the per-row
         # watched cap (>0). Mutated in place so the pools_for closure sees it.
         watched_titles |= _watched_titles(watched_movies, show_plays, ctx.episode_counts, cfg.watched_show_pct)
-        _pipeline._emit(ctx, user.slug, "candidates", {"history": len(user.history), "seeds": len(seeds)})
+        _pipeline._emit(ctx, user.slug, "candidates", {"history": len(user.history), "seeds": user_report.counts.seeds})
         for spec in specs:  # build every row's pool up front so counts and demand see them all
             pools_for(spec)
         # Only if EVERY row's sources are down do we know nothing about this person: that's a failed
@@ -588,7 +661,7 @@ def _run_user(
                     # Provenance for the inbox: this row surfaced it for this user, seeded by the
                     # strongest history title behind the candidate ("because you watched …").
                     seed_title = c.top_seed.title if c.top_seed else ""
-                    row_name = row_template.replace("{user}", user.username).replace(
+                    row_name = row_template.replace("{user}", user.display_name).replace(
                         "{top_seed}", seed_title or "your favourites"
                     )
                     # {library_name} renders as the library this title's media type lands in; blank (an

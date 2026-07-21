@@ -10,6 +10,12 @@ export interface User {
   id: number;
   username: string;
   slug: string;
+  /** The owner's override for what to call them in a row title; "" = fall back. */
+  nickname?: string;
+  /** What Tautulli calls them, when it has its own name for them. The blank-nickname fallback. */
+  friendly_name?: string;
+  /** nickname → friendly_name → username, resolved server-side. */
+  display_name?: string;
   user_type: UserType;
   enabled: boolean;
   cold_start: boolean;
@@ -193,6 +199,7 @@ export const PROMPT_TONES = [
 export type PromptTone = (typeof PROMPT_TONES)[number];
 
 export interface UserPatch {
+  nickname?: string;
   enabled?: boolean;
   request_tag?: string;
   prefs?: UserPrefs;
@@ -252,6 +259,10 @@ export interface Pick {
   rank: number;
   title: string;
   reason: string;
+  /** Identifies the title itself — what a "never suggest this" block is keyed on. */
+  tmdb_id?: number;
+  /** The watched title that inspired it — what a "never inspire from this" block is keyed on. */
+  seed_tmdb_id?: number | null;
   /** Which watched title produced this pick, when the pipeline knows it. */
   seed_title?: string;
   media_type?: string;
@@ -715,4 +726,25 @@ export interface LogPage {
   truncated: boolean;
   /** The file these came from, or null when the instance has not written any logs yet. */
   file: string | null;
+}
+
+
+/** GET/PUT /api/users/{id}/blocked — a title this person never wants suggested, or seeded from. */
+export interface BlockedTitle {
+  id: number;
+  tmdb_id: number;
+  media_type: string;
+  title: string;
+  /** Never recommend this to them. */
+  block_pick: boolean;
+  /** Never let this inspire recommendations for them. */
+  block_seed: boolean;
+}
+
+export interface BlockedTitleInput {
+  tmdb_id: number;
+  media_type: string;
+  title?: string;
+  block_pick?: boolean;
+  block_seed?: boolean;
 }

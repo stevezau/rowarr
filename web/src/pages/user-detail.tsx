@@ -7,6 +7,8 @@ import { OwnerNote } from "@/components/owner-note";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { RecentRuns } from "@/components/user-detail/recent-runs";
 import { UserDetailHeader } from "@/components/user-detail/user-detail-header";
+import { UserIgnoreList } from "@/components/user-detail/user-ignore-list";
+import { UserNickname } from "@/components/user-detail/user-nickname";
 import { UserRequestTag } from "@/components/user-detail/user-request-tag";
 import { UserRowsSection } from "@/components/user-detail/user-row-card";
 import { WatchHistory } from "@/components/user-detail/watch-history";
@@ -36,6 +38,16 @@ function UserDetailBody({ user }: { user: User }) {
           they&rsquo;re the same for everyone and are managed under Rows.
         </p>
         <UserRowsSection user={user} />
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading>What to call them</SectionHeading>
+        <UserNickname user={user} />
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading>Ignore list</SectionHeading>
+        <UserIgnoreList user={user} />
       </section>
 
       <section className="space-y-3">

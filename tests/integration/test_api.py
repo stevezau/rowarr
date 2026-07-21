@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -170,6 +171,116 @@ class TestUsersApi:
         assert r.status_code == 200
         assert r.json()["enabled"] is True
         assert r.json()["prefs"]["excluded_genres"] == ["Horror"]
+
+    def test_a_nickname_changes_the_row_title_but_never_the_label(self, client: TestClient):
+        """Plex usernames are often a handle nobody uses, and `{user}` put it on a Home screen (#4).
+        The slug — and so `shortlist_<slug>`, which every other account's share filter excludes —
+        must not move, or the old exclusions would point at nothing and the row would go public."""
+        target = next(u for u in client.get("/api/users").json() if u["username"] == "sarah")
+        assert target["display_name"] == "sarah"
+
+        r = client.patch(f"/api/users/{target['id']}", json={"nickname": "Sarah B"})
+
+        assert r.status_code == 200
+        assert r.json()["nickname"] == "Sarah B"
+        assert r.json()["display_name"] == "Sarah B"
+        assert r.json()["slug"] == target["slug"], "the label must not move when someone is renamed"
+
+    def test_clearing_a_nickname_falls_back_to_tautullis_name_then_plex(self, client: TestClient):
+        from shortlist.server.db.models import User
+
+        target = next(u for u in client.get("/api/users").json() if u["username"] == "sarah")
+        with client.app.state.sessions() as session:
+            session.get(User, target["id"]).friendly_name = "Sazza"
+            session.commit()
+
+        client.patch(f"/api/users/{target['id']}", json={"nickname": "Sarah B"})
+        assert self._one(client, target["id"])["display_name"] == "Sarah B"
+
+        cleared = client.patch(f"/api/users/{target['id']}", json={"nickname": ""}).json()
+
+        assert cleared["nickname"] == ""
+        assert cleared["display_name"] == "Sazza", "a blank nickname falls back to Tautulli's name"
+
+    def _one(self, client: TestClient, user_id: int) -> dict:
+        return next(u for u in client.get("/api/users").json() if u["id"] == user_id)
+
+    def test_watch_history_is_counted_from_the_watch_mirror_not_a_run_written_pref(self, client: TestClient):
+        """`prefs["history_depth"]` is only written once a run PROCESSES someone, so a skipped user —
+        or anyone before their first successful run — read "0 titles" forever. A beta user saw 0 for
+        all 42 of his accounts while the log showed 170 events synced for one of them."""
+        from shortlist.server.db.models import User, WatchEvent
+
+        with client.app.state.sessions() as session:
+            user = session.query(User).filter_by(username="sarah").one()
+            # Two plays of one show + one film = 2 distinct TITLES, not 3 events. (Distinct
+            # timestamps: (user, rating_key, watched_at) is unique, which is how the sync dedups.)
+            when = datetime(2026, 7, 21, 2, 0, tzinfo=UTC)
+            session.add_all(
+                [
+                    WatchEvent(user_id=user.id, rating_key=100, watched_at=when, media_type="show"),
+                    WatchEvent(
+                        user_id=user.id, rating_key=100, watched_at=when + timedelta(hours=1), media_type="show"
+                    ),
+                    WatchEvent(user_id=user.id, rating_key=200, watched_at=when, media_type="movie"),
+                ]
+            )
+            session.commit()
+            user_id = user.id
+
+        listed = next(u for u in client.get("/api/users").json() if u["id"] == user_id)
+        assert listed["history_depth"] == 2, "a binge is one title, and it must not need a run to show"
+
+        # The PATCH response carries the same real number, not a stale zero.
+        patched = client.patch(f"/api/users/{user_id}", json={"enabled": True}).json()
+        assert patched["history_depth"] == 2
+
+    def test_blocking_a_title_round_trips_and_unblocking_removes_it(self, client: TestClient):
+        """Issue #5. Both switches are independent, and clearing both means un-block — the list
+        should only ever show titles that are actually doing something."""
+        uid = next(u["id"] for u in client.get("/api/users").json() if u["username"] == "sarah")
+
+        r = client.put(
+            f"/api/users/{uid}/blocked",
+            json={"tmdb_id": 42, "media_type": "movie", "title": "The Searchers", "block_seed": True},
+        )
+        assert r.status_code == 200
+        assert r.json()["blocked"] is True
+
+        listed = client.get(f"/api/users/{uid}/blocked").json()
+        assert len(listed) == 1
+        assert listed[0]["title"] == "The Searchers"
+        assert listed[0]["block_pick"] is True and listed[0]["block_seed"] is True
+
+        # Same title again = update, not a duplicate.
+        client.put(
+            f"/api/users/{uid}/blocked",
+            json={"tmdb_id": 42, "media_type": "movie", "block_pick": False, "block_seed": True},
+        )
+        listed = client.get(f"/api/users/{uid}/blocked").json()
+        assert len(listed) == 1, "re-blocking the same title must update it, not add a second row"
+        assert listed[0]["block_pick"] is False
+
+        # Neither switch = un-block.
+        client.put(
+            f"/api/users/{uid}/blocked",
+            json={"tmdb_id": 42, "media_type": "movie", "block_pick": False, "block_seed": False},
+        )
+        assert client.get(f"/api/users/{uid}/blocked").json() == []
+
+    def test_blocked_titles_are_per_user(self, client: TestClient):
+        """One person's "never again" is another's favourite."""
+        users = {u["username"]: u["id"] for u in client.get("/api/users").json()}
+        client.put(
+            f"/api/users/{users['sarah']}/blocked",
+            json={"tmdb_id": 42, "media_type": "movie", "title": "The Searchers"},
+        )
+
+        assert client.get(f"/api/users/{users['mike']}/blocked").json() == []
+
+    def test_blocking_for_an_unknown_user_404s(self, client: TestClient):
+        r = client.put("/api/users/9999/blocked", json={"tmdb_id": 1, "media_type": "movie"})
+        assert r.status_code == 404
 
     def test_patch_unknown_user_404(self, client: TestClient):
         assert client.patch("/api/users/9999", json={"enabled": True}).status_code == 404

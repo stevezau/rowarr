@@ -8,7 +8,7 @@ import { OwnerNote } from "@/components/owner-note";
 import { PageHeader } from "@/components/page-header";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { UserAvatar } from "@/components/user-avatar";
-import { UserBadges } from "@/components/user-badges";
+import { ColdStartBadge, UserTypeBadge } from "@/components/user-badges";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -232,19 +232,17 @@ export function UsersPage() {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <UserBadges
-                            user={user}
-                            emptyFallback={
-                              <span className="text-sm text-muted-foreground">
-                                —
-                              </span>
-                            }
-                          />
-                        </div>
+                        <UserTypeBadge user={user} />
                       </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        {user.history_depth} titles
+                      <TableCell className="text-muted-foreground">
+                        {/* "New viewer" belongs HERE, next to the number it explains — it's a
+                            state, not a type, and in the Type column it read as one. */}
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="tabular-nums">
+                            {user.history_depth} titles
+                          </span>
+                          <ColdStartBadge user={user} />
+                        </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {timeAgo(user.last_run_at)}

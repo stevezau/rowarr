@@ -118,7 +118,7 @@ VALIDATORS = {
     "recommendations.freshness": _bounded_float(0.0, 1.0),
     "recommendations.recent_count": _bounded_int(1, 25),
     "log.level": _one_of("TRACE", "DEBUG", "INFO", "WARNING", "ERROR"),
-    "curator.provider": _one_of("anthropic", "openai", "google", "ollama", "none"),
+    "curator.provider": _one_of("anthropic", "openai", "openai_compatible", "google", "ollama", "none"),
     "curator.prompt_tone": _one_of("balanced", "warm", "concise", "cinephile", "playful"),
     "requests.rating_source": _one_of("tmdb", "imdb", "trakt", "tomatoes", "metacritic"),
     "requests.min_rating": _bounded_float(0.0, 10.0),

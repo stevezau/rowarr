@@ -114,7 +114,7 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
 
         {!muted &&
           (row.picks.length > 0 ? (
-            <PickList picks={row.picks} collapseAfter={5} />
+            <PickList picks={row.picks} collapseAfter={5} userId={userId} />
           ) : (
             <p className="text-sm text-muted-foreground">
               No picks in this row yet — regenerate below or wait for the next

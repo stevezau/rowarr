@@ -20,7 +20,7 @@ from shortlist.engine.models import MediaType, OwnedRow, UserType
 from tests.conftest import fake_media_item
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
-USERS_XML = (FIXTURES / "plextv_users.xml").read_text()
+USERS_XML = (FIXTURES / "plextv_users.xml.txt").read_text()
 
 
 class _MemoryCache:

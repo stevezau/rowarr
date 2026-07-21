@@ -79,5 +79,9 @@ label exclusion, which is why the wizard surfaces your version before you begin.
 
 ## The one honest caveat
 
-Plex cannot hide collections from the **server owner** — your own Home shows every user's
-row. Watch on a separate (Home) account if that bothers you.
+You're in the user list too, so you can give yourself a row like anyone else — on a one-person
+server that's the whole point.
+
+What Plex cannot do is hide collections from the **server owner**: your own Home shows every user's
+row, not just yours. If you share the server with other people and want a clean Home, watch on a
+Plex Home user and keep the admin account for administration.

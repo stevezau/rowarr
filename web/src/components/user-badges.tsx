@@ -28,7 +28,7 @@ export function UserBadges({
       <Badge
         key="owner"
         variant="outline"
-        title="Plex cannot hide rows from the server owner"
+        title="You own this Plex server. Plex can't hide anyone's row from this account, so it sees every row Shortlist creates."
       >
         owner
       </Badge>,

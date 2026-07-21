@@ -8,7 +8,9 @@
 - **Rows** — create, edit, and reorder your rows. Each card shows who sees it and how it
   differs from the defaults (sources, libraries, curation style, placement). This is where
   the whole multi-row feature lives — see "Naming a row" and "Row placement" below.
-- **Users** — enable/disable each person or **Enable all / Disable all** at once, pause
+- **Users** — everyone the server is shared with, plus you (badged `owner` — plex.tv's user list
+  leaves the owner out, so Shortlist adds you itself). Enable/disable each person or
+  **Enable all / Disable all** at once, pause
   someone (keeps their row, skips them on runs), set a request tag, add per-row overrides
   (size, curation style, mute), and see each user's restriction status. Opening a person shows
   their recent watch history (distinct titles, with season/episode numbers for TV), their picks

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { BackLink } from "@/components/back-link";
+import { OwnerNote } from "@/components/owner-note";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
 import { RecentRuns } from "@/components/user-detail/recent-runs";
 import { UserDetailHeader } from "@/components/user-detail/user-detail-header";
@@ -23,6 +24,8 @@ function UserDetailBody({ user }: { user: User }) {
   return (
     <div className="space-y-8">
       <UserDetailHeader user={user} />
+
+      {user.user_type === "owner" && <OwnerNote />}
 
       <section className="space-y-3">
         <SectionHeading>Their personal rows</SectionHeading>

@@ -72,7 +72,7 @@ server). Highlights:
 ```
 POST /api/auth/pin · GET /api/auth/pin/{id} · GET /api/auth/session · POST /api/auth/logout
 POST /api/setup/probe · POST /api/setup/link · GET/PUT /api/setup/state
-GET  /api/users · PATCH /api/users/{id} {enabled?, request_tag?, prefs?} · POST /api/users/sync
+GET  /api/users · PATCH /api/users/{id} {enabled?, request_tag?, prefs?} · POST /api/users/sync (shared + Home users from plex.tv, plus the server owner, whom that list never returns)
 POST /api/users/set-enabled {enabled} (bulk enable/disable every user at once)
 GET  /api/users/{id}/rows · PUT /api/users/{id}/rows/{collection_id} {muted?, row_size?, prompt_*?}
 GET  /api/users/{id}/runs · GET /api/users/{id}/history (recent watches; each item carries `title`, `media_type`, `year`, plus `season`/`episode`/`episode_title` for TV)

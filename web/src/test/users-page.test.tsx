@@ -46,7 +46,7 @@ function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <UsersPage />
@@ -60,6 +60,28 @@ describe("UsersPage", () => {
     getUsers.mockReset();
     patchUser.mockReset();
     setAllUsersEnabled.mockClear();
+  });
+
+  it("warns the owner that their own Home shows everyone's rows — but only once they're in the list", async () => {
+    getUsers.mockResolvedValue([SARAH]);
+    const { unmount } = renderPage();
+    // A server with no owner row yet (pre-sync) shouldn't explain a caveat nobody has hit.
+    expect(await screen.findByText("sarah")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/can’t hide rows from the server owner/i),
+    ).toBeNull();
+    unmount();
+
+    getUsers.mockResolvedValue([
+      SARAH,
+      { ...SARAH, id: 5, username: "steve", slug: "steve", user_type: "owner" },
+    ]);
+    renderPage();
+
+    expect(
+      await screen.findByText(/can’t hide rows from the server owner/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/watch on a Plex Home user/i)).toBeInTheDocument();
   });
 
   it("only enables everyone after confirming", async () => {

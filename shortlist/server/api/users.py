@@ -9,14 +9,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func
+from sqlalchemy.orm import Session
 
 from shortlist.engine.clients.http_retry import redact
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.delivery import remove_row_collections
+from shortlist.engine.models import UserType
 from shortlist.server.auth import require_owner
 from shortlist.server.db.adapters import unique_slug
 from shortlist.server.db.models import DEFAULT_SLUG, Event, PickRow, Run, RunUser, Server, User, iso_utc
 from shortlist.server.safe_mode import force_dry_run
+from shortlist.server.services.setup_probe import plextv_account
 from shortlist.server.settings_store import SettingsStore
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_owner)])
@@ -261,9 +264,52 @@ async def user_history(user_id: int, request: Request, limit: int = 25) -> list[
     return rows
 
 
+def _sync_owner(session: Session, account: dict | None, owner_account_id: int | None) -> str | None:
+    """Add (or refresh) the server owner as a user. Returns "added", "updated", or None if skipped.
+
+    plex.tv's `/api/users` lists everyone the server is shared WITH and never the account that owns
+    it, so without this the person running Shortlist can never get a row of their own — the whole app
+    is unusable for a one-person server. The owner is stored like any other user (history, labels and
+    delivery all key off `plex_account_id`); `user_type="owner"` marks the one account Plex cannot
+    restrict, which `sync_user_restrictions` skips and the UI badges.
+
+    New rows land disabled like everyone else, so an existing install gains a user to switch on
+    rather than a row that appears on the owner's Home unannounced.
+    """
+    if account is None or owner_account_id is None:
+        return None
+    if int(account.get("id") or 0) != owner_account_id:
+        # The stored Plex token no longer belongs to the owner this instance was claimed by. Building
+        # a row from THIS account's history and labelling it as the owner's would hand one person
+        # another's picks, so skip — loudly, because it also means the token needs re-linking.
+        logger.warning(
+            "plex.tv token belongs to account {} but this server's owner is {} — owner not synced",
+            account.get("id"),
+            owner_account_id,
+        )
+        return None
+    username = account.get("username") or account.get("title") or "owner"
+    user = session.query(User).filter_by(plex_account_id=owner_account_id).one_or_none()
+    if user is None:
+        session.add(
+            User(
+                plex_account_id=owner_account_id,
+                username=username,
+                slug=unique_slug(session, username),
+                avatar_url=account.get("thumb") or "",
+                user_type=UserType.OWNER.value,
+            )
+        )
+        return "added"
+    user.username = username
+    user.avatar_url = account.get("thumb") or ""
+    user.user_type = UserType.OWNER.value  # a pre-existing row for this account was never really "shared"
+    return "updated"
+
+
 @router.post("/sync")
 async def sync_users(request: Request) -> dict:
-    """Pull shared + Home users from plex.tv into the users table (idempotent upsert)."""
+    """Pull shared + Home users — and the owner — from plex.tv into the users table (idempotent)."""
     state = request.app.state
     with state.sessions() as session:
         store = SettingsStore(session, state.secrets)
@@ -272,12 +318,22 @@ async def sync_users(request: Request) -> dict:
     if not token or server is None:
         raise HTTPException(status_code=409, detail="Plex is not connected yet")
     machine_id = server.machine_id
+    owner_account_id = server.owner_account_id
+    client_id = state.client_id
 
-    def fetch():
+    def fetch() -> tuple[list, dict | None]:
         # machine_id comes from the server table — no PMS round-trip needed to talk to plex.tv.
-        return PlexTvClient(token, machine_id).list_users()
+        users = PlexTvClient(token, machine_id).list_users()
+        try:
+            account = plextv_account(token, client_id)
+        except Exception as e:
+            # The owner is a bonus here; the shared users we already fetched are the point. Failing
+            # the whole sync over it would leave the roster stale for everybody.
+            logger.warning("could not read the owner account from plex.tv ({})", type(e).__name__)
+            account = None
+        return users, account
 
-    remote = await asyncio.get_running_loop().run_in_executor(None, fetch)
+    remote, owner_account = await asyncio.get_running_loop().run_in_executor(None, fetch)
     added = updated = 0
     with state.sessions() as session:
         for r in remote:
@@ -298,5 +354,10 @@ async def sync_users(request: Request) -> dict:
                 user.avatar_url = r.avatar_url
                 user.user_type = r.user_type.value
                 updated += 1
+        owner = _sync_owner(session, owner_account, owner_account_id)
+        if owner == "added":
+            added += 1
+        elif owner == "updated":
+            updated += 1
         session.commit()
-    return {"added": added, "updated": updated, "total": len(remote)}
+    return {"added": added, "updated": updated, "total": len(remote) + (1 if owner else 0)}

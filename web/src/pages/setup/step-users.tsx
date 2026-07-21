@@ -78,8 +78,10 @@ export function StepUsers() {
       <div className="rounded-lg border border-primary/40 bg-primary/10 p-4 text-sm">
         <p className="font-medium text-primary">Heads up, server owner</p>
         <p className="mt-1 text-muted-foreground">
-          Plex cannot hide collections from the server owner — your own Home
-          will show every user's row. Tip: watch on a non-owner account.
+          You&rsquo;re in this list too — turn yourself on to get your own row.
+          What Plex can&rsquo;t do is hide <em>other</em> people&rsquo;s rows
+          from you: your Home shows every row on the server. Tip: watch on a
+          Plex Home user and keep this account for administration.
         </p>
       </div>
 

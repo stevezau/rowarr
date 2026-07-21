@@ -231,6 +231,95 @@ class TestUsersApi:
         assert prefs["prompt_guidance"] == "she loves slow burns"
 
 
+class TestUserSync:
+    """`POST /users/sync` — the roster from plex.tv, PLUS the owner, who is never in that list.
+
+    Covers the `user_type` matrix's owner cell: without this the person running Shortlist has no
+    user row at all, so a one-person server gets no rows (issue #1).
+    """
+
+    @pytest.fixture
+    def plextv(self, client: TestClient, monkeypatch):
+        """Stub both plex.tv reads the sync makes, and seed the token it needs to make them."""
+        from types import SimpleNamespace
+
+        from shortlist.engine.models import UserType
+        from shortlist.server.api import users as users_api
+        from shortlist.server.settings_store import SettingsStore
+
+        with client.app.state.sessions() as session:
+            SettingsStore(session, client.app.state.secrets).set("plex.token", "owner-token")
+            session.commit()
+
+        shared = SimpleNamespace(
+            id=555000100,
+            username="sarah",
+            user_type=UserType.SHARED,
+            avatar_url="https://plex.tv/sarah.png",
+        )
+        state = SimpleNamespace(account={"id": OWNER_ID, "username": "steve", "thumb": "https://plex.tv/steve.png"})
+        monkeypatch.setattr(users_api.PlexTvClient, "list_users", lambda self: [shared])
+        monkeypatch.setattr(users_api, "plextv_account", lambda token, client_id: state.account)
+        return state
+
+    def _users(self, client: TestClient) -> dict[str, dict]:
+        return {u["username"]: u for u in client.get("/api/users").json()}
+
+    def test_sync_adds_the_owner_disabled_and_badged(self, client: TestClient, plextv):
+        r = client.post("/api/users/sync")
+        assert r.status_code == 200
+        assert r.json()["total"] == 2  # the one shared user plex.tv returns + the owner it never does
+
+        owner = self._users(client)["steve"]
+        assert owner["user_type"] == "owner"
+        assert owner["plex_account_id"] == OWNER_ID
+        assert owner["avatar_url"] == "https://plex.tv/steve.png"
+        # Off by default: an existing install gains a user to switch on, not a row that turns up on
+        # the owner's Home unannounced.
+        assert owner["enabled"] is False
+
+    def test_re_syncing_updates_the_owner_instead_of_duplicating_them(self, client: TestClient, plextv):
+        client.post("/api/users/sync")
+        plextv.account["username"] = "steve-renamed"
+        r = client.post("/api/users/sync")
+
+        assert r.json()["added"] == 0  # nobody new the second time
+        by_name = self._users(client)
+        assert "steve" not in by_name
+        assert by_name["steve-renamed"]["user_type"] == "owner"
+        with client.app.state.sessions() as session:
+            assert session.query(User).filter_by(plex_account_id=OWNER_ID).count() == 1
+
+    def test_a_token_belonging_to_another_account_never_becomes_the_owner(self, client: TestClient, plextv):
+        """Fail-safe: building a row from this account's history and labelling it the owner's would
+        hand one person another's picks, so a mismatched token syncs the shared users and stops."""
+        plextv.account = {"id": 999999, "username": "someone-else"}
+
+        r = client.post("/api/users/sync")
+
+        assert r.status_code == 200
+        assert r.json()["total"] == 1  # shared users only
+        names = self._users(client)
+        assert "someone-else" not in names
+        assert not any(u["user_type"] == "owner" for u in names.values())
+
+    def test_shared_users_still_sync_when_the_owner_lookup_fails(self, client: TestClient, plextv, monkeypatch):
+        """The owner is a bonus on top of the roster — a plex.tv hiccup on that one call must not
+        leave everybody else's list stale."""
+        from shortlist.server.api import users as users_api
+
+        def boom(token, client_id):
+            raise RuntimeError("plex.tv is having a day")
+
+        monkeypatch.setattr(users_api, "plextv_account", boom)
+
+        r = client.post("/api/users/sync")
+
+        assert r.status_code == 200
+        assert r.json()["total"] == 1
+        assert not any(u["user_type"] == "owner" for u in self._users(client).values())
+
+
 class TestUserRowsApi:
     def _sarah_id(self, client: TestClient) -> int:
         return next(u["id"] for u in client.get("/api/users").json() if u["slug"] == "sarah")

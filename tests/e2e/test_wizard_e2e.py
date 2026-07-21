@@ -253,9 +253,12 @@ def test_full_wizard_builds_real_rows(fresh_page: Page, fresh_app: ShortlistApp,
     assert run["stats"]["users_ok"] == 3
 
 
-def test_choosing_ollama_as_the_curator_saves_its_url(fresh_page: Page, fresh_app: ShortlistApp, fake_plex):
-    """Ollama takes a URL and no key. That key used to be unknown to the settings store, so the
-    whole payload 422'd — taking curator.provider down with it and blocking setup entirely."""
+def test_choosing_a_local_curator_saves_its_url(fresh_page: Page, fresh_app: ShortlistApp, fake_plex):
+    """A self-hosted server takes a URL and no key. That key used to be unknown to the settings
+    store, so the whole payload 422'd — taking curator.provider down with it and blocking setup.
+
+    One card now covers Ollama, llama.cpp, LM Studio, vLLM and LocalAI: they all speak the same
+    OpenAI-compatible API, so a card per runtime was one capability wearing several hats."""
     page, app = fresh_page, fresh_app
     pms_url, _, _ = fake_plex
     stub_plex_pin(page, app)
@@ -264,18 +267,18 @@ def test_choosing_ollama_as_the_curator_saves_its_url(fresh_page: Page, fresh_ap
     _connect_plex(page, pms_url)
     _skip_history(page)
 
-    page.get_by_role("button", name=re.compile(r"^Ollama\b")).click()
-    page.get_by_label("Ollama URL").fill("http://127.0.0.1:11434")
+    page.get_by_role("button", name=re.compile(r"^Local server\b")).click()
+    page.get_by_label("Server URL").fill("http://127.0.0.1:11434")
     page.get_by_role("button", name="Save & test").click()
 
     for _ in range(20):
         settings = app.api("GET", "/api/settings").json()
-        if settings.get("curator.provider") == "ollama":
+        if settings.get("curator.provider") == "openai_compatible":
             break
         page.wait_for_timeout(250)
     settings = app.api("GET", "/api/settings").json()
-    assert settings["curator.provider"] == "ollama"
-    assert settings["curator.ollama_url"] == "http://127.0.0.1:11434"
+    assert settings["curator.provider"] == "openai_compatible"
+    assert settings["curator.openai_base_url"] == "http://127.0.0.1:11434"
 
 
 def test_wizard_resumes_on_the_same_step_after_a_reload(fresh_page: Page, fresh_app: ShortlistApp, fake_plex):

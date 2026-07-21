@@ -1,4 +1,4 @@
-"""Curator matrix: null / anthropic / openai / google / ollama, plus the hallucination validator."""
+"""Curator matrix: null / anthropic / openai / google / openai_compatible, plus the hallucination validator."""
 
 from __future__ import annotations
 
@@ -7,9 +7,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
-import httpx
 import pytest
-import respx
 
 from shortlist.engine.curator import make_curator
 from shortlist.engine.curator.base import (
@@ -21,7 +19,6 @@ from shortlist.engine.curator.base import (
     validate_picks,
 )
 from shortlist.engine.curator.null import NullCurator
-from shortlist.engine.curator.ollama import OllamaCurator
 from shortlist.engine.models import MediaType, PromptConfig, Seed
 from tests.conftest import make_candidate, make_profile
 
@@ -559,67 +556,6 @@ class TestGoogleCurator:
         assert curator.complete("sys", "user") == ""
 
 
-class TestOllamaCurator:
-    @respx.mock
-    def test_list_models_reads_the_pulled_models_from_api_tags(self):
-        respx.get("http://ollama.test/api/tags").mock(
-            return_value=httpx.Response(200, json={"models": [{"name": "qwen2.5"}, {"name": "llama3.3:latest"}]})
-        )
-        assert OllamaCurator(base_url="http://ollama.test").list_models() == ["llama3.3:latest", "qwen2.5"]
-
-    @respx.mock
-    def test_posts_schema_as_format_field(self):
-        route = respx.post("http://ollama.test/api/chat").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "message": {"content": json.dumps({"picks": [{"tmdb_id": 1, "reason": "r"}]})},
-                    "prompt_eval_count": 10,
-                    "eval_count": 5,
-                },
-            )
-        )
-        curator = OllamaCurator(base_url="http://ollama.test")
-        picks = curator.curate(make_profile(history=[]), candidates(), k=1)
-        assert [p.tmdb_id for p in picks] == [1]
-        assert curator.last_tokens == 15
-        body = json.loads(route.calls.last.request.content)
-        assert body["format"] == picks_schema()
-        assert body["stream"] is False
-
-    @respx.mock
-    def test_provider_error_becomes_curator_error(self):
-        respx.post("http://ollama.test/api/chat").mock(return_value=httpx.Response(500))
-        with pytest.raises(CuratorError, match="Ollama"):
-            OllamaCurator(base_url="http://ollama.test").curate(make_profile(history=[]), candidates(), k=1)
-
-    @respx.mock
-    def test_unparseable_json_becomes_curator_error(self):
-        respx.post("http://ollama.test/api/chat").mock(
-            return_value=httpx.Response(200, json={"message": {"content": "not json{"}})
-        )
-        with pytest.raises(CuratorError, match="unparseable"):
-            OllamaCurator(base_url="http://ollama.test").curate(make_profile(history=[]), candidates(), k=1)
-
-    @respx.mock
-    def test_complete_returns_content_without_a_format_field(self):
-        # The Exa path for a LOCAL model: a plain /api/chat (no `format` schema) — this is how Ollama,
-        # which can't web-search itself, still gets web-grounded picks from Exa's results.
-        route = respx.post("http://ollama.test/api/chat").mock(
-            return_value=httpx.Response(
-                200, json={"message": {"content": '[{"title":"Dune"}]'}, "prompt_eval_count": 3, "eval_count": 4}
-            )
-        )
-        out = OllamaCurator(base_url="http://ollama.test").complete("sys", "user")
-        assert out == '[{"title":"Dune"}]'
-        assert "format" not in json.loads(route.calls.last.request.content)  # no schema on the RAG path
-
-    @respx.mock
-    def test_complete_returns_empty_string_on_http_error(self):
-        respx.post("http://ollama.test/api/chat").mock(return_value=httpx.Response(500))
-        assert OllamaCurator(base_url="http://ollama.test").complete("sys", "user") == ""
-
-
 class TestThreadLocalTokens:
     def test_token_counts_do_not_race_across_threads(self):
         # The whole point of the descriptor: when users are curated on parallel threads, each
@@ -652,3 +588,62 @@ class TestThreadLocalTokens:
             last_tokens = ThreadLocalTokens()
 
         assert Holder().last_tokens == 0
+
+
+class TestOpenAICompatibleCurator:
+    """Issue #7: llama.cpp, LM Studio, vLLM, LocalAI, OpenRouter — anything speaking the OpenAI API."""
+
+    def _curator(self, monkeypatch, models=("llama-3.3-70b",)):
+        from shortlist.engine.curator.openai_compatible import OpenAICompatibleCurator
+
+        curator = OpenAICompatibleCurator.__new__(OpenAICompatibleCurator)
+        curator._model = "llama-3.3-70b"
+        monkeypatch.setattr(type(curator), "list_models", lambda self: list(models))
+        return curator
+
+    def test_ping_asks_what_is_loaded_instead_of_generating(self, monkeypatch):
+        """The inherited ping sends a real chat completion — 30+ seconds on a CPU-bound local model,
+        and a failure when the server is up but has nothing loaded, which is the state Test exists
+        to diagnose."""
+        assert "1 model(s) available" in self._curator(monkeypatch).ping()
+
+    def test_ping_says_so_when_the_server_has_no_model_loaded(self, monkeypatch):
+        assert "no models loaded" in self._curator(monkeypatch, models=()).ping()
+
+    def test_a_base_url_is_required(self):
+        from shortlist.engine.curator.openai_compatible import OpenAICompatibleCurator
+
+        with pytest.raises(ValueError, match="base URL"):
+            OpenAICompatibleCurator(base_url="")
+
+    def test_it_does_not_claim_native_web_search(self):
+        """Web search is an OpenAI-hosted tool, not part of the API these servers implement — they
+        reach the llm_web source through an external provider (Exa), like Ollama."""
+        from shortlist.engine.curator.openai_compatible import OpenAICompatibleCurator
+
+        assert OpenAICompatibleCurator.supports_native_web_search is False
+
+
+class TestLocalServerUrl:
+    """`normalize_base_url` — the single most likely reason "it can't reach my server"."""
+
+    def test_a_bare_host_gains_the_openai_api_path(self):
+        """People paste the address they know their server by; the Ollama docs' one has no path at
+        all, and every runtime we target serves the API under /v1."""
+        from shortlist.engine.curator.openai_compatible import normalize_base_url
+
+        assert normalize_base_url("http://localhost:11434") == "http://localhost:11434/v1"
+        assert normalize_base_url("http://localhost:11434/") == "http://localhost:11434/v1"
+
+    def test_a_url_that_already_has_a_path_is_left_alone(self):
+        from shortlist.engine.curator.openai_compatible import normalize_base_url
+
+        assert normalize_base_url("http://llama:8080/v1") == "http://llama:8080/v1"
+        assert normalize_base_url("https://openrouter.ai/api/v1") == "https://openrouter.ai/api/v1"
+
+    def test_nonsense_is_returned_untouched_rather_than_mangled(self):
+        """A malformed URL should fail at the request with the owner's own text in the error, not be
+        silently rewritten into something they never typed."""
+        from shortlist.engine.curator.openai_compatible import normalize_base_url
+
+        assert normalize_base_url("not a url") == "not a url"

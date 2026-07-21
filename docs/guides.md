@@ -97,7 +97,7 @@ Each row can have its own artwork on Plex. In the **Row editor** → **Poster**,
   works on any setup. Use `{user}`, `{library_name}`, and `{top_seed}` to personalise the text.
 - **AI image** — an image generated from your text and **Art style**, using your AI provider's image
   model. This reuses your AI curator's key, so it's available when that provider is **OpenAI** or
-  **Google** (Anthropic and Ollama can't generate images — use a Text poster or Upload instead).
+  **Google** (Anthropic and local servers can't generate images — use a Text poster or Upload instead).
 
 Hit **Preview** to see a sample before saving. Generated images are made once and reused across
 runs (they refresh when you change the text or style), so posters don't slow a run down or cost per

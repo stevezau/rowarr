@@ -112,15 +112,40 @@ class TestBuildContext:
         service.build_context(dry_run=True)
         assert captured["timeout"] == 90  # an explicit setting overrides it
 
-    def test_ollama_provider_is_built_with_its_url(self, service, sessions, configured):
-        """Ollama takes a base URL and no key; the key was previously unstorable, 422ing setup."""
-        with sessions() as session:
-            store = SettingsStore(session, configured)
-            store.set("curator.provider", "ollama")
-            store.set("curator.ollama_url", "http://ollama.local:11434")
-        ctx = service.build_context(dry_run=True)
-        assert ctx.curator.name == "ollama"
-        assert ctx.curator._base_url == "http://ollama.local:11434"
+    def test_an_instance_still_stored_as_ollama_keeps_its_url(self):
+        """Ollama was merged into the one local/OpenAI-compatible provider. An instance configured
+        before that merge still has `ollama` and the OLD url key stored, and must keep working
+        without the owner touching anything.
+
+        Asserted on `curator_kwargs` rather than a built context because constructing the curator
+        needs the `openai` extra — present in the shipped image, absent from a plain dev install."""
+        from shortlist.server.services.context_builder import curator_kwargs
+
+        stored = {"curator.provider": "ollama", "curator.ollama_url": "http://ollama.local:11434"}
+
+        assert curator_kwargs(lambda k: stored.get(k, "")) == {"base_url": "http://ollama.local:11434"}
+
+    def test_a_local_server_passes_its_url_and_needs_no_key(self):
+        from shortlist.server.services.context_builder import curator_kwargs
+
+        stored = {"curator.provider": "openai_compatible", "curator.openai_base_url": "http://llama:8080/v1"}
+
+        assert curator_kwargs(lambda k: stored.get(k, "")) == {"base_url": "http://llama:8080/v1"}
+
+    def test_a_hosted_gateway_may_still_carry_a_key(self):
+        """A local server wants no key; OpenRouter does. Both are the same provider."""
+        from shortlist.server.services.context_builder import curator_kwargs
+
+        stored = {
+            "curator.provider": "openai_compatible",
+            "curator.openai_base_url": "https://openrouter.ai/api/v1",
+            "curator.api_key": "sk-or-abc",
+        }
+
+        assert curator_kwargs(lambda k: stored.get(k, "")) == {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "sk-or-abc",
+        }
 
     def test_previous_picks_carries_the_latest_run_per_row_and_library(self, service, sessions, configured):
         from shortlist.server.db.models import Run

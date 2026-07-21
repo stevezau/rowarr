@@ -72,20 +72,20 @@ def _prompt_from_recipe(recipe: dict) -> PromptConfig:
 
 
 def curator_kwargs(get: Callable[[str], object]) -> dict:
-    """Assemble ``make_curator`` kwargs from settings. Ollama takes a base_url and no key (a key
-    would be rejected by its ctor); an OpenAI-compatible server takes a base_url and an OPTIONAL key;
-    every other provider takes an api_key; an optional model applies to all.
+    """Assemble ``make_curator`` kwargs from settings. A local/OpenAI-compatible server takes a
+    base_url and an OPTIONAL key; every other provider takes an api_key; an optional model applies
+    to all.
 
     The single source of truth the runtime context and the settings 'Test' probe both build from —
     so a change to how a provider is configured can't drift between them."""
     kwargs: dict = {}
     provider = get("curator.provider")
-    if provider == "ollama":
-        kwargs["base_url"] = get("curator.ollama_url")
-    elif provider == "openai_compatible":
+    if provider in ("openai_compatible", "ollama"):
         # A local server usually wants no key at all, but a hosted gateway (OpenRouter) does — so
         # the key is passed when set and the curator substitutes a placeholder when it isn't.
-        kwargs["base_url"] = get("curator.openai_base_url")
+        # `curator.ollama_url` is read as a fallback for instances configured before the two
+        # providers were merged, whose URL still lives under the old key.
+        kwargs["base_url"] = get("curator.openai_base_url") or get("curator.ollama_url")
         if get("curator.api_key"):
             kwargs["api_key"] = get("curator.api_key")
     elif get("curator.api_key"):

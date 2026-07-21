@@ -8,7 +8,8 @@
 - **Plex Pass** on the server owner's account (label restrictions are a Pass feature).
 - A **TMDB API key** (free: themoviedb.org → Settings → API).
 - Optional: **Tautulli** for deeper watch history; **an LLM API key** (Anthropic/OpenAI/Google)
-  or a local **Ollama** — Shortlist is fully functional with none of these (heuristic mode).
+  or a **local server** (Ollama, llama.cpp, LM Studio, vLLM, LocalAI) — Shortlist is fully
+  functional with none of these (heuristic mode).
 
 ## Install (Docker)
 
@@ -47,7 +48,7 @@ The wizard opens on a short welcome screen, then walks (the progress bar reads "
 2. **Recommendations & history** — where picks come from (TMDB, Trakt, AI, web search) and
    where watch history comes from: point at Tautulli if you run it; Plex's own history works
    without it.
-3. **Choose your curator** — Claude / GPT / Gemini / Ollama / **None** (the built-in picker).
+3. **Choose your curator** — Claude / GPT / Gemini / Local server / **None** (the built-in picker).
    Keys are yours, stored encrypted, redacted after save.
 4. **Pick your users** — everyone you share with, with history-depth and new-viewer badges.
 5. **Make it yours** — row name, row size, and when rows refresh (each row runs on its own

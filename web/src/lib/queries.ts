@@ -271,6 +271,8 @@ export function useCuratorModels(
       api.getCuratorModels({
         provider: params.provider,
         api_key: params.apiKey || undefined,
+        // Sent under the legacy field name the endpoint still accepts; it feeds the one
+        // local/self-hosted provider's base URL either way.
         ollama_url: params.ollamaUrl || undefined,
       }),
     enabled,

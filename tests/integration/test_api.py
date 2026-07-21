@@ -235,53 +235,6 @@ class TestUsersApi:
         patched = client.patch(f"/api/users/{user_id}", json={"enabled": True}).json()
         assert patched["history_depth"] == 2
 
-    def test_blocking_a_title_round_trips_and_unblocking_removes_it(self, client: TestClient):
-        """Issue #5. Both switches are independent, and clearing both means un-block — the list
-        should only ever show titles that are actually doing something."""
-        uid = next(u["id"] for u in client.get("/api/users").json() if u["username"] == "sarah")
-
-        r = client.put(
-            f"/api/users/{uid}/blocked",
-            json={"tmdb_id": 42, "media_type": "movie", "title": "The Searchers", "block_seed": True},
-        )
-        assert r.status_code == 200
-        assert r.json()["blocked"] is True
-
-        listed = client.get(f"/api/users/{uid}/blocked").json()
-        assert len(listed) == 1
-        assert listed[0]["title"] == "The Searchers"
-        assert listed[0]["block_pick"] is True and listed[0]["block_seed"] is True
-
-        # Same title again = update, not a duplicate.
-        client.put(
-            f"/api/users/{uid}/blocked",
-            json={"tmdb_id": 42, "media_type": "movie", "block_pick": False, "block_seed": True},
-        )
-        listed = client.get(f"/api/users/{uid}/blocked").json()
-        assert len(listed) == 1, "re-blocking the same title must update it, not add a second row"
-        assert listed[0]["block_pick"] is False
-
-        # Neither switch = un-block.
-        client.put(
-            f"/api/users/{uid}/blocked",
-            json={"tmdb_id": 42, "media_type": "movie", "block_pick": False, "block_seed": False},
-        )
-        assert client.get(f"/api/users/{uid}/blocked").json() == []
-
-    def test_blocked_titles_are_per_user(self, client: TestClient):
-        """One person's "never again" is another's favourite."""
-        users = {u["username"]: u["id"] for u in client.get("/api/users").json()}
-        client.put(
-            f"/api/users/{users['sarah']}/blocked",
-            json={"tmdb_id": 42, "media_type": "movie", "title": "The Searchers"},
-        )
-
-        assert client.get(f"/api/users/{users['mike']}/blocked").json() == []
-
-    def test_blocking_for_an_unknown_user_404s(self, client: TestClient):
-        r = client.put("/api/users/9999/blocked", json={"tmdb_id": 1, "media_type": "movie"})
-        assert r.status_code == 404
-
     def test_patch_unknown_user_404(self, client: TestClient):
         assert client.patch("/api/users/9999", json={"enabled": True}).status_code == 404
 

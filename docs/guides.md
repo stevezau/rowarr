@@ -103,21 +103,6 @@ Hit **Preview** to see a sample before saving. Generated images are made once an
 runs (they refresh when you change the text or style), so posters don't slow a run down or cost per
 user. Posters are cosmetic — a poster that can't be made never blocks a row from building.
 
-## Ignoring a title
-
-Not everything someone watches should shape what they're shown — one Western, one football match,
-one thing watched out of curiosity, and the row fills with more of the same. Open a person (Users →
-click them); every pick in their rows has two ignore controls:
-
-- **Never suggest this** — the title is dropped from that person's pool from the next run on. It
-  stays blocked even on a row that allows already-watched titles.
-- **Never let this inspire** — the "inspired by" title stops seeding their recommendations. It's
-  removed *before* the seed budget is spent, so the remaining slots refill from the rest of their
-  history rather than being wasted.
-
-Both are per person — one person's "never again" is another's favourite — and both are listed and
-reversible under **Ignore list** on their page.
-
 ## Hit rate
 
 The % of recommended items a user actually watched within 30 days, computed from the same

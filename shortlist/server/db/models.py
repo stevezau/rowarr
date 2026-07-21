@@ -277,33 +277,6 @@ class WatchEvent(Base):
     __table_args__ = (UniqueConstraint("user_id", "rating_key", "watched_at", name="uq_watch_event"),)
 
 
-class BlockedTitle(Base):
-    """A title one person never wants involved in their recommendations (issue #5).
-
-    Two independent switches, because they answer different complaints:
-
-    * ``block_pick`` — never RECOMMEND this to me. ("Stop suggesting this.")
-    * ``block_seed`` — never let this INSPIRE recommendations. Watching one Western, or a football
-      match, or something you'd rather not have shaping a Home screen, shouldn't turn the whole row
-      into more of the same.
-
-    Per user, not global: one person's "never again" is another's favourite.
-    """
-
-    __tablename__ = "blocked_titles"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    tmdb_id: Mapped[int] = mapped_column(Integer)
-    media_type: Mapped[str] = mapped_column(String(16))  # movie | show
-    title: Mapped[str] = mapped_column(String(512), default="")  # for the UI; the ids do the work
-    block_pick: Mapped[bool] = mapped_column(Boolean, default=True)
-    block_seed: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-    __table_args__ = (UniqueConstraint("user_id", "tmdb_id", "media_type", name="uq_blocked_title"),)
-
-
 class RestrictionSnapshotRow(Base):
     __tablename__ = "restriction_snapshots"
 

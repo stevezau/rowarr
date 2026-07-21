@@ -186,12 +186,6 @@ class UserProfile:
     nickname: str = ""
     history: list[WatchedItem] = field(default_factory=list)
     excluded_genres: set[str] = field(default_factory=set)
-    # (tmdb_id, media_type) this person never wants RECOMMENDED — dropped from every row's pool
-    # regardless of the row's watched-cap, because "stop suggesting this" is unconditional (issue #5).
-    blocked_picks: set[tuple[int, MediaType]] = field(default_factory=set)
-    # (tmdb_id, media_type) that must never INSPIRE recommendations. Watching one Western (or a
-    # football match) shouldn't turn a whole row into more of the same.
-    blocked_seeds: set[tuple[int, MediaType]] = field(default_factory=set)
     row_name_template: str | None = None
     prompt: PromptConfig | None = None  # resolved effective recipe; None -> built-in defaults
     request_tag: str = ""  # tag added to titles requested for this user (layered onto global + row tags)

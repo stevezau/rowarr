@@ -20,7 +20,6 @@ from shortlist.server.auth import require_owner
 from shortlist.server.db.adapters import unique_slug
 from shortlist.server.db.models import (
     DEFAULT_SLUG,
-    BlockedTitle,
     Event,
     PickRow,
     Run,
@@ -41,9 +40,6 @@ def _pick_dict(pick: PickRow) -> dict:
     return {
         "rank": pick.rank,
         "title": pick.title,
-        # The ids the UI needs to block a title, or the title that inspired it (issue #5).
-        "tmdb_id": pick.tmdb_id,
-        "seed_tmdb_id": pick.seed_tmdb_id,
         "reason": pick.reason,
         "media_type": pick.media_type,
         "collection_slug": pick.collection_slug or DEFAULT_SLUG,  # legacy blank rows are the default row
@@ -288,69 +284,6 @@ async def _rename_after_nickname(state) -> None:
         if "{user}" not in (template or ""):
             continue  # this row's title doesn't mention them, so a nickname can't have changed it
         await run_row_rename(state, slug=slug, new_template=template, scope="user.nickname")
-
-
-class BlockedTitleIn(BaseModel):
-    tmdb_id: int
-    media_type: str = Field(pattern="^(movie|show)$")
-    title: str = Field(default="", max_length=512)
-    # Two independent switches: stop suggesting it, and/or stop letting it inspire suggestions.
-    # Both false is a request to un-block, so the row is deleted rather than left inert.
-    block_pick: bool = True
-    block_seed: bool = False
-
-
-def _blocked_dict(row: BlockedTitle) -> dict:
-    return {
-        "id": row.id,
-        "tmdb_id": row.tmdb_id,
-        "media_type": row.media_type,
-        "title": row.title,
-        "block_pick": row.block_pick,
-        "block_seed": row.block_seed,
-    }
-
-
-@router.get("/{user_id}/blocked")
-async def list_blocked(user_id: int, request: Request) -> list[dict]:
-    """Titles this person has asked never to be recommended, or never to be inspired by (issue #5)."""
-    with request.app.state.sessions() as session:
-        if session.get(User, user_id) is None:
-            raise HTTPException(status_code=404, detail="user not found")
-        rows = session.query(BlockedTitle).filter_by(user_id=user_id).order_by(BlockedTitle.title).all()
-        return [_blocked_dict(r) for r in rows]
-
-
-@router.put("/{user_id}/blocked")
-async def set_blocked(user_id: int, body: BlockedTitleIn, request: Request) -> dict:
-    """Block (or un-block) one title for this person. Idempotent — same title, new switches.
-
-    Takes effect on their next run: the pool drops blocked picks unconditionally, and blocked seeds
-    are removed before seeds are derived, so the seed budget refills from the rest of their history.
-    """
-    with request.app.state.sessions() as session:
-        if session.get(User, user_id) is None:
-            raise HTTPException(status_code=404, detail="user not found")
-        row = (
-            session.query(BlockedTitle)
-            .filter_by(user_id=user_id, tmdb_id=body.tmdb_id, media_type=body.media_type)
-            .one_or_none()
-        )
-        if not body.block_pick and not body.block_seed:
-            # Neither switch set = "un-block this". Deleting beats keeping an inert row, so the
-            # list only ever shows titles that are actually doing something.
-            if row is not None:
-                session.delete(row)
-                session.commit()
-            return {"blocked": False}
-        if row is None:
-            row = BlockedTitle(user_id=user_id, tmdb_id=body.tmdb_id, media_type=body.media_type)
-            session.add(row)
-        row.title = body.title or row.title
-        row.block_pick = body.block_pick
-        row.block_seed = body.block_seed
-        session.commit()
-        return {"blocked": True, **_blocked_dict(row)}
 
 
 @router.get("/{user_id}/runs")

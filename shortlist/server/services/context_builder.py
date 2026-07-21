@@ -44,7 +44,6 @@ from shortlist.engine.pipeline import EngineContext
 from shortlist.server.db.adapters import DbCache, DbSnapshotStore
 from shortlist.server.db.models import (
     DEFAULT_SLUG,
-    BlockedTitle,
     Collection,
     CollectionAudience,
     CollectionUserOverride,
@@ -363,19 +362,6 @@ class ContextBuilder:
             )
         return out
 
-    @staticmethod
-    def _blocked(session: Session) -> tuple[dict[int, set], dict[int, set]]:
-        """user_id -> the (tmdb_id, media_type) sets they've blocked, as picks and as seeds."""
-        picks: dict[int, set] = {}
-        seeds: dict[int, set] = {}
-        for row in session.query(BlockedTitle).all():
-            key = (row.tmdb_id, MediaType(row.media_type))
-            if row.block_pick:
-                picks.setdefault(row.user_id, set()).add(key)
-            if row.block_seed:
-                seeds.setdefault(row.user_id, set()).add(key)
-        return picks, seeds
-
     def enabled_profiles(self, session: Session, user_ids: list[int] | None = None) -> list[UserProfile]:
         """Enabled users, optionally narrowed to user_ids — never widened past enabled=True.
 
@@ -392,7 +378,6 @@ class ContextBuilder:
                 return []
             query = query.filter(User.id.in_(user_ids))
         overrides = self._row_overrides(session)
-        blocked_picks, blocked_seeds = self._blocked(session)
         profiles = []
         for user in query.all():
             prefs = user.prefs or {}
@@ -412,8 +397,6 @@ class ContextBuilder:
                     # The owner's own nickname wins; Tautulli's friendly name is only the default.
                     nickname=user.nickname or user.friendly_name,
                     excluded_genres=set(prefs.get("excluded_genres") or []),
-                    blocked_picks=blocked_picks.get(user.id, set()),
-                    blocked_seeds=blocked_seeds.get(user.id, set()),
                     row_name_template=prefs.get("row_name_tpl"),
                     prompt=self._resolve_prompt(store, prefs),
                     request_tag=request_tag,

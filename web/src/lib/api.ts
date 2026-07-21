@@ -26,8 +26,6 @@ import type {
   RunCreated,
   RunDetail,
   RunLogEntry,
-  BlockedTitle,
-  BlockedTitleInput,
   LogPage,
   RunRequest,
   RunsSummary,
@@ -235,16 +233,6 @@ export const api = {
 
   getRunLog: (id: number): Promise<RunLogEntry[]> =>
     request(`/api/runs/${id}/log`),
-
-  /** Titles this person never wants suggested, or never wants inspiring suggestions (issue #5). */
-  getBlocked: (userId: number): Promise<BlockedTitle[]> =>
-    request(`/api/users/${userId}/blocked`),
-
-  setBlocked: (userId: number, body: BlockedTitleInput): Promise<unknown> =>
-    request(`/api/users/${userId}/blocked`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
 
   /** The app's own log file, filtered server-side. Every line is redacted before it is sent. */
   getLogs: (params: {

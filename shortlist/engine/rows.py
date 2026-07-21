@@ -321,11 +321,6 @@ def _candidate_pool(
     # Blocked titles ride along with the watched exclusions — same "don't surface this" machinery —
     # but UNCONDITIONALLY: a watched-cap above 0 re-admits finished titles, and "stop suggesting
     # this" must not be re-admitted by it (issue #5).
-    if profile is not None and profile.blocked_picks:
-        watched_ids = watched_ids | profile.blocked_picks
-    # Blocked titles ride along with the watched exclusions — same "don't surface this" machinery —
-    # but UNCONDITIONALLY: a watched-cap above 0 re-admits finished titles, and "stop suggesting
-    # this" must not be re-admitted by it (issue #5).
     gather_stats = candidates_mod.GatherStats()
     pool = candidates_mod.gather_candidates(
         ctx.tmdb,
@@ -587,15 +582,6 @@ def _run_user(
             key = (spec.media, tuple(sorted(str(k) for k in spec.library_keys)))
             if key not in seed_cache:
                 relevant = _history_for_row(ctx, user.history, spec)
-                if user.blocked_seeds:
-                    # Dropped BEFORE derive_seeds, so a blocked title doesn't occupy a seed slot and
-                    # the budget refills from the rest of their history (issue #5).
-                    relevant = [
-                        w
-                        for w in relevant
-                        if ((w.tmdb_id if w.tmdb_id is not None else resolve(w)), w.media_type)
-                        not in user.blocked_seeds
-                    ]
                 seed_cache[key] = derive_seeds(relevant, resolve, max_seeds=cfg.max_seeds)
             return seed_cache[key]
 

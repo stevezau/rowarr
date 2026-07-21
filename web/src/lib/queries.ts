@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "./api";
 import type {
-  BlockedTitleInput,
   CollectionInput,
   RowOverridePatch,
   RunRequest,
@@ -28,7 +27,6 @@ export const queryKeys = {
   session: ["auth", "session"] as const,
   setupState: ["setup", "state"] as const,
   apiToken: ["api-token"] as const,
-  blocked: (userId: number) => ["users", userId, "blocked"] as const,
   logs: (level: string, q: string, limit: number) =>
     ["logs", level, q, limit] as const,
 };
@@ -462,23 +460,5 @@ export function useLogs(
     // buries the real error under a stream of identical ones. The error state offers Retry.
     refetchInterval: (query) => (follow && !query.state.error ? 3000 : false),
     placeholderData: (previous) => previous,
-  });
-}
-
-
-/** A person's ignore list, and the mutation that edits it (issue #5). */
-export function useBlocked(userId: number) {
-  return useQuery({
-    queryKey: queryKeys.blocked(userId),
-    queryFn: () => api.getBlocked(userId),
-  });
-}
-
-export function useSetBlocked(userId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: BlockedTitleInput) => api.setBlocked(userId, body),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.blocked(userId) }),
   });
 }

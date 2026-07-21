@@ -21,6 +21,11 @@
   delivering as the run happens (seeded from the server so a reload replays it); per-user diffs
   grouped by row then library ("added X to Movies, Y to TV Shows"), each library showing its own
   ranked picks; errors as first-class rows with copy-for-GitHub buttons, LLM token usage.
+- **Logs** — what this instance has been doing, with a level filter (this level *and louder*), a
+  text filter, live follow, **Copy**, and **Download .zip** for attaching to a bug report. Tokens,
+  API keys and passwords are stripped out server-side before anything reaches the page or the zip,
+  so it's safe to share. The file keeps the last 10 × 10 MB and always records at DEBUG, regardless
+  of the console level in Settings → Advanced.
 - **Requests** — the approval inbox for titles your picks wanted but the library doesn't have
   yet. Approve to send to Radarr/Sonarr, or reject so they never come back (see "Requests" below).
 - **Settings** — organised into a grouped sidebar sub-nav so it doesn't read as one long wall:

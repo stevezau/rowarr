@@ -697,3 +697,22 @@ export interface RequestSendResult {
   dry_run: boolean;
   outcomes: RequestSendOutcome[];
 }
+
+
+/** One parsed line from the rotating log file (GET /api/system/logs). A traceback is folded into
+ *  the entry it belongs to, so `message` can span several lines. */
+export interface LogLine {
+  ts: string | null;
+  level: string;
+  source: string;
+  message: string;
+}
+
+export interface LogPage {
+  lines: LogLine[];
+  /** How many lines matched the filter before the newest-N cap was applied. */
+  total_matched: number;
+  truncated: boolean;
+  /** The file these came from, or null when the instance has not written any logs yet. */
+  file: string | null;
+}

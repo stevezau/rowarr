@@ -1006,6 +1006,55 @@ class TestSettingsValidation:
         assert r.status_code == 200
 
 
+class TestLogsApi:
+    """The in-app Logs view. Owner-only, and redacted — it exists to be copied into bug reports."""
+
+    def _write_log(self, client: TestClient, *lines: str) -> None:
+        logs = client.app.state.config_dir / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "shortlist.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    LINE = "2026-07-21 07:27:18.100 | {level:<8} | shortlist.server.main:lifespan:168 - {message}"
+
+    def test_returns_parsed_lines_filtered_by_level(self, client: TestClient):
+        self._write_log(
+            client,
+            self.LINE.format(level="DEBUG", message="quiet"),
+            self.LINE.format(level="ERROR", message="loud"),
+        )
+
+        body = client.get("/api/system/logs?level=ERROR").json()
+
+        assert [x["message"] for x in body["lines"]] == ["loud"]
+        assert body["file"] == "shortlist.log"
+
+    def test_never_serves_a_credential(self, client: TestClient):
+        """The whole point of the view is that it gets shared, so this is the load-bearing test."""
+        self._write_log(client, self.LINE.format(level="INFO", message="GET /x?X-Plex-Token=LEAKME -> 200"))
+
+        assert "LEAKME" not in client.get("/api/system/logs").text
+
+    def test_the_zip_download_is_attached_and_redacted(self, client: TestClient):
+        import io
+        import zipfile
+
+        self._write_log(client, self.LINE.format(level="INFO", message="token: X-Plex-Token: LEAKME"))
+
+        r = client.get("/api/system/logs/download")
+
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/zip"
+        assert "attachment; filename=" in r.headers["content-disposition"]
+        archive = zipfile.ZipFile(io.BytesIO(r.content))
+        assert "LEAKME" not in archive.read("logs/shortlist.log").decode()
+
+    def test_logs_are_owner_only(self, client: TestClient):
+        """Logs describe the whole server and name every user on it — they are not public."""
+        client.cookies.delete(SESSION_COOKIE)
+        assert client.get("/api/system/logs").status_code == 401
+        assert client.get("/api/system/logs/download").status_code == 401
+
+
 class TestSettingsApi:
     def test_get_put_round_trip_and_unknown_key_rejected(self, client: TestClient):
         settings = client.get("/api/settings").json()

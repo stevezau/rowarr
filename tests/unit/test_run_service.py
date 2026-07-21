@@ -200,6 +200,7 @@ class TestRunExecution:
             "llm_tokens_by_step": {},
             "exa_searches": 0,
             "error": None,
+            "promotion_blockers": [],
         }
         with sessions() as session:
             run_users = session.query(RunUser).filter_by(run_id=run.id).all()

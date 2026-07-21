@@ -242,6 +242,10 @@ export interface Run {
   status: string;
   dry_run: boolean;
   stats: RunStats;
+  /** Why the run failed, when the failure belongs to no single person. Null on a clean run. */
+  error?: string | null;
+  /** Accounts whose share filter Plex refused — the reason nothing was promoted. */
+  promotion_blockers?: string[];
 }
 
 export interface Pick {

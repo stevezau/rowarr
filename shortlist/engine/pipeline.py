@@ -625,6 +625,9 @@ def _privacy_sync_phase(
             # promoted this run — including for users whose own sync succeeded.
             sync_failed = True
             message = f"privacy sync for {user.username}: {type(e).__name__}: {e}"
+            # Named, not just counted: this is the reason nothing gets promoted, so it has to reach
+            # the operator's screen rather than only the container log.
+            report.promotion_blockers.append(f"{user.username} (plex account {user.plex_account_id}): {e}")
             if user_report is not None:
                 user_report.status = "error"
                 user_report.error = f"{user_report.error} | {message}" if user_report.error else message
@@ -685,7 +688,15 @@ def _promote_phase(
             logger.info("[dry-run] {}: would promote row to shared Home", user.username)
             continue
         if not filters_ok:
-            logger.warning("{}: promotion skipped — a privacy sync failed this run", user.username)
+            # Say WHICH account blocked it and why — "a privacy sync failed this run" on its own
+            # explains nothing and is exactly what sent a beta user digging through logs.
+            why = "; ".join(report.promotion_blockers) or (report.error or "the share-filter sync did not complete")
+            logger.warning(
+                "{}: promotion skipped — the row stays hidden because Plex would not accept a share "
+                "filter this run, so it cannot be proven private. Blocked by: {}",
+                user.username,
+                why,
+            )
             continue
         # Which row produced each of this user's collections, so promotion honours that row's
         # placement (Home / Library) and pin-to-top. Keyed by the exact title delivery wrote and

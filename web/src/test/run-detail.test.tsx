@@ -440,3 +440,38 @@ describe("RunDetail — a skipped person is not a success", () => {
     ).toBeInTheDocument();
   });
 });
+
+
+describe("RunDetail — a failed run says why", () => {
+  it("explains a refused share filter instead of showing a bare 'Failed'", async () => {
+    // The reason was always recorded, but lived only in stats.error which nothing rendered — so a
+    // beta user with this exact failure had to read container logs to find out (issue #1).
+    const r = run([]);
+    r.status = "error";
+    r.error = "privacy sync for LisaPlex1234: RuntimeError: plex.tv rejected…";
+    r.promotion_blockers = [
+      "LisaPlex1234 (plex account 12345): plex.tv rejected the share-filter update for account 12345: HTTP 400",
+    ];
+    getRun.mockResolvedValue(r);
+
+    renderDetail();
+
+    expect(
+      await screen.findByText(/Plex wouldn’t accept a share filter/i),
+    ).toBeInTheDocument();
+    // The operator needs the account and the status, not a euphemism.
+    expect(screen.getByText(/HTTP 400/)).toBeInTheDocument();
+    expect(screen.getByText(/plex account 12345/)).toBeInTheDocument();
+    // …and the People tile must not call it a clean sweep.
+    expect(screen.queryByText("all succeeded")).toBeNull();
+    expect(screen.getByText("built, but not promoted")).toBeInTheDocument();
+  });
+
+  it("stays quiet on a clean run", async () => {
+    getRun.mockResolvedValue(run([]));
+    renderDetail();
+    // The tiles only render once a run has finished — wait for one, then assert no alarm.
+    expect(await screen.findByText("all succeeded")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

@@ -474,6 +474,35 @@ class TestRunsApi:
         assert result["reason"] == "There are no per-person rows to build."
         assert result["error"] is None
 
+    def test_a_failed_run_exposes_why_not_just_that_it_failed(self, client: TestClient):
+        """The reason lived only inside `stats`, which no client read — so a run that failed for a
+        run-level reason (a share filter Plex refused) surfaced as a bare "Failed" and the operator
+        had to go read container logs (issue #1)."""
+        from shortlist.server.db.models import Run
+
+        blocker = "LisaPlex1234 (plex account 12345): plex.tv rejected the share-filter update: HTTP 400"
+        with client.app.state.sessions() as session:
+            run = Run(
+                trigger="manual",
+                status="error",
+                stats={
+                    "users_ok": 1,
+                    "users_error": 0,
+                    "error": "privacy sync failed",
+                    "promotion_blockers": [blocker],
+                },
+            )
+            session.add(run)
+            session.commit()
+            run_id = run.id
+
+        detail = client.get(f"/api/runs/{run_id}").json()
+        listed = next(r for r in client.get("/api/runs").json() if r["id"] == run_id)
+
+        assert detail["error"] == "privacy sync failed"
+        assert detail["promotion_blockers"] == [blocker]
+        assert listed["error"] == "privacy sync failed"  # the list carries it too
+
     def test_cancel_a_run_that_isnt_running_returns_409(self, client: TestClient):
         # A run that already finished (or never existed) can't be cancelled — the endpoint says so
         # rather than pretending it stopped something.

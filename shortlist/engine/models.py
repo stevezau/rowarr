@@ -659,6 +659,11 @@ class RunReport:
     # that have since arrived on the server (bought/grabbed elsewhere) so they stop lingering.
     library_present: set[tuple[int, MediaType]] = field(default_factory=set)
     error: str | None = None  # a run-level failure (e.g. the sweep itself could not run)
+    # Why promotion was blocked this run, one entry per account whose share filter could not be
+    # written — the accounts a row would otherwise be visible to. Without these the operator sees
+    # only "promotion skipped — a privacy sync failed", which names neither the account nor the
+    # reason and sends them to the container logs (issue #1, mrjohnpoz).
+    promotion_blockers: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:

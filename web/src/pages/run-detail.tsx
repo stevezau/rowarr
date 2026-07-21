@@ -240,6 +240,38 @@ function tokenStepInline(byStep?: Record<string, number>): string {
     .join(" · ");
 }
 
+/** Why a run failed for a reason that belongs to no single person — a share filter Plex refused, a
+ *  sweep that could not run. The reason was always recorded, but lived only in `stats.error`, which
+ *  nothing rendered: the page said "Failed" and left the operator reading container logs (issue #1). */
+function RunFailureBanner({ run }: { run: RunDetail }) {
+  const blockers = run.promotion_blockers ?? [];
+  if (run.status !== "error" || (!run.error && blockers.length === 0)) return null;
+  return (
+    <div
+      role="alert"
+      className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm"
+    >
+      <p className="font-medium text-foreground">
+        {blockers.length > 0
+          ? "Nothing was promoted — Plex wouldn’t accept a share filter"
+          : "This run didn’t finish cleanly"}
+      </p>
+      {blockers.length > 0 && (
+        <p className="text-muted-foreground">
+          Rows are only put on Home once every other account is set to hide
+          them. Plex refused that change for{" "}
+          {blockers.length === 1 ? "this account" : `${blockers.length} accounts`}
+          , so the rows were built but deliberately left hidden rather than
+          risk showing one person’s row to someone else.
+        </p>
+      )}
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-background/60 p-2.5 font-mono text-xs text-destructive">
+        {blockers.length > 0 ? blockers.join("\n") : run.error}
+      </pre>
+    </div>
+  );
+}
+
 /** The finished-run stats as at-a-glance tiles (Dashboard style) rather than one dense text line. */
 function RunStatTiles({ run }: { run: RunDetail }) {
   const s = run.stats;
@@ -271,9 +303,19 @@ function RunStatTiles({ run }: { run: RunDetail }) {
             ? `${failed} failed${skipped > 0 ? `, ${skipped} skipped` : ""}`
             : skipped > 0
               ? `${skipped} skipped, built nothing`
-              : "all succeeded"
+              : // Everyone can succeed while the RUN fails (a refused share filter belongs to no
+                // person) — "all succeeded" under a "Failed" badge is how that looked before.
+                run.status === "error"
+                ? "built, but not promoted"
+                : "all succeeded"
         }
-        tone={failed > 0 ? "destructive" : skipped > 0 ? "warning" : "success"}
+        tone={
+          failed > 0
+            ? "destructive"
+            : skipped > 0 || run.status === "error"
+              ? "warning"
+              : "success"
+        }
       />
       <StatTile
         icon={Shuffle}
@@ -799,6 +841,8 @@ export function RunDetailPage() {
                     : " · still running"}
                 </p>
               </header>
+
+              <RunFailureBanner run={run} />
 
               {/* Stats are only finalized once a run ends; while it's live we show the why-slow note instead. */}
               {run.finished_at && <RunStatTiles run={run} />}

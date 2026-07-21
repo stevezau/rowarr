@@ -29,6 +29,11 @@ def _run_summary(run: Run) -> dict:
         "status": run.status,
         "dry_run": run.dry_run,
         "stats": run.stats or {},
+        # WHY a run failed. It was only ever inside `stats`, which nothing rendered — so a run that
+        # failed for a run-level reason (a refused share filter, a sweep that could not run) showed
+        # "Failed" and nothing else, and the operator had to read container logs (issue #1).
+        "error": (run.stats or {}).get("error"),
+        "promotion_blockers": (run.stats or {}).get("promotion_blockers") or [],
     }
 
 

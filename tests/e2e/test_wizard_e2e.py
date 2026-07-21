@@ -106,6 +106,11 @@ def _choose_no_curator(page: Page) -> None:
     expect(page.get_by_text("Built-in picker ready — no AI, no keys, no cloud.")).to_be_visible(timeout=LOAD)
 
 
+#: Everyone step 4 offers: the three accounts plex.tv shares the server with, plus the owner —
+#: whom plex.tv's user list never returns and Shortlist has to add itself (issue #1).
+WIZARD_USERS = ("sarah", "mike", "canary", "steve")
+
+
 def _pick_users(page: Page, *usernames: str) -> None:
     """Step 4: users sync from plex.tv on entry; enable the named ones."""
     page.get_by_role("button", name="Next").click()
@@ -114,16 +119,16 @@ def _pick_users(page: Page, *usernames: str) -> None:
     # The owner caveat is a design requirement, not decoration: the owner CANNOT be hidden
     # from, and they must learn that here rather than from their own Home screen tonight.
     expect(page.get_by_text("Heads up, server owner")).to_be_visible()
-    expect(page.get_by_text(re.compile("Plex cannot hide collections from the server owner"))).to_be_visible()
+    expect(page.get_by_text(re.compile("hide .*other.* people.s rows from you"))).to_be_visible()
 
-    for username in ("sarah", "mike", "canary"):
+    for username in WIZARD_USERS:
         expect(page.get_by_role("cell", name=username, exact=True)).to_be_visible(timeout=LOAD)
 
     # First sync pre-selects everyone (so the default click-through builds rows), so wait for that
     # to land, then turn OFF anyone this test doesn't want enabled.
-    for username in ("sarah", "mike", "canary"):
+    for username in WIZARD_USERS:
         expect(page.get_by_role("switch", name=f"Give {username} a row")).to_be_checked(timeout=LOAD)
-    for username in ("sarah", "mike", "canary"):
+    for username in WIZARD_USERS:
         if username not in usernames:
             toggle = page.get_by_role("switch", name=f"Give {username} a row")
             toggle.click()

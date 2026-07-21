@@ -69,6 +69,21 @@ class TestBuildContext:
         assert ctx.curator.name == "none"
         assert ctx.config.dry_run is True
 
+    def test_the_progress_callback_carries_a_reason_without_polluting_the_counts(self, service, configured):
+        """`counts` is a map of NUMBERS the UI renders as a "113 history · 40 seeds" tally, so a skip
+        reason (a whole sentence) travels beside it, never inside it. This closure feeds BOTH the SSE
+        stream and the replayable activity log, so it is where the contract has to hold."""
+        entries: list[dict] = []
+        ctx = service.build_context(dry_run=True, log_sink=entries.append)
+
+        ctx.progress("sarah", "skipped", {}, "There are no per-person rows to build.")
+        ctx.progress("sarah", "history", {"items": 12})
+
+        assert entries[0]["reason"] == "There are no per-person rows to build."
+        assert entries[0]["counts"] == {}, "the reason must not be smuggled into the counts tally"
+        assert "reason" not in entries[1], "a stage that needs no explaining carries no reason"
+        assert entries[1]["counts"] == {"items": 12}
+
     def test_tautulli_configured_uses_per_user_fallback(self, service, sessions, configured):
         with sessions() as session:
             store = SettingsStore(session, configured)

@@ -94,6 +94,9 @@ async def get_run(run_id: int, request: Request) -> dict:
                     "slug": run_user.user.slug,
                     "status": run_user.status,
                     "error": run_user.error,
+                    # Why a `skipped` result happened — an explanation, not a failure (NULL on
+                    # legacy rows and on every non-skipped result).
+                    "reason": run_user.reason,
                     "duration_ms": run_user.duration_ms,
                     "llm_tokens": run_user.llm_tokens,
                     # Where this user's AI tokens went ({} on legacy rows), and Exa searches (billed

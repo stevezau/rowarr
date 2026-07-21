@@ -333,6 +333,12 @@ Requires Radarr v3+ / Sonarr v4+ reachable from the Shortlist container.
 
 ## Troubleshooting
 
+- **A run says "skipped" and no collections were made** — a skip is always a configuration
+  outcome, and the run page now says which one. The two common ones: _every enabled row is a
+  **shared** row_, so there is no per-person row to build for anybody (add one under Rows), or a
+  **shared row can't reach its threshold** — a shared row is built only from titles several people
+  have watched, so it needs at least 2 enabled users with viewing in common and will skip forever
+  below that. Make it a per-person row instead if you want one person to get it.
 - **A user says they can see someone else's row** — run Shortlist again (Run now): every run
   re-merges the `label!=` exclusions into each account's share filters. Check whether the share
   was edited by hand in plex.tv (Shortlist re-merges but never deletes filter conditions it

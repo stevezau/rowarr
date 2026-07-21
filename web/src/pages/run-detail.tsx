@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   Check,
+  CircleSlash,
   Clock,
   Copy,
   Download,
@@ -115,6 +116,9 @@ function LogLine({ entry }: { entry: RunLogEntry }) {
       <span className="text-muted-foreground">
         {label}
         {detail ? ` · ${detail}` : ""}
+        {/* A skip carries its reason here — this feed is the only place a SHARED row's outcome
+            appears at all, since a shared row has no per-user panel. */}
+        {entry.reason ? ` — ${entry.reason}` : ""}
       </span>
     </div>
   );
@@ -431,6 +435,27 @@ function UserPanel({ run, result }: { run: RunDetail; result: RunUserResult }) {
           {result.error}
         </pre>
         <CopyForGitHubButton run={run} result={result} />
+      </div>
+    );
+  }
+  // A skip is a configuration outcome, not a failure — so it explains itself rather than sitting
+  // on "Working on this person…" forever, which is how it read to the beta user who filed issue #3.
+  if (result.status === "skipped") {
+    return (
+      <div className="flex gap-3 rounded-md bg-muted/40 p-3 text-sm">
+        <CircleSlash
+          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div>
+          <p className="font-medium text-foreground">
+            Nothing to build for this person
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {result.reason ??
+              "No row was due for them in this run. Check that a per-person row is enabled and that they’re in its audience."}
+          </p>
+        </div>
       </div>
     );
   }

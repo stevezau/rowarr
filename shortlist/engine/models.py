@@ -526,6 +526,13 @@ class EngineConfig:
     # the leak-safe share-filter sync, the unhidable-row sweep, and shelf promotion all still see the
     # FULL `rows` set, so a row not built this run keeps its excludes, its placement, and its privacy.
     build_only: frozenset[str] | None = None
+    # True when the caller handed us a SUBSET of the roster ("Run now" for one person) rather than
+    # everyone. Shared rows are then not built at all: a "popular on this server" row assembled from
+    # whoever happened to be selected is not a server-wide row, and it would be published to
+    # everyone. It also stops the engine reporting "only 1 person is in this row's audience — it can
+    # never build" about a perfectly healthy 10-person row. Default False = "this IS the roster",
+    # the honest reading for a direct library caller.
+    users_scoped: bool = False
 
     def should_build(self, spec: RowSpec) -> bool:
         """Whether this run rebuilds ``spec`` (scoped run) or every row (full run)."""
@@ -607,6 +614,11 @@ class UserRunReport:
     breakdown: list[dict] = field(default_factory=list)
     privacy_synced: bool = False
     error: str | None = None
+    # Why a NON-failing outcome happened — set alongside `skipped`, never for an error. "Skipped"
+    # with no explanation sent a beta user hunting for a bug that wasn't there (issue #3): a shared
+    # row with one enabled user can never reach its 2-watcher floor, and nothing on screen said so.
+    # Distinct from `error` because the UI counts every non-null `error` as a failed user.
+    reason: str | None = None
     duration_s: float = 0.0
     # Total AI tokens this user cost this run (curate + the AI candidate sources). WAS curate-only —
     # the llm_web/llm_library spend used to be discarded, undercounting every AI-source user.

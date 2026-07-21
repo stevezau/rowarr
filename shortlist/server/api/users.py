@@ -288,7 +288,20 @@ def _sync_owner(session: Session, account: dict | None, owner_account_id: int | 
             owner_account_id,
         )
         return None
+    # `username`, never `title`: PMS names the owner's LOCAL account after their plex.tv username
+    # ("S_FLIX"), not their display title ("SFLIX_Admin") — and that name is how their watch history
+    # is found (see PlexClient.system_account_id + tests/fixtures/pms_accounts.xml.txt).
     username = account.get("username") or account.get("title") or "owner"
+    # Re-linking Plex under a different admin leaves the PREVIOUS owner marked `owner` forever, and
+    # that type is the one `sync_user_restrictions` skips — so an account that is no longer the owner
+    # must lose the badge, or it keeps its "never restricted" exemption on a server it merely shares.
+    # SHARED is the safe landing type (it is simply "restrictable"); anyone still on the share was
+    # already re-typed correctly by the roster loop, which commits before this runs.
+    for stale in session.query(User).filter(
+        User.user_type == UserType.OWNER.value, User.plex_account_id != owner_account_id
+    ):
+        logger.warning("{} is no longer this server's owner — demoting to a shared user", stale.username)
+        stale.user_type = UserType.SHARED.value
     user = session.query(User).filter_by(plex_account_id=owner_account_id).one_or_none()
     if user is None:
         session.add(
@@ -335,8 +348,9 @@ async def sync_users(request: Request) -> dict:
 
     remote, owner_account = await asyncio.get_running_loop().run_in_executor(None, fetch)
     added = updated = 0
-    with state.sessions() as session:
-        for r in remote:
+    roster = [r for r in remote if r.id != owner_account_id]  # if plex.tv ever does list the owner,
+    with state.sessions() as session:  # `_sync_owner` is the one that writes them — not both
+        for r in roster:
             user = session.query(User).filter_by(plex_account_id=r.id).one_or_none()
             if user is None:
                 session.add(
@@ -354,10 +368,21 @@ async def sync_users(request: Request) -> dict:
                 user.avatar_url = r.avatar_url
                 user.user_type = r.user_type.value
                 updated += 1
-        owner = _sync_owner(session, owner_account, owner_account_id)
-        if owner == "added":
-            added += 1
-        elif owner == "updated":
-            updated += 1
         session.commit()
-    return {"added": added, "updated": updated, "total": len(remote) + (1 if owner else 0)}
+
+    # The owner gets their OWN transaction, deliberately. The roster above is the point of this
+    # endpoint and is now safely committed; anything the owner upsert hits — a plex.tv payload that
+    # isn't shaped how we expect, a slug collision — must not roll back everybody else's update.
+    with state.sessions() as session:
+        try:
+            owner = _sync_owner(session, owner_account, owner_account_id)
+            session.commit()
+        except Exception as e:
+            # redact: a plex.tv/DB error can carry a tokened URL (rule 9), like every other handler here.
+            logger.warning("could not sync the server owner ({}: {})", type(e).__name__, redact(str(e)))
+            owner = None
+    if owner == "added":
+        added += 1
+    elif owner == "updated":
+        updated += 1
+    return {"added": added, "updated": updated, "total": len(roster) + (1 if owner else 0)}

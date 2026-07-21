@@ -351,6 +351,30 @@ def _is_muted(user: UserProfile, spec: RowSpec) -> bool:
     return bool(override and override.muted)
 
 
+def _why_no_rows(user: UserProfile, cfg: EngineConfig) -> str:
+    """Plain-English reason this person had no per-person row to build.
+
+    "Skipped" on its own reads as a bug — a beta user turned their only row into a shared row, saw
+    every user skipped with no collections created, and filed it as broken (issue #3). The answer is
+    always in the configuration, so say which part of it.
+    """
+    per_person = cfg.per_person_rows()
+    if not per_person:
+        shared = len(cfg.shared_rows())
+        return (
+            f"There are no per-person rows to build. Every enabled row ({shared}) is a SHARED row, which is "
+            "built once for the whole server from what several people have watched — not per person. "
+            "Add a per-person row (Rows → New row) to give people their own."
+            if shared
+            else "No rows are enabled, so there was nothing to build."
+        )
+    if not any(_in_audience(user, spec) for spec in per_person):
+        return "This person isn't in the audience of any per-person row."
+    if all(_is_muted(user, spec) for spec in per_person if _in_audience(user, spec)):
+        return "Every per-person row they're in is muted for this person."
+    return "None of this person's rows were due to rebuild in this run."
+
+
 def _remove_muted_and_retired(ctx: EngineContext, user: UserProfile, cfg: EngineConfig, diff: CollectionDiff) -> None:
     """Remove this user's rows that were muted or disabled since the last run.
 
@@ -400,7 +424,12 @@ def _run_user(
         if _in_audience(user, spec) and not _is_muted(user, spec) and cfg.should_build(spec)
     ]
     if not specs:
-        return False  # nothing to build for this user this run (not in audience, muted, or out of scope)
+        # Mark the STATUS too, not just the live event: the pipeline's terminal event said "skipped"
+        # while the persisted row kept its default "pending", so a reload showed a user stuck
+        # mid-run forever.
+        user_report.status = "skipped"
+        user_report.reason = _why_no_rows(user, cfg)
+        return False
     # The adapter puts the Phase-A global+per-user recipe on the profile; a row with its own recipe
     # overrides it for that row only.
     base_prompt = user.prompt
@@ -814,6 +843,11 @@ def _run_shared(
         agg = None
     finally:
         user_report.duration_s = round(time.monotonic() - started, 2)
+        # A shared row has no per-user terminal event, so a skip left the activity feed showing it
+        # mid-flight forever and its reason nowhere on screen (issue #3). Emit its outcome like any
+        # other participant in the run.
+        if user_report.status == "skipped":
+            _pipeline._emit(ctx, slug, "skipped", {}, user_report.reason)
     return user_report, agg
 
 
@@ -838,6 +872,7 @@ def _shared_row(
     audience = [u for u in users if spec.audience is None or u.plex_account_id in spec.audience]
     if not audience:
         user_report.status = "skipped"
+        user_report.reason = "Nobody in this row's audience is enabled, so there was no history to build it from."
         return None
 
     base_resolve = _rating_key_resolver(seed_index)
@@ -876,6 +911,25 @@ def _shared_row(
     )
     if not agg_history:
         user_report.status = "skipped"
+        # The commonest cause by far is a shared row whose audience is smaller than the floor, where
+        # it is arithmetically unreachable — so say which it is rather than leaving someone to
+        # conclude the app is broken (issue #3).
+        #
+        # "in this row's audience" is the honest phrase, NOT "enabled": `users` has already been
+        # narrowed to people who are enabled AND not paused, then narrowed again by spec.audience.
+        # Saying "only 1 user is enabled" to someone looking at ten enabled users on the Users page
+        # is exactly the kind of confidently-wrong explanation that sends them back to the tracker.
+        who = f"{len(audience)} {'person' if len(audience) == 1 else 'people'}"
+        user_report.reason = (
+            f"No title has been watched by {threshold} or more of the {who} in this row's audience yet. "
+            f"A shared row is built only from titles several people have watched, so it needs {threshold} "
+            f"of them with some viewing in common."
+            if len(audience) >= threshold
+            else f"A shared row needs at least {threshold} people with overlapping viewing, but only {who} "
+            f"{'is' if len(audience) == 1 else 'are'} in this row's audience and active in runs (enabled, "
+            f"not paused) — so it can never build. Add more people to the audience, or make this a "
+            f"per-person row so each of them gets their own."
+        )
         logger.info("shared row '{}': no title watched by >= {} people yet", spec.slug, threshold)
         return None
 

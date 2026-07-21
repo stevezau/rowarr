@@ -14,6 +14,7 @@ import pytest
 import shortlist.server.services.run_service as run_service_mod
 from shortlist.engine.models import (
     CollectionDiff,
+    EngineConfig,
     FilterSnapshot,
     MediaType,
     Pick,
@@ -29,6 +30,16 @@ from shortlist.server.services.run_service import RunService
 from shortlist.server.services.secrets import SecretBox
 from shortlist.server.services.sse import EventBus
 from shortlist.server.settings_store import SettingsStore
+
+
+def _fake_ctx() -> SimpleNamespace:
+    """Stands in for an EngineContext in tests that stub out the engine entirely.
+
+    It carries the attributes `_execute` SETS on a real context (`config`, `cancelled`,
+    `on_user_done`) — a bare SimpleNamespace() silently diverged from the real shape and turned a
+    new assignment into an AttributeError swallowed by the run's error handling.
+    """
+    return SimpleNamespace(config=EngineConfig())
 
 
 @pytest.fixture
@@ -135,7 +146,7 @@ class TestRunExecution:
     def test_run_persists_report_picks_and_events(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr(service, "build_context", lambda **kw: _fake_ctx())
         monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: fake_report())
 
         async def scenario():
@@ -177,7 +188,7 @@ class TestRunExecution:
 
         def fake_build_context(**kw):
             captured["dry_run"] = kw.get("dry_run")
-            return SimpleNamespace()
+            return _fake_ctx()
 
         monkeypatch.setattr(service, "build_context", fake_build_context)
         monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: fake_report(dry_run=True))
@@ -266,7 +277,7 @@ class TestRunExecution:
         shared row produced an errored run with nothing to show for it."""
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr(service, "build_context", lambda **kw: _fake_ctx())
 
         shared = UserRunReport(
             username="Popular on this server",
@@ -297,7 +308,7 @@ class TestRunExecution:
     def test_a_failed_shared_row_makes_the_run_an_error(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr(service, "build_context", lambda **kw: _fake_ctx())
 
         shared = UserRunReport(
             username="Popular",
@@ -332,7 +343,7 @@ class TestRunExecution:
 
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr(service, "build_context", lambda **kw: _fake_ctx())
 
         # The `sessions` fixture already seeds sarah.
         # We recommended tmdb 1 to sarah in this run; she then watched it. Title 2 she never watched,
@@ -389,7 +400,7 @@ class TestRunExecution:
 
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr(service, "build_context", lambda **kw: _fake_ctx())
 
         why = RequestWhy(user="Sarah", row="Sarah's Picks", seed="Blade Runner", source="tmdb_similar")
         sent = MissingTitle(42, "Dune", MediaType.MOVIE, 2021, rating=8.5, vote_count=900, demand=4, why=[why])
@@ -427,7 +438,7 @@ class TestRunExecution:
     def test_dry_run_persists_no_picks(self, sessions, tmp_path, monkeypatch):
         bus = EventBus()
         service = RunService(sessions, bus, tmp_path, SecretBox(tmp_path))
-        monkeypatch.setattr(service, "build_context", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr(service, "build_context", lambda **kw: _fake_ctx())
         monkeypatch.setattr(run_service_mod, "engine_run", lambda ctx, profiles: fake_report(dry_run=True))
 
         async def scenario():

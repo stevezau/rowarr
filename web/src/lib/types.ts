@@ -338,6 +338,8 @@ export interface RunUserResult {
   slug: string;
   status: string;
   error: string | null;
+  /** Why a `skipped` result happened, in plain English. Null unless skipped (and on legacy runs). */
+  reason: string | null;
   duration_ms: number;
   llm_tokens: number;
   /** This user's AI tokens split by where they went: { curate, llm_web, llm_library }. */
@@ -502,6 +504,8 @@ export interface RunUserStageEvent {
   user: string;
   stage: string;
   counts: Record<string, number>;
+  /** Why this user was skipped — kept out of `counts`, which is a tally of numbers. */
+  reason?: string | null;
   /** Present on run-scoped stage events; lets a run page ignore other runs' events. */
   run_id?: number | null;
   /** ISO timestamp the server stamped the stage, when available. */
@@ -515,6 +519,7 @@ export interface RunLogEntry {
   user: string;
   stage: string;
   counts: Record<string, number>;
+  reason?: string | null;
 }
 
 /** Event `run.finished`. */

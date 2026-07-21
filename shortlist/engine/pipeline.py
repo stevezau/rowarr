@@ -114,7 +114,9 @@ class EngineContext:
     # MDBList client (cache-backed) for the chosen non-TMDB rating source; None when requests gate on
     # TMDB or no MDBList key is set. Built by the server adapter so it shares the persistent cache.
     mdblist: MdbListClient | None = None
-    progress: Callable[[str, str, dict], None] | None = None  # (user_slug, stage, counts) -> None
+    # (user_slug, stage, counts, reason) -> None. `reason` explains a non-failing outcome (a
+    # skipped user) in plain English; None for every stage that needs no explaining.
+    progress: Callable[[str, str, dict, str | None], None] | None = None
     # Called the moment one user finishes (before their terminal progress event), with their profile
     # and finished report — so the server can persist that user's results INCREMENTALLY and the UI
     # shows them as each person completes, instead of the whole roster appearing only at run's end.
@@ -144,13 +146,13 @@ class EngineContext:
     cancelled: Callable[[], bool] = lambda: False
 
 
-def _emit(ctx: EngineContext, slug: str, stage: str, counts: dict) -> None:
+def _emit(ctx: EngineContext, slug: str, stage: str, counts: dict, reason: str | None = None) -> None:
     # Mirror every stage to the container log too, so `docker logs` narrates a run in real time —
     # the same story the UI's activity feed tells, for anyone watching the console.
-    logger.info("run · {} · {}{}", slug, stage, f" {counts}" if counts else "")
+    logger.info("run · {} · {}{}{}", slug, stage, f" {counts}" if counts else "", f" — {reason}" if reason else "")
     if ctx.progress is not None:
         try:
-            ctx.progress(slug, stage, counts)
+            ctx.progress(slug, stage, counts, reason)
         except Exception:  # a broken progress listener must never fail a run
             logger.exception("progress callback failed")
 
@@ -438,6 +440,7 @@ def _deliver_phase(
         # leaves a half-applied user. Queued users fall straight through as "skipped".
         if ctx.cancelled():
             user_report.status = "skipped"
+            user_report.reason = "The run was cancelled before this person's turn."
             return user, user_report, False
         # A row swept for this user is part of their story this run — but the swept dict is the
         # run-level record, so a paused user's deletion is never lost just because they have no
@@ -477,7 +480,9 @@ def _deliver_phase(
             if user_report.status == "error":
                 _emit(ctx, user.slug, "error", {"seconds": int(user_report.duration_s)})
             elif user_report.status in ("skipped", "pending"):
-                _emit(ctx, user.slug, "skipped", {})
+                # Carry the reason on the live event too — the wizard's first-run screen is where a
+                # new owner meets "skipped", and a bare word there reads as a failure (issue #3).
+                _emit(ctx, user.slug, "skipped", {}, user_report.reason)
             else:  # ok | cold_start
                 _emit(
                     ctx,
@@ -504,8 +509,11 @@ def _deliver_phase(
     # Shared "popular on this server" rows: built once from aggregate history, delivered UNPROMOTED
     # like the per-person rows so promotion still happens only after the filters are merged.
     shared_to_promote: list[tuple[RowSpec, UserProfile]] = []
-    # A cancelled run stops here too — no new shared rows once the user asked to stop.
-    build_shared = bool(users) and not ctx.cancelled()
+    # A cancelled run stops here too — no new shared rows once the user asked to stop. Nor does a
+    # run scoped to particular people: their overlap is not "popular on this server", and publishing
+    # it to everyone would let a hand-picked subset shape a public row. Shared rows rebuild on the
+    # next full run, exactly like a row that's out of scope for a per-row scheduled run.
+    build_shared = bool(users) and not ctx.cancelled() and not ctx.config.users_scoped
     shared_specs = [s for s in ctx.config.shared_rows() if ctx.config.should_build(s)] if build_shared else []
     for spec in shared_specs:
         _shared_report, agg = rows._run_shared(

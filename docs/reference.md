@@ -83,7 +83,7 @@ GET  /api/system/image-provider -> {capable, provider, reason} (can the AI provi
 GET  /api/system/libraries -> [{key, title, type}] (the server's Plex libraries, for the row editor)
 GET  /api/system/libraries/{key}/collections -> [{title}] (a library's managed collections — anchor choices for row placement, excludes Shortlist's own)
 GET  /api/system/owned-collections -> {collections:[{library,title,label,rating_key,kind,slug,orphan}], total, orphans} (cleanup audit: every shortlist-labelled collection ON PLEX, drift-flagged, DB-independent)
-GET  /api/runs · GET /api/runs/summary · GET /api/runs/{id} · GET /api/runs/{id}/log (activity feed) · POST /api/runs {user_ids?, collection_ids?, dry_run?} · POST /api/runs/{id}/cancel · DELETE /api/runs (clear all run history)
+GET  /api/runs · GET /api/runs/summary · GET /api/runs/{id} (each user carries `status`, `error`, and `reason` — why a `skipped` user built nothing) · GET /api/runs/{id}/log (activity feed) · POST /api/runs {user_ids?, collection_ids?, dry_run?} · POST /api/runs/{id}/cancel · DELETE /api/runs (clear all run history)
 GET  /api/requests · POST /api/requests/send {ids, dry_run?} · POST /api/requests/reject {ids} (permanent) · POST /api/requests/restore {ids} (un-reject → back to Waiting) · POST /api/requests/delete {ids} (removable; can re-surface) · POST /api/requests/clear {ids} (hide SENT items from the log without un-sending — the tombstone stays so the title isn't re-requested)
 GET  /api/events (SSE) · GET /api/events/log (audit feed)
 GET  /api/notifications -> {items[]} · POST /api/notifications/dismiss {id} (dismiss one alert)

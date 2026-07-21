@@ -218,6 +218,9 @@ class RunService:
                 # promote still run for who was delivered, so a cancel leaves a consistent server.
                 if cancel is not None:
                     ctx.cancelled = cancel.is_set
+                # "Run now" for one person hands the engine a subset of the roster. Tell it so, or it
+                # reads that subset as the whole server and builds/judges shared rows against it.
+                ctx.config.users_scoped = user_ids is not None
                 # Persist each user's results the moment they finish, so the run page fills in person by
                 # person instead of staying empty until the whole run ends (the end-of-run persist below
                 # is the backstop + reconciler).
@@ -445,6 +448,10 @@ class RunService:
             status=user_report.status,
             picks=len(user_report.picks),
             error=user_report.error,
+            # A shared row gets no RunUser row, so this event is the ONLY place its outcome is
+            # recorded — without the reason, "why did my shared row build nothing" is answerable
+            # from the container log and nowhere else (issue #3).
+            reason=user_report.reason,
             diff=user_report.diff.__dict__ if user_report.diff else {},
         )
 
@@ -458,6 +465,7 @@ class RunService:
                 user_id=user.id,
                 status=user_report.status,
                 error=user_report.error,
+                reason=user_report.reason,
                 duration_ms=int(user_report.duration_s * 1000),
                 llm_tokens=user_report.llm_tokens,
                 llm_tokens_by_step=dict(user_report.llm_tokens_by_step),

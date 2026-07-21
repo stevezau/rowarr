@@ -194,6 +194,10 @@ class RunUser(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Why a non-failing outcome happened (a `skipped` row that could not build). NOT an error: the
+    # UI counts every non-null `error` as a failed user, which is how "skipped" ended up on screen
+    # with no explanation at all (issue #3). NULL on legacy rows.
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     llm_tokens: Mapped[int] = mapped_column(Integer, default=0)
     # `llm_tokens` split by WHERE it went: {"curate": N, "llm_web": M, "llm_library": P}. {} on legacy

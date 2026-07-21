@@ -122,7 +122,7 @@ class ContextBuilder:
             # native provider tools still work without it — only Ollama depends on it).
             exa_key = store.get("exa.apikey")
             search = ExaClient(exa_key) if exa_key else None
-            history = self._history_source(store, plex)
+            history = self._history_source(store, plex, session)
             provider = store.get("curator.provider")
             curator = make_curator(provider, **curator_kwargs(store.get))
             # Build the poster studio only if a row actually renders a poster from text (built-in or
@@ -168,10 +168,14 @@ class ContextBuilder:
             # by account id, because a name can change and two names can slugify alike.
             known_slugs = {u.plex_account_id: u.slug for u in session.query(User).all()}
 
-        def progress(slug: str, stage: str, counts: dict) -> None:
+        def progress(slug: str, stage: str, counts: dict, reason: str | None = None) -> None:
             # Runs in the engine's executor thread. One entry both STREAMS (SSE, live) and, via
             # log_sink, lands in the run's in-memory activity log so a page reload can replay it.
+            # `reason` is kept OUT of `counts`, which is a map of numbers the UI renders as a
+            # "113 history · 40 seeds" tally — a sentence in there would render as garbage.
             entry = {"ts": iso_utc(utcnow()), "run_id": run_id, "user": slug, "stage": stage, "counts": counts}
+            if reason:
+                entry["reason"] = reason
             if log_sink is not None:
                 log_sink(entry)
             if loop is not None:
@@ -239,14 +243,19 @@ class ContextBuilder:
             return self._build_requests(store), tmdb
 
     @staticmethod
-    def _history_source(store: SettingsStore, plex: PlexClient):
-        """The watch-history source: Tautulli-with-Plex-fallback when Tautulli is set, else Plex."""
+    def _history_source(store: SettingsStore, plex: PlexClient, session: Session):
+        """The watch-history source: Tautulli-with-Plex-fallback when Tautulli is set, else Plex.
+
+        The roster's account ids go to the Plex source so it can resolve the OWNER's local PMS
+        account without ever landing on somebody else's — see PlexClient.system_account_id.
+        """
+        roster = frozenset(row[0] for row in session.query(User.plex_account_id).all())
         if store.get("tautulli.url"):
             return FallbackHistorySource(
                 TautulliSource(TautulliClient(store.get("tautulli.url"), store.get("tautulli.apikey"))),
-                PlexHistorySource(plex),
+                PlexHistorySource(plex, roster_account_ids=roster),
             )
-        return PlexHistorySource(plex)
+        return PlexHistorySource(plex, roster_account_ids=roster)
 
     def user_history(self, user_id: int, *, limit: int = 25) -> list[dict] | None:
         """Recent watches for one user, newest first — the same source that feeds recommendations.
@@ -267,7 +276,7 @@ class ContextBuilder:
                 user_type=UserType(user.user_type),
                 slug=user.slug,
             )
-            history = self._history_source(store, PlexClient(plex_url, plex_token))
+            history = self._history_source(store, PlexClient(plex_url, plex_token), session)
         # A lower completion bar than a run uses: this is "what they've been watching", not seeds.
         # Distinct titles, newest first: a show's episodes collapse to the one show (keeping its most
         # recent episode's detail), so a binge shows as one entry and the list reflects real variety —

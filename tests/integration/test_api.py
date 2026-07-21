@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
+import respx
 from fastapi.testclient import TestClient
 
 from shortlist.server.auth import CSRF_HEADER, SESSION_COOKIE, session_serializer
@@ -16,6 +19,18 @@ from shortlist.server.settings_store import SettingsStore
 pytestmark = pytest.mark.integration
 
 OWNER_ID = 555000001
+
+# plex.tv `GET /api/v2/user` — the same payload the PIN login (auth.py) and the wizard's capability
+# probe already read from a live server; `thumb` is the one key the user sync adds on top.
+OWNER_JSON = {
+    "id": OWNER_ID,
+    "uuid": "abc123",
+    "username": "steve",
+    "title": "Steve",
+    "email": "steve@example.com",
+    "thumb": "https://plex.tv/users/abc/avatar",
+    "subscription": {"active": True},
+}
 
 
 @pytest.fixture
@@ -239,28 +254,22 @@ class TestUserSync:
     """
 
     @pytest.fixture
-    def plextv(self, client: TestClient, monkeypatch):
-        """Stub both plex.tv reads the sync makes, and seed the token it needs to make them."""
-        from types import SimpleNamespace
-
-        from shortlist.engine.models import UserType
-        from shortlist.server.api import users as users_api
+    def plextv(self, client: TestClient):
+        """Both plex.tv reads at the HTTP boundary, so the response SHAPES are under test too —
+        the roster from the recorded fixture, the owner from the payload above."""
         from shortlist.server.settings_store import SettingsStore
 
         with client.app.state.sessions() as session:
             SettingsStore(session, client.app.state.secrets).set("plex.token", "owner-token")
             session.commit()
 
-        shared = SimpleNamespace(
-            id=555000100,
-            username="sarah",
-            user_type=UserType.SHARED,
-            avatar_url="https://plex.tv/sarah.png",
-        )
-        state = SimpleNamespace(account={"id": OWNER_ID, "username": "steve", "thumb": "https://plex.tv/steve.png"})
-        monkeypatch.setattr(users_api.PlexTvClient, "list_users", lambda self: [shared])
-        monkeypatch.setattr(users_api, "plextv_account", lambda token, client_id: state.account)
-        return state
+        users_xml = (Path(__file__).parent.parent / "fixtures" / "plextv_users.xml.txt").read_text()
+        with respx.mock:
+            roster = respx.get("https://plex.tv/api/users").mock(return_value=httpx.Response(200, text=users_xml))
+            whoami = respx.get("https://plex.tv/api/v2/user").mock(
+                return_value=httpx.Response(200, json=dict(OWNER_JSON))
+            )
+            yield SimpleNamespace(roster=roster, whoami=whoami)
 
     def _users(self, client: TestClient) -> dict[str, dict]:
         return {u["username"]: u for u in client.get("/api/users").json()}
@@ -268,19 +277,32 @@ class TestUserSync:
     def test_sync_adds_the_owner_disabled_and_badged(self, client: TestClient, plextv):
         r = client.post("/api/users/sync")
         assert r.status_code == 200
-        assert r.json()["total"] == 2  # the one shared user plex.tv returns + the owner it never does
+        # The fixture's two accounts are both already in the DB (sarah, and 555000200 whom plex.tv
+        # now calls "kid") — so the only thing ADDED is the owner plex.tv never returns.
+        assert r.json() == {"added": 1, "updated": 2, "total": 3}
 
         owner = self._users(client)["steve"]
         assert owner["user_type"] == "owner"
         assert owner["plex_account_id"] == OWNER_ID
-        assert owner["avatar_url"] == "https://plex.tv/steve.png"
+        assert owner["slug"] == "steve"
+        assert owner["avatar_url"] == "https://plex.tv/users/abc/avatar"
         # Off by default: an existing install gains a user to switch on, not a row that turns up on
         # the owner's Home unannounced.
         assert owner["enabled"] is False
 
+    def test_the_owner_lookup_is_authenticated_as_the_stored_plex_token(self, client: TestClient, plextv):
+        """The token decides WHOSE account comes back, so sending the wrong one (or none) would
+        either 401 or identify somebody else entirely."""
+        client.post("/api/users/sync")
+
+        headers = plextv.whoami.calls.last.request.headers
+        assert headers["X-Plex-Token"] == "owner-token"
+        assert headers["X-Plex-Client-Identifier"] == client.app.state.client_id
+
     def test_re_syncing_updates_the_owner_instead_of_duplicating_them(self, client: TestClient, plextv):
         client.post("/api/users/sync")
-        plextv.account["username"] = "steve-renamed"
+        plextv.whoami.mock(return_value=httpx.Response(200, json={**OWNER_JSON, "username": "steve-renamed"}))
+
         r = client.post("/api/users/sync")
 
         assert r.json()["added"] == 0  # nobody new the second time
@@ -293,31 +315,58 @@ class TestUserSync:
     def test_a_token_belonging_to_another_account_never_becomes_the_owner(self, client: TestClient, plextv):
         """Fail-safe: building a row from this account's history and labelling it the owner's would
         hand one person another's picks, so a mismatched token syncs the shared users and stops."""
-        plextv.account = {"id": 999999, "username": "someone-else"}
+        plextv.whoami.mock(return_value=httpx.Response(200, json={**OWNER_JSON, "id": 999999}))
 
         r = client.post("/api/users/sync")
 
         assert r.status_code == 200
-        assert r.json()["total"] == 1  # shared users only
+        assert r.json()["total"] == 2  # the fixture's shared users only
         names = self._users(client)
-        assert "someone-else" not in names
         assert not any(u["user_type"] == "owner" for u in names.values())
 
-    def test_shared_users_still_sync_when_the_owner_lookup_fails(self, client: TestClient, plextv, monkeypatch):
-        """The owner is a bonus on top of the roster — a plex.tv hiccup on that one call must not
-        leave everybody else's list stale."""
-        from shortlist.server.api import users as users_api
+    def test_a_re_link_under_a_new_admin_demotes_the_previous_owner(self, client: TestClient, plextv):
+        """`owner` is the type `sync_user_restrictions` skips, so a stale one keeps an account
+        exempt from restriction on a server it only shares."""
+        client.post("/api/users/sync")
+        with client.app.state.sessions() as session:
+            session.query(Server).first().owner_account_id = 555000999
+            session.commit()
+        # Re-linking re-homes the whole instance: the previous admin's session stops being the
+        # owner's session, so the new admin signs in before anything else happens.
+        client.cookies.set(
+            SESSION_COOKIE,
+            session_serializer(client.app.state.session_secret).dumps(
+                {"account_id": 555000999, "username": "new-admin"}
+            ),
+        )
+        plextv.whoami.mock(
+            return_value=httpx.Response(200, json={**OWNER_JSON, "id": 555000999, "username": "new-admin"})
+        )
 
-        def boom(token, client_id):
-            raise RuntimeError("plex.tv is having a day")
+        client.post("/api/users/sync")
 
-        monkeypatch.setattr(users_api, "plextv_account", boom)
+        by_name = self._users(client)
+        assert by_name["new-admin"]["user_type"] == "owner"
+        assert by_name["steve"]["user_type"] == "shared"  # the old owner keeps their row, loses the exemption
+
+    @pytest.mark.parametrize(
+        ("response", "why"),
+        [
+            (httpx.Response(500, text="plex.tv is having a day"), "plex.tv errors"),
+            (httpx.Response(200, json={"subscription": {"active": True}}), "the payload has no id"),
+        ],
+    )
+    def test_shared_users_still_sync_when_the_owner_lookup_fails(self, client: TestClient, plextv, response, why):
+        """The owner is a bonus on top of the roster — a bad answer on that one call must not leave
+        everybody else's list stale, whether it fails at the wire or at the payload."""
+        plextv.whoami.mock(return_value=response)
 
         r = client.post("/api/users/sync")
 
-        assert r.status_code == 200
-        assert r.json()["total"] == 1
-        assert not any(u["user_type"] == "owner" for u in self._users(client).values())
+        assert r.status_code == 200, why
+        assert r.json()["total"] == 2, why  # both shared users still landed
+        assert "sarah" in self._users(client), why
+        assert not any(u["user_type"] == "owner" for u in self._users(client).values()), why
 
 
 class TestUserRowsApi:
@@ -396,6 +445,34 @@ class TestRunsApi:
         assert runs[0]["status"] == "error"  # no plex configured in this app instance
         detail = client.get(f"/api/runs/{run_id}")
         assert detail.status_code == 200
+
+    def test_a_skipped_users_reason_reaches_the_run_detail_without_looking_like_a_failure(self, client: TestClient):
+        """The whole point of `reason` (issue #3): "skipped" has to explain itself in the UI. It is
+        carried SEPARATELY from `error` because the run page counts every non-null error as a failed
+        user — so a skip must arrive with a reason and a null error."""
+        from shortlist.server.db.models import Run, RunUser, User
+
+        with client.app.state.sessions() as session:
+            user_id = session.query(User).first().id
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            session.add(
+                RunUser(
+                    run_id=run.id,
+                    user_id=user_id,
+                    status="skipped",
+                    reason="There are no per-person rows to build.",
+                )
+            )
+            session.commit()
+            run_id = run.id
+
+        result = client.get(f"/api/runs/{run_id}").json()["users"][0]
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "There are no per-person rows to build."
+        assert result["error"] is None
 
     def test_cancel_a_run_that_isnt_running_returns_409(self, client: TestClient):
         # A run that already finished (or never existed) can't be cancelled — the endpoint says so

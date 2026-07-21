@@ -48,9 +48,9 @@ export function StepHistory({ data, update, next }: StepProps) {
       await api.putSettings({ "tmdb.apikey": tmdbKey });
       return api.testConnection("tmdb");
     },
-    onSuccess: (result) => {
-      if (result.ok) update({ tmdb_set: true });
-    },
+    // Track the CURRENT key's validity: a failed test must clear the flag (not just leave the last
+    // success standing), so an invalid key blocks Next instead of sailing through on a stale pass.
+    onSuccess: (result) => update({ tmdb_set: result.ok === true }),
   });
 
   const saveAndTest = useMutation({
@@ -74,7 +74,12 @@ export function StepHistory({ data, update, next }: StepProps) {
           id={tmdbId}
           type="password"
           value={tmdbKey}
-          onChange={(event) => setTmdbKey(event.target.value)}
+          onChange={(event) => {
+            setTmdbKey(event.target.value);
+            // Editing a previously-validated key un-verifies it: Next must wait for a fresh Save &
+            // test, so you can't sail through on the old key's pass after changing it.
+            if (data.tmdb_set) update({ tmdb_set: false });
+          }}
           autoComplete="off"
         />
         <p className="text-sm text-muted-foreground">

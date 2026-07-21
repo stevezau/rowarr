@@ -28,15 +28,18 @@ const SAVED = {
   "tmdb.apikey": "•••••",
 };
 
-function renderStep() {
+function renderStep(
+  data: Record<string, unknown> = {},
+  update: (patch: Record<string, unknown>) => void = vi.fn(),
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
       <StepHistory
-        data={{}}
-        update={vi.fn()}
+        data={data}
+        update={update}
         next={vi.fn()}
         complete={vi.fn()}
       />
@@ -70,6 +73,37 @@ describe("StepHistory settings persistence", () => {
     expect(key).toHaveValue("");
     await userEvent.type(key, "mysecret");
     expect(key).toHaveValue("mysecret");
+  });
+
+  it("clears the TMDB works-flag when the tested key is invalid, so Next stays blocked", async () => {
+    getSettings.mockResolvedValue({});
+    testConnection.mockResolvedValueOnce({
+      ok: false,
+      message: "TMDB rejected the key",
+    });
+    const update = vi.fn();
+    renderStep({}, update);
+    await userEvent.type(
+      await screen.findByLabelText("TMDB API key (required)"),
+      "wrong-key",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save TMDB key" }),
+    );
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({ tmdb_set: false }),
+    );
+  });
+
+  it("un-verifies a previously-valid TMDB key the moment it's edited", async () => {
+    getSettings.mockResolvedValue({});
+    const update = vi.fn();
+    renderStep({ tmdb_set: true }, update); // already validated on a prior visit
+    await userEvent.type(
+      await screen.findByLabelText("TMDB API key (required)"),
+      "x",
+    );
+    expect(update).toHaveBeenCalledWith({ tmdb_set: false });
   });
 
   it("re-sends the redacted mask unchanged on save (backend treats it as no-change)", async () => {

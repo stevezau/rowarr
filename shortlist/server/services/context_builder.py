@@ -24,7 +24,7 @@ from shortlist.engine.clients.tmdb import TmdbClient
 from shortlist.engine.clients.trakt import TraktClient
 from shortlist.engine.curator import make_curator
 from shortlist.engine.delivery import DEFAULT_ROW_NAME, render_row_name
-from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource
+from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource, distinct_recent
 from shortlist.engine.models import (
     ArrTarget,
     EngineConfig,
@@ -269,8 +269,10 @@ class ContextBuilder:
             )
             history = self._history_source(store, PlexClient(plex_url, plex_token))
         # A lower completion bar than a run uses: this is "what they've been watching", not seeds.
+        # Distinct titles, newest first: a show's episodes collapse to the one show (keeping its most
+        # recent episode's detail), so a binge shows as one entry and the list reflects real variety —
+        # looking back through the whole history to fill `limit` distinct titles.
         items = history.fetch(profile, min_completion=0.5)
-        items.sort(key=lambda w: w.watched_at, reverse=True)
         return [
             {
                 "title": w.title,
@@ -281,7 +283,7 @@ class ContextBuilder:
                 "episode": w.episode,
                 "episode_title": w.episode_title,
             }
-            for w in items[:limit]
+            for w in distinct_recent(items, limit)
         ]
 
     def _previous_picks(self, session: Session) -> dict[tuple[str, str, str], list[Pick]]:

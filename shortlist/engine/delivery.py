@@ -669,17 +669,22 @@ def _deliver_one(
         return diff, stored
 
     existing_items = collection.items()  # ONE read of current membership, reused for the diff AND set_items
-    current_titles = [i.title for i in existing_items]
-    diff = CollectionDiff(
-        added=[t for t in wanted_titles if t not in current_titles],
-        removed=[t for t in current_titles if t not in wanted_titles],
-        kept=[t for t in wanted_titles if t in current_titles],
-        collection_title=display,  # the human title: the marker is Plex's business, not the owner's
-    )
     wanted_keys = [p.rating_key for p in picks]
     current_keys = {i.ratingKey for i in existing_items}
-    to_add_keys = [k for k in wanted_keys if k not in current_keys]
     wanted_set = set(wanted_keys)
+    # Diff by ratingKey — the identity Plex actually writes on — never by title. A show's Plex title can
+    # carry a year suffix ("Archer (2009)") the pick's title ("Archer") lacks, so a by-title diff would
+    # report the SAME show as removed AND re-added every run even though membership never changed. The
+    # write below already diffs by key (so nothing actually churned), but the run stats and per-row diff
+    # were showing that phantom turnover. Titles are only for the human-readable report.
+    title_by_key = {p.rating_key: p.title for p in picks}
+    diff = CollectionDiff(
+        added=[title_by_key.get(k, str(k)) for k in wanted_keys if k not in current_keys],
+        removed=[i.title for i in existing_items if i.ratingKey not in wanted_set],
+        kept=[title_by_key.get(k, str(k)) for k in wanted_keys if k in current_keys],
+        collection_title=display,  # the human title: the marker is Plex's business, not the owner's
+    )
+    to_add_keys = [k for k in wanted_keys if k not in current_keys]
     to_remove_count = sum(1 for i in existing_items if i.ratingKey not in wanted_set)
 
     if dry_run:

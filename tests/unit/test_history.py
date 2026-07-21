@@ -6,7 +6,13 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from shortlist.engine.history import FallbackHistorySource, PlexHistorySource, TautulliSource, derive_seeds
+from shortlist.engine.history import (
+    FallbackHistorySource,
+    PlexHistorySource,
+    TautulliSource,
+    derive_seeds,
+    distinct_recent,
+)
 from shortlist.engine.models import MediaType
 from tests.conftest import make_profile, make_watched
 
@@ -116,6 +122,37 @@ class TestFallbackHistorySource:
         source, primary, _ = self._source([], [make_watched("m")])
         primary.fetch.side_effect = RuntimeError("tautulli down")
         assert len(source.fetch(make_profile(), min_completion=0.7)) == 1
+
+
+class TestDistinctRecent:
+    def test_a_binge_collapses_to_one_entry_and_lets_variety_through(self):
+        # 20 episodes of one show + a few other titles. The naive "last N raw watches" would be all
+        # one show; distinct_recent must collapse the binge to a single entry so variety survives.
+        history = [make_watched("Suits", days_ago=i, media_type=MediaType.SHOW) for i in range(20)]
+        history += [
+            make_watched("Heat", days_ago=1, media_type=MediaType.MOVIE),
+            make_watched("Dune", days_ago=2, media_type=MediaType.MOVIE),
+        ]
+        titles = [w.title for w in distinct_recent(history, limit=5)]
+        assert titles.count("Suits") == 1
+        assert set(titles) == {"Suits", "Heat", "Dune"}
+
+    def test_looks_back_past_a_binge_to_fill_distinct_titles(self):
+        # Only look at the 3 most-recent RAW watches and you'd see one show; distinct_recent looks
+        # deeper to reach the requested number of distinct titles.
+        history = [make_watched("Suits", days_ago=i, media_type=MediaType.SHOW) for i in range(3)]
+        history += [make_watched(f"Movie {n}", days_ago=10 + n, media_type=MediaType.MOVIE) for n in range(4)]
+        got = distinct_recent(history, limit=4)
+        assert len(got) == 4
+        assert got[0].title == "Suits"  # most recent distinct title first
+        assert {w.title for w in got[1:]} == {"Movie 0", "Movie 1", "Movie 2"}
+
+    def test_a_movie_and_a_show_with_the_same_name_stay_separate(self):
+        history = [
+            make_watched("Fargo", days_ago=1, media_type=MediaType.SHOW),
+            make_watched("Fargo", days_ago=2, media_type=MediaType.MOVIE),
+        ]
+        assert len(distinct_recent(history, limit=5)) == 2
 
 
 class TestDeriveSeeds:

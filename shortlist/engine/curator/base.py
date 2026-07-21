@@ -13,6 +13,7 @@ from typing import Protocol
 
 from loguru import logger
 
+from shortlist.engine.history import distinct_recent
 from shortlist.engine.models import Candidate, Pick, PromptConfig, UserProfile
 
 MAX_REASON_LEN = 90
@@ -177,8 +178,12 @@ def picks_schema() -> dict:
 
 
 def taste_summary(profile: UserProfile, max_titles: int = 20) -> str:
-    """Compact history summary for the prompt. Titles+years only — no PII."""
-    recent = sorted(profile.history, key=lambda w: w.watched_at, reverse=True)[:max_titles]
+    """Compact history summary for the prompt. Titles+years only — no PII.
+
+    Distinct titles: a show's episodes collapse to the one show, so a binge of 20 episodes counts
+    once and the model sees ``max_titles`` real, varied titles rather than the same show repeated.
+    """
+    recent = distinct_recent(profile.history, max_titles)
     lines = [f"- {w.title}" + (f" ({w.year})" if w.year else "") for w in recent]
     return "Recently watched (most recent first):\n" + "\n".join(lines)
 

@@ -141,6 +141,31 @@ class PlexHistorySource:
         return items
 
 
+def distinct_recent(history: list[WatchedItem], limit: int) -> list[WatchedItem]:
+    """The most-recent DISTINCT titles, newest first — episodes of a show collapse to the one show.
+
+    A binge counts once: 20 episodes of the same show yield a single entry, so it doesn't crowd out
+    everything else and the caller sees real variety. Looks back through the WHOLE history to fill
+    ``limit`` distinct titles (a person who only ever watched one show still returns just that one —
+    we can't invent watches). The kept item per title is its most recent watch.
+
+    Args:
+        history: Meaningful watches, any order.
+        limit: Max distinct titles to return.
+    """
+    seen: set[tuple[str, MediaType]] = set()
+    out: list[WatchedItem] = []
+    for item in sorted(history, key=lambda w: w.watched_at, reverse=True):
+        key = (item.title, item.media_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def derive_seeds(
     history: list[WatchedItem],
     resolve_tmdb_id,

@@ -283,6 +283,32 @@ class TestDeliverRows:
         assert diff.added == [] and diff.removed == []
         assert stored == "Shortlist_sarah"
 
+    def test_diff_matches_by_rating_key_not_title(self, engine_config, movies, shows):
+        """A show's Plex title can carry a year suffix ('Archer (2009)') the pick title ('Archer')
+        lacks. The diff must match by ratingKey — not title — or the SAME title reports as removed +
+        re-added every run: phantom churn that inflated the run stats (the write already diffed by
+        key, so nothing actually changed). Regression for the live run-8 finding (2026-07-20)."""
+        plex = self._plex(movies, shows)
+        profile = make_profile()
+        existing = MagicMock()
+        existing.title = "✨ Movies Picked for You" + row_marker(profile.plex_account_id)
+        # Same ratingKeys as picks() (1001, 1002), but Plex's titles carry a year suffix the picks lack:
+        # NOT ONE pick title equals its collection item's title.
+        existing.items.return_value = [
+            MagicMock(title="Movie 1 (2009)", ratingKey=1001),
+            MagicMock(title="Movie 2 (2015)", ratingKey=1002),
+        ]
+        plex.find_owned_collections.side_effect = lambda section, label: [existing] if section is movies else []
+
+        diff, _ = deliver_rows(plex, profile, picks(), engine_config)
+
+        # Matched by key → everything kept, nothing churned, despite every title differing.
+        assert diff.kept == ["Movie 1", "Movie 2"]
+        assert diff.added == []
+        assert diff.removed == []
+        plex.set_items.assert_not_called()  # membership already correct by key — no write
+        plex.fetch_items.assert_not_called()
+
     def _existing_with_stale(self, profile, n_stale: int) -> MagicMock:
         existing = MagicMock()
         existing.title = "✨ Movies Picked for You" + row_marker(profile.plex_account_id)

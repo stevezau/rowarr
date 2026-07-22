@@ -647,3 +647,100 @@ class TestLocalServerUrl:
         from shortlist.engine.curator.openai_compatible import normalize_base_url
 
         assert normalize_base_url("not a url") == "not a url"
+
+
+class TestLocalServerCompatibility:
+    """The two things that would make a real llama.cpp / LM Studio / vLLM fail on first contact.
+
+    Both are OpenAI extensions inherited from the parent class, and both are silently wrong against
+    the servers this provider exists to support (#7).
+    """
+
+    def _curator(self, monkeypatch, *, model="", available=("local-llama",)):
+        from shortlist.engine.curator.openai_compatible import OpenAICompatibleCurator
+
+        curator = OpenAICompatibleCurator.__new__(OpenAICompatibleCurator)
+        curator._model = model or "gpt-4o-mini"  # what the parent's default leaves us with
+        curator._format_from = 0
+        monkeypatch.setattr(type(curator), "list_models", lambda self: list(available))
+        return curator
+
+    def test_a_blank_model_becomes_whatever_the_server_actually_serves(self, monkeypatch):
+        """llama.cpp ignores the model field, but vLLM and LM Studio validate it — sending OpenAI's
+        `gpt-4o-mini` default to them answers "model not found"."""
+        curator = self._curator(monkeypatch)
+
+        assert curator._resolve_model() == "local-llama"
+
+    def test_an_explicit_model_is_never_second_guessed(self, monkeypatch):
+        curator = self._curator(monkeypatch, model="qwen2.5:14b")
+
+        assert curator._resolve_model() == "qwen2.5:14b"
+
+    def test_an_unreachable_model_list_does_not_block_the_call(self, monkeypatch):
+        from shortlist.engine.curator.openai_compatible import OpenAICompatibleCurator
+
+        curator = OpenAICompatibleCurator.__new__(OpenAICompatibleCurator)
+        curator._model, curator._format_from = "gpt-4o-mini", 0
+        monkeypatch.setattr(type(curator), "list_models", lambda self: (_ for _ in ()).throw(RuntimeError("offline")))
+
+        assert curator._resolve_model() == "gpt-4o-mini"  # send what we have rather than fail here
+
+    @staticmethod
+    def _stub_openai(monkeypatch):
+        """The SDK is an optional extra — present in the shipped image, absent from a dev/CI install
+        — so it is stubbed here exactly as the OpenAI tests above do."""
+        mod = ModuleType("openai")
+        mod.OpenAIError = type("OpenAIError", (Exception,), {})
+        mod.BadRequestError = type("BadRequestError", (mod.OpenAIError,), {})
+        mod.OpenAI = MagicMock()
+        monkeypatch.setitem(sys.modules, "openai", mod)
+        return mod
+
+    def test_it_falls_back_when_the_server_rejects_openais_json_schema(self, monkeypatch):
+        """`json_schema` + `strict` is an OpenAI extension. Older llama.cpp / LM Studio / vLLM reject
+        it outright, so insisting on it would fail on the very servers this provider is for."""
+        openai = self._stub_openai(monkeypatch)
+        curator = self._curator(monkeypatch, model="local-llama")
+        tried: list = []
+
+        def create(**kwargs):
+            tried.append((kwargs.get("response_format") or {}).get("type", "none"))
+            if len(tried) < 3:  # reject both structured forms, accept the bare request
+                raise openai.BadRequestError("unsupported")
+            return "reply"
+
+        curator._client = MagicMock(chat=MagicMock(completions=MagicMock(create=create)))
+
+        assert curator._chat("sys", "usr") == "reply"
+        assert tried == ["json_schema", "json_object", "none"], "it must degrade, not give up"
+
+    def test_the_shape_that_worked_is_remembered(self, monkeypatch):
+        """Otherwise every user in a run re-pays the rejected attempts."""
+        openai = self._stub_openai(monkeypatch)
+        curator = self._curator(monkeypatch, model="local-llama")
+        tried: list = []
+
+        def create(**kwargs):
+            kind = (kwargs.get("response_format") or {}).get("type", "none")
+            tried.append(kind)
+            if kind == "json_schema":
+                raise openai.BadRequestError("unsupported")
+            return "reply"
+
+        curator._client = MagicMock(chat=MagicMock(completions=MagicMock(create=create)))
+
+        curator._chat("sys", "usr")
+        curator._chat("sys", "usr")
+
+        assert tried == ["json_schema", "json_object", "json_object"], "the first rung is tried once"
+
+    def test_a_server_that_refuses_everything_still_raises(self, monkeypatch):
+        openai = self._stub_openai(monkeypatch)
+        curator = self._curator(monkeypatch, model="local-llama")
+        curator._client = MagicMock(
+            chat=MagicMock(completions=MagicMock(create=MagicMock(side_effect=openai.BadRequestError("no"))))
+        )
+
+        with pytest.raises(openai.OpenAIError):
+            curator._chat("sys", "usr")

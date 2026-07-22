@@ -61,7 +61,7 @@ export const CURATOR_PROVIDERS: readonly CuratorProviderInfo[] = [
     // hosted gateways like OpenRouter. They all speak the same OpenAI-compatible API, so a card
     // per runtime was one capability wearing several hats (issue #7).
     id: "openai_compatible",
-    label: "Local server",
+    label: "Local / OpenAI-compatible",
     glyph: "ollama",
     defaultModel: "",
     needsKey: false,

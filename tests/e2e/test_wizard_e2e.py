@@ -267,7 +267,7 @@ def test_choosing_a_local_curator_saves_its_url(fresh_page: Page, fresh_app: Sho
     _connect_plex(page, pms_url)
     _skip_history(page)
 
-    page.get_by_role("button", name=re.compile(r"^Local server\b")).click()
+    page.get_by_role("button", name=re.compile(r"^Local")).click()
     page.get_by_label("Server URL").fill("http://127.0.0.1:11434")
     page.get_by_role("button", name="Save & test").click()
 

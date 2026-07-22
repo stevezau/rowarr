@@ -48,7 +48,7 @@ The wizard opens on a short welcome screen, then walks (the progress bar reads "
 2. **Recommendations & history** — where picks come from (TMDB, Trakt, AI, web search) and
    where watch history comes from: point at Tautulli if you run it; Plex's own history works
    without it.
-3. **Choose your curator** — Claude / GPT / Gemini / Local server / **None** (the built-in picker).
+3. **Choose your curator** — Claude / GPT / Gemini / Local (OpenAI-compatible) / **None**.
    Keys are yours, stored encrypted, redacted after save.
 4. **Pick your users** — everyone you share with, with history-depth and new-viewer badges.
 5. **Make it yours** — row name, row size, and when rows refresh (each row runs on its own

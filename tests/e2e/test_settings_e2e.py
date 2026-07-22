@@ -70,7 +70,7 @@ class TestDefaults:
         card.get_by_role("button", name=re.compile("^(Edit|Set up)$")).first.click()
 
         # "Provider" renders as a segmented group, not a <select> — pick the option by its label.
-        page.get_by_label("Provider").get_by_role("button", name="Local server").click()
+        page.get_by_label("Provider").get_by_role("button", name=re.compile(r"^Local")).click()
         # The URL field must APPEAR — without it there is no way to say where the server is.
         url = page.get_by_label("Server URL")
         expect(url).to_be_visible(timeout=LOAD)

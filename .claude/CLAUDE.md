@@ -73,6 +73,19 @@ Long sessions are the single biggest cost: every turn re-sends the whole convers
 - **Don't re-verify what a tool already told you.** No re-reading a file you just wrote, no re-running
   a suite after a formatting-only change, no full-suite run to confirm a docs edit.
 - **Keep tool output small**: `-q`, `| tail`, targeted `grep`/`sed -n` over dumping whole files.
+- **Say when a cheaper model would do.** Before starting a chunk of work, if it is mechanical —
+  renames, updating test fixtures to a changed signature, docs, log wording, copy, dependency
+  bumps, boilerplate — suggest `/model sonnet` in one line and carry on. Stay on the strong model
+  without asking for: diagnosis, anything privacy/migration/identity-shaped, design decisions,
+  reviewing someone else's assumptions, and debugging behaviour that isn't yet understood.
+- **Run subagents on the cheapest model that can do the job** (`model:` on the Agent tool). Mechanical
+  fan-out — grepping, collecting, applying a known edit across many files — is `haiku` or `sonnet`.
+  The Architecture Review agent stays on the strong model: its value is catching assumptions nobody
+  questioned (it found `immutable=1` unsafe on a WAL database and an episode/show key-space
+  mismatch, neither visible without real reasoning). Make it RARE, not cheap.
+- **Answer at the length the question deserves.** A yes/no question gets a yes/no and the one caveat
+  that matters. Save the long write-up for a diagnosis, a design decision, or something that went
+  wrong. Never re-explain what was just said.
 - Prove a test has teeth by breaking the code when the logic is **risky or subtle** — not for every
   test. Never use `git checkout <file>` to undo it: that wipes uncommitted work (done twice). Copy to
   a backup first, or re-apply by hand.

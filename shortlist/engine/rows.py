@@ -17,10 +17,9 @@ from loguru import logger
 
 import shortlist.engine.pipeline as _pipeline
 from shortlist.engine import candidates as candidates_mod
-from shortlist.engine import ranking
+from shortlist.engine import picker, ranking
 from shortlist.engine import requests as requests_mod
 from shortlist.engine.clients.plex_pms import _retry_idempotent
-from shortlist.engine.curator import CuratorError, NullCurator
 from shortlist.engine.delivery import (
     deliver_rows,
     remove_row,
@@ -39,14 +38,12 @@ from shortlist.engine.models import (
     EngineConfig,
     MediaType,
     Pick,
-    PromptConfig,
     RequestWhy,
     RowSpec,
     UserProfile,
     UserRunReport,
     UserType,
     WatchedItem,
-    overlay_prompt,
 )
 
 if TYPE_CHECKING:
@@ -119,11 +116,16 @@ def _media_filter(items: list, media: str) -> list:
     return [item for item in items if item.media_type is kind]
 
 
-# A season's worth of episodes watched = the person is clearly watching this show, not discovering it.
-# The ``show_pct`` fraction alone is unreachable for a long RETURNING series: it keeps adding episodes,
+# How many episodes watched = the person is clearly watching this show, not discovering it. The
+# ``show_pct`` fraction alone is unreachable for a long RETURNING series: it keeps adding episodes,
 # so watched/total never hits 90% even after 160 plays (SFLIX/MooHouse Gold Rush 160/226 = 71%, and
 # even the owner's own watched count topped out at 173/226; 2026-07-20). This floor catches those.
-_ENGAGED_EPISODES = 10
+#
+# Lowered from 10 to 3 (issue #12): users were getting in-progress shows recommended back because
+# mark-as-watched doesn't appear in history (only the PMS database sees it, and reconcile is manual),
+# so show_plays undercounts. 3 episodes = "you've given this a real try" — past the pilot, unlikely
+# to want it recommended as a discovery.
+_ENGAGED_EPISODES = 3
 
 
 def _watched_titles(
@@ -267,23 +269,6 @@ def row_library_index(
     return narrowed
 
 
-def _row_catalog(ctx: EngineContext, spec: RowSpec) -> dict[MediaType, list[dict]]:
-    """The AI-from-library catalog THIS row may propose from — its own libraries only."""
-    if not spec.library_keys or not ctx.section_catalog:
-        return ctx.library_catalog
-    catalog: dict[MediaType, list[dict]] = {MediaType.MOVIE: [], MediaType.SHOW: []}
-    seen: dict[MediaType, set[int]] = {MediaType.MOVIE: set(), MediaType.SHOW: set()}
-    for section in sections_for_keys(ctx.delivery_sections, spec.library_keys):
-        kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
-        for item in ctx.section_catalog.get(section.key, []):
-            # A row pinned to both "Movies" and "4K Movies" must not show the LLM the same film
-            # twice — that spends its slice of the catalog on duplicates.
-            if item["tmdb_id"] not in seen[kind]:
-                seen[kind].add(item["tmdb_id"])
-                catalog[kind].append(item)
-    return catalog
-
-
 def _candidate_pool(
     ctx: EngineContext,
     seeds: list,
@@ -293,7 +278,6 @@ def _candidate_pool(
     profile=None,
     sources: list[str] | None = None,
     media: str = "both",
-    catalog: dict[MediaType, list[dict]] | None = None,
     watched_exclusions: set[tuple[int, MediaType]] | None = None,
     recent_count: int | None = None,
 ) -> tuple[tuple[list[Candidate], list[Candidate], list[Candidate]], candidates_mod.GatherStats]:
@@ -327,7 +311,6 @@ def _candidate_pool(
         seeds,
         sources=sources if sources is not None else ctx.config.candidate_sources,
         curator=ctx.curator,
-        catalog=ctx.library_catalog if catalog is None else catalog,
         profile=profile,
         trakt=ctx.trakt,
         search=ctx.search,
@@ -361,32 +344,16 @@ def _add_step_tokens(report: UserRunReport, step: str, n: int) -> None:
 
 def _record_gather(report: UserRunReport, stats: candidates_mod.GatherStats) -> None:
     """Fold a candidate-gather's AI cost into the user report: per-source tokens (also into the grand
-    total) and Exa searches. Called once per pool COMPUTATION — a cache hit re-adds nothing."""
+    total) and Exa searches. Called once per pool COMPUTATION — a cache hit re-adds nothing.
+
+    This is the ONLY AI cost now — the AI is used only to FIND titles (web search). Ranking the pool
+    and writing each row's reason are done in code (``picker.build_picks``), so there is no per-row
+    LLM spend to attribute anymore.
+    """
     for source, tokens in stats.tokens_by_source.items():
         report.llm_tokens += tokens
         _add_step_tokens(report, source, tokens)
     report.exa_searches += stats.exa_searches
-
-
-def _record_curate(
-    report: UserRunReport, curate_tokens: dict[tuple[str, str], int], slug: str, section_key, n: int
-) -> None:
-    """Record one curate call's cost: into the grand total, the 'curate' step, and this (row, library)
-    so it can be stamped onto the matching breakdown entry for per-row display."""
-    report.llm_tokens += n
-    _add_step_tokens(report, "curate", n)
-    key = (slug, str(section_key))
-    curate_tokens[key] = curate_tokens.get(key, 0) + n
-
-
-def _stamp_row_tokens(report: UserRunReport, curate_tokens: dict[tuple[str, str], int]) -> None:
-    """Attach each (row, library) curate cost to its breakdown entry, so the UI shows per-row tokens.
-
-    Keyed by (row_slug, library_key) — the same pair that uniquely identifies a breakdown entry. Only
-    the curate call is per-row; the AI candidate sources are pooled per user and stay at user level.
-    """
-    for entry in report.breakdown:
-        entry["llm_tokens"] = curate_tokens.get((entry["row_slug"], entry["library_key"]), 0)
 
 
 def _in_audience(user: UserProfile, spec: RowSpec) -> bool:
@@ -477,10 +444,6 @@ def _run_user(
         user_report.status = "skipped"
         user_report.reason = _why_no_rows(user, cfg)
         return False
-    # The adapter puts the Phase-A global+per-user recipe on the profile; a row with its own recipe
-    # overrides it for that row only.
-    base_prompt = user.prompt
-
     _pipeline._emit(ctx, user.slug, "history", {})
     user.history = ctx.history_source.fetch(user, min_completion=cfg.min_completion)
     user_report.counts.history = len(user.history)
@@ -493,9 +456,6 @@ def _run_user(
     Pool = tuple[list[Candidate], list[Candidate], list[Candidate]]
     pool_cache: dict[tuple, Pool] = {}
     pool_failures: dict[tuple, str] = {}  # pool key -> why every source for it failed
-    # Gather stats per pool key, cached alongside the pool itself so curate_section can check whether
-    # llm_web contributed tokens (= ran successfully) and gate the LLM curate call on it.
-    pool_gather_stats: dict[tuple, candidates_mod.GatherStats] = {}
     # This person's watched breakdown, filled in the non-cold branch and read by pools_for: watched
     # movie tmdb_ids, and show tmdb_id -> episode-play count (for the finished-show fraction). The
     # derived set of FINISHED (tmdb_id, media_type) titles is computed once the breakdown is in.
@@ -558,14 +518,10 @@ def _run_user(
                     sources=list(key[0]),
                     recent_count=effective_recent_count(spec),
                     media=spec.media,
-                    catalog=_row_catalog(ctx, spec),
                     # A 0% row drops finished titles from the pool entirely; a >0 row keeps them (the
                     # per-library cap trims the surplus at delivery). None -> exclude only the seeds.
                     watched_exclusions=watched_titles if effective_watched_pct(spec) == 0 else None,
                 )
-                # Cache the gather stats alongside the pool so curate_section can check whether llm_web
-                # ran (contributed tokens) and gate the LLM curate call on it.
-                pool_gather_stats[key] = gather_stats
             except Exception as e:
                 pool_failures[key] = f"{type(e).__name__}: {e}"
                 logger.warning("{}: row '{}' has no working candidate source ({})", user.username, spec.slug, e)
@@ -689,37 +645,6 @@ def _run_user(
     # and it is visible to everyone (the leak we exist to fix).
     all_picks: list[Pick] = []
     delivered_any = False
-    # (row_slug, library_key) -> curate tokens, stamped onto each breakdown entry after the loop.
-    curate_tokens: dict[tuple[str, str], int] = {}
-
-    def curate_section(profile: UserProfile, cands: list[Candidate], want: int, spec: RowSpec, section) -> list[Pick]:
-        """Curate up to ``want`` picks from ``cands``, recording token spend and degrading to the
-        heuristic curator if the AI one fails. Empty in → empty out (nothing to curate).
-
-        The LLM curate call is gated on whether llm_web actually contributed candidates: when search
-        didn't run (not in sources, or ran but returned nothing), the deterministic ranker + template
-        reasons are good enough — no need to pay for the LLM to polish picks it didn't help find.
-        """
-        if not cands or want <= 0:
-            return []
-
-        # Gate: only curate with the LLM when llm_web contributed tokens (= ran successfully)
-        key = pool_key(spec)
-        stats = pool_gather_stats.get(key)
-        llm_web_tokens = stats.tokens_by_source.get("llm_web", 0) if stats else 0
-
-        if llm_web_tokens == 0:
-            # No search contribution → skip the LLM, use deterministic ranker + genre template
-            logger.debug("{}: row '{}' skipping LLM curate (llm_web contributed no tokens)", user.username, spec.slug)
-            return NullCurator().curate(profile, cands, want)
-
-        try:
-            picks = ctx.curator.curate(profile, cands, want)
-            _record_curate(user_report, curate_tokens, spec.slug, section.key, getattr(ctx.curator, "last_tokens", 0))
-            return picks
-        except CuratorError as e:
-            logger.warning("{}: curator failed ({}); degrading to heuristic mode", user.username, e)
-            return NullCurator().curate(profile, cands, want)
 
     for spec in specs:
         # A per-row override lets this one person resize or restyle this one row; each field falls
@@ -733,14 +658,6 @@ def _run_user(
         # movie row and a full show row (the "one movie in Picked for You" bug, SFLIX 2026-07-15).
         targets = target_sections(ctx.delivery_sections, spec)
         if not cold:
-            # The row's recipe (already the global one with the row's fields laid over it), then this
-            # person's override laid over THAT. Setting only a tone for one person used to wipe the
-            # row's guidance and custom prompt.
-            row_prompt = spec.prompt if spec.prompt is not None else base_prompt
-            effective_prompt = overlay_prompt(row_prompt, override.prompt if override else None)
-            # A per-row copy carries the effective recipe to the curator; the real profile is never
-            # mutated, so one row's recipe can't leak into the next row (or into delivery below).
-            row_profile = _with_prompt(user, effective_prompt)
             # This row's own pool: its sources, its media and its libraries — already narrowed to
             # all three BEFORE the pre-rank truncation, so nothing this row could show was cut by
             # candidates it could never show.
@@ -780,22 +697,22 @@ def _run_user(
                     sec_picks = _pad_picks(sec_picks, sub, k)
             elif prior_valid:
                 # Refresh night: keep the strongest ~two-thirds, swap the rest for genuinely-new titles.
-                # Curate only from candidates NOT already in the row so a just-rotated-out title can't
+                # Pick only from candidates NOT already in the row so a just-rotated-out title can't
                 # bounce straight back — the internal anti-immediate-repeat guard that replaced staleness_runs.
                 keep_n = min(len(prior_valid), round(_KEEP_FRACTION * k))
                 kept = prior_valid[:keep_n]
                 prior_ids = {(p.tmdb_id, p.media_type) for p in prior_valid}
                 fresh_pool = [c for c in sub if (c.tmdb_id, c.media_type) not in prior_ids]
-                new_picks = curate_section(row_profile, fresh_pool, k, spec, section)
+                new_picks = picker.build_picks(fresh_pool, k)
                 sec_picks = (kept + [p for p in new_picks if (p.tmdb_id, p.media_type) not in prior_ids])[:k]
                 if len(sec_picks) < k:
                     sec_picks = _pad_picks(sec_picks, fresh_pool, k)
             else:
                 # Bootstrap: this row+library has never been built (or its picks predate row/library
-                # stamping) — curate a fresh full row, exactly like a first run.
+                # stamping) — build a fresh full row, exactly like a first run.
                 if not sub:
                     continue
-                sec_picks = curate_section(row_profile, sub, k, spec, section)
+                sec_picks = picker.build_picks(sub, k)
                 if len(sec_picks) < k:
                     sec_picks = _pad_picks(sec_picks, sub, k)
 
@@ -884,16 +801,9 @@ def _run_user(
 
     user_report.picks = all_picks
     user_report.counts.picks = len(all_picks)
-    _stamp_row_tokens(user_report, curate_tokens)  # per-(row, library) curate cost onto each breakdown entry
     if not all_picks:
         logger.warning("{}: no picks produced — existing rows are left as they are", user.username)
     return delivered_any  # nothing delivered -> nothing to promote
-
-
-def _with_prompt(user: UserProfile, prompt: PromptConfig | None) -> UserProfile:
-    """A shallow copy of the profile carrying ``prompt`` — used to curate one row without mutating
-    the shared profile (its history/genres/overrides are read-only during curation)."""
-    return replace(user, prompt=prompt)
 
 
 def _run_shared(
@@ -989,7 +899,6 @@ def _shared_row(
         user_type=UserType.SHARED,
         slug=slug,
         history=agg_history,
-        prompt=spec.prompt,
     )
     if not agg_history:
         user_report.status = "skipped"
@@ -1026,17 +935,15 @@ def _shared_row(
         profile=agg,
         sources=row_sources,
         media=spec.media,
-        catalog=_row_catalog(ctx, spec),
         recent_count=spec.recent_count if spec.recent_count is not None else cfg.recent_count,
     )
-    _record_gather(user_report, gather_stats)  # shared-row gather AI cost (llm_web/llm_library + Exa)
+    _record_gather(user_report, gather_stats)  # shared-row gather AI cost (llm_web + Exa)
     k = spec.size
-    # Curate PER LIBRARY, exactly like a per-person row: each targeted library gets its own full k
-    # from its own contents. One mixed curate over a now media-segregated pool would let a 'both'
+    # Build PER LIBRARY, exactly like a per-person row: each targeted library gets its own full k
+    # from its own contents. One mixed pool over a now media-segregated pool would let a 'both'
     # shared row come back all-movies-no-shows.
     targets = target_sections(ctx.delivery_sections, spec)
     section_picks: dict[str, list[Pick]] = {}
-    curate_tokens: dict[tuple[str, str], int] = {}  # (row_slug, library_key) -> curate cost, stamped below
     for section in targets:
         kind = section_kind(section)
         sec_idx = ctx.section_index.get(section.key, {})
@@ -1044,29 +951,15 @@ def _shared_row(
         if not sub:
             continue
         # NOTE: shared-row picks aren't persisted per-user (they file under `shared_<slug>`), so they
-        # can't carry forward like per-person rows yet — they re-curate each run. They're few (1-2) and
+        # can't carry forward like per-person rows yet — they rebuild each run. They're few (1-2) and
         # aggregate history changes slowly, so churn here is minor. See [[perf-work-state]] follow-up.
-        try:
-            sec_picks = ctx.curator.curate(agg, sub, k)
-            # Shared-row LLM spend used to vanish — only the per-person path accounted tokens.
-            toks = getattr(ctx.curator, "last_tokens", 0)
-            _record_curate(user_report, curate_tokens, spec.slug, section.key, toks)
-        except CuratorError as e:
-            # Match the personal-row path: say the curator failed so a heuristic-filled shared row
-            # ("Popular on this server") isn't a silent mystery to the operator.
-            logger.warning(
-                "shared row {!r} section {}: curator failed ({}); using heuristic",
-                spec.slug,
-                section.key,
-                type(e).__name__,
-            )
-            sec_picks = NullCurator().curate(agg, sub, k)
+        sec_picks = picker.build_picks(sub, k)
         if len(sec_picks) < k:
-            # Backfill from this library's ranked pool so a thin curate never SHRINKS the row.
+            # Backfill from this library's ranked pool so a thin build never SHRINKS the row.
             sec_picks = _pad_picks(sec_picks, sub, k)
         section_picks[section.key] = sec_picks
-    # Force aggregate framing regardless of curator: a shared row is nobody's "because you watched",
-    # and the seed is dropped so a {top_seed} name template can never surface one person's title.
+    # Force aggregate framing: a shared row is nobody's "because you watched", and the seed is
+    # dropped so a {top_seed} name template can never surface one person's title.
     # Stamp the library too, so a shared row spanning >1 library splits per library in the report.
     library_names = {section.key: getattr(section, "title", "") or "" for section in targets}
     section_picks = {
@@ -1107,7 +1000,6 @@ def _shared_row(
         breakdown=user_report.breakdown,
         order_work=order_work,
     )
-    _stamp_row_tokens(user_report, curate_tokens)  # per-(row, library) curate cost onto the breakdown
     return agg if picks else None
 
 
@@ -1162,7 +1054,7 @@ def _log_row_provenance(
 
 
 def _pad_picks(picks: list[Pick], ranked: list[Candidate], k: int) -> list[Pick]:
-    """Top up short curator output from the heuristic order (never invents titles).
+    """Top up a short row from the ranked pool (never invents titles).
 
     Only from candidates whose source actually vouched for them: padding is where a weak association
     turns into a delivered row, so the row is allowed to come up short instead.
@@ -1175,11 +1067,7 @@ def _pad_picks(picks: list[Pick], ranked: list[Candidate], k: int) -> list[Pick]
             len(ranked) - len(worth_it),
             len(ranked),
         )
-    fillers = NullCurator().curate(
-        UserProfile(username="", plex_account_id=0, user_type=UserType.SHARED),
-        [c for c in worth_it if (c.tmdb_id, c.media_type) not in have],
-        k - len(picks),
-    )
+    fillers = picker.build_picks([c for c in worth_it if (c.tmdb_id, c.media_type) not in have], k - len(picks))
     out = list(picks)
     for f in fillers:
         out.append(Pick(**{**f.__dict__, "rank": len(out) + 1}))

@@ -24,11 +24,17 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { api } from "@/lib/api";
 import { useAutosavedSettings } from "@/lib/autosave";
 import { settingString } from "@/lib/format";
 import { queryKeys, useSettings } from "@/lib/queries";
-import type { Settings } from "@/lib/types";
+import { useSSE } from "@/lib/sse";
+import type {
+  Settings,
+  SyncFinishedEvent,
+  SyncProgressEvent,
+} from "@/lib/types";
 
 /**
  * Tools — on-demand maintenance the owner runs by hand, distinct from the nightly schedule. Each
@@ -37,6 +43,42 @@ import type { Settings } from "@/lib/types";
  */
 export function ToolsPage() {
   const settings = useSettings();
+  const queryClient = useQueryClient();
+  // One EventSource for the whole page (rules/frontend.md); the two sync cards read the slice of
+  // `sync.*` events that carries their own `kind`. `null` = idle, so no bar shows until a run starts.
+  const [watchedProgress, setWatchedProgress] =
+    useState<SyncProgressEvent | null>(null);
+  const [usersProgress, setUsersProgress] = useState<SyncProgressEvent | null>(
+    null,
+  );
+  // The watched sync's POST returns the moment it's queued (202 "started"), so its OUTCOME only
+  // arrives on the bus. The users sync's POST awaits the whole thing, so its mutation result is
+  // authoritative — the bus just drives its live bar.
+  const [watchedResult, setWatchedResult] = useState<SyncFinishedEvent | null>(
+    null,
+  );
+
+  useSSE({
+    onSyncProgress: (event) => {
+      if (event.kind === "watched") {
+        setWatchedProgress(event);
+        setWatchedResult(null); // a fresh run supersedes the last result line
+      } else {
+        setUsersProgress(event);
+      }
+    },
+    onSyncFinished: (event) => {
+      // Clear the bar once the sync ends; the card's own success/error line takes over from here.
+      if (event.kind === "watched") {
+        setWatchedProgress(null);
+        setWatchedResult(event);
+        // The watched sync refreshes each user's picks-watched — repaint the users list once done.
+        queryClient.invalidateQueries({ queryKey: queryKeys.users });
+      } else {
+        setUsersProgress(null);
+      }
+    },
+  });
 
   return (
     <div>
@@ -50,8 +92,8 @@ export function ToolsPage() {
             one-off action (the nightly sync never reads Plex's database), so its config belongs with
             it, not buried in a Settings tab the owner would have to leave the task to find. */}
         {settings.data && <ReconcileWatchedCard settings={settings.data} />}
-        <SyncHistoryCard />
-        <SyncUsersCard />
+        <SyncHistoryCard progress={watchedProgress} result={watchedResult} />
+        <SyncUsersCard progress={usersProgress} />
       </div>
     </div>
   );
@@ -272,8 +314,17 @@ function SaveStatusLine({
 }
 
 /** Pull the latest plays for everyone now, rather than waiting for the nightly watch-status sync. */
-function SyncHistoryCard() {
+function SyncHistoryCard({
+  progress,
+  result,
+}: {
+  progress: SyncProgressEvent | null;
+  result: SyncFinishedEvent | null;
+}) {
   const sync = useMutation({ mutationFn: api.syncWatched });
+  // This POST returns 202 the moment the sync is QUEUED — the real outcome arrives on the bus as
+  // `result`. So the bar is live while events flow, then the bus result (not the POST) is the truth.
+  const running = progress !== null;
 
   return (
     <Card>
@@ -296,12 +347,26 @@ function SyncHistoryCard() {
           <Button
             variant="outline"
             onClick={() => sync.mutate()}
-            loading={sync.isPending}
+            loading={sync.isPending || running}
           >
             <RefreshCw aria-hidden="true" />
             Sync history
           </Button>
         </div>
+        {running && (
+          <div className="flex flex-col gap-1.5">
+            <ProgressBar
+              done={progress.done}
+              total={progress.total}
+              label="Syncing watch history"
+            />
+            <p role="status" className="text-xs text-muted-foreground">
+              {progress.total
+                ? `Syncing ${progress.done ?? 0} of ${progress.total} ${progress.total === 1 ? "user" : "users"}…`
+                : "Syncing…"}
+            </p>
+          </div>
+        )}
         {sync.isError && (
           <MutationAlert
             error={sync.error}
@@ -309,7 +374,26 @@ function SyncHistoryCard() {
             onRetry={() => sync.mutate()}
           />
         )}
-        {sync.isSuccess && (
+        {!running && result?.ok === false && (
+          <p role="alert" className="text-sm text-destructive">
+            The sync couldn't finish
+            {result.error ? ` (${result.error})` : ""}. Check the Plex
+            connection and try again.
+          </p>
+        )}
+        {!running && result?.ok && (
+          <p className="flex items-center gap-2 text-sm text-foreground">
+            <CheckCircle2
+              aria-hidden="true"
+              className="size-4 text-emerald-600 dark:text-emerald-500"
+            />
+            Synced {result.count ?? 0} {result.count === 1 ? "user" : "users"} —
+            watch history is up to date and the effectiveness report reflects it
+            now.
+          </p>
+        )}
+        {/* No bus result yet (SSE not connected) but the POST was accepted — say it's running. */}
+        {!running && !result && sync.isSuccess && (
           <p className="flex items-center gap-2 text-sm text-foreground">
             <CheckCircle2
               aria-hidden="true"
@@ -325,7 +409,7 @@ function SyncHistoryCard() {
 }
 
 /** Re-pull the shared + Home users (and the owner) from plex.tv into the users table. */
-function SyncUsersCard() {
+function SyncUsersCard({ progress }: { progress: SyncProgressEvent | null }) {
   const queryClient = useQueryClient();
   const sync = useMutation({
     mutationFn: api.syncUsers,
@@ -333,6 +417,9 @@ function SyncUsersCard() {
       queryClient.invalidateQueries({ queryKey: queryKeys.users }),
   });
   const result = sync.data;
+  // This POST awaits the whole sync, so `sync.data` is the authoritative result. The bus events just
+  // drive the live bar while it's in flight: an indeterminate "fetch" phase, then a "save" count.
+  const running = sync.isPending;
 
   return (
     <Card>
@@ -356,12 +443,26 @@ function SyncUsersCard() {
           <Button
             variant="outline"
             onClick={() => sync.mutate()}
-            loading={sync.isPending}
+            loading={running}
           >
             <UsersIcon aria-hidden="true" />
             Sync users
           </Button>
         </div>
+        {running && (
+          <div className="flex flex-col gap-1.5">
+            <ProgressBar
+              done={progress?.phase === "save" ? progress.done : undefined}
+              total={progress?.phase === "save" ? progress.total : undefined}
+              label="Syncing users"
+            />
+            <p role="status" className="text-xs text-muted-foreground">
+              {progress?.phase === "save" && progress.total
+                ? `Saving ${progress.done ?? 0} of ${progress.total} ${progress.total === 1 ? "user" : "users"}…`
+                : "Contacting plex.tv…"}
+            </p>
+          </div>
+        )}
         {sync.isError && (
           <MutationAlert
             error={sync.error}
@@ -369,7 +470,7 @@ function SyncUsersCard() {
             onRetry={() => sync.mutate()}
           />
         )}
-        {result && (
+        {result && !running && (
           <p className="flex items-center gap-2 text-sm text-foreground">
             <CheckCircle2
               aria-hidden="true"

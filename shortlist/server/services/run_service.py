@@ -134,8 +134,15 @@ class RunService:
 
         Skips quietly if Plex isn't configured (build_context raises), and a per-user history-fetch
         failure is logged and skipped rather than aborting the sweep. Serialized against runs by the
-        same lock, so it never overlaps a live run's per-user writes."""
+        same lock, so it never overlaps a live run's per-user writes.
+
+        Streams ``sync.progress`` per user (done/total) and a final ``sync.finished`` over the SSE bus
+        so the Tools page can show a live bar. Harmless on the nightly schedule (no subscribers)."""
         loop = asyncio.get_running_loop()
+
+        def emit(event: str, data: dict) -> None:
+            # work() runs in an executor thread; publish must hop back to the loop (see system.py).
+            loop.call_soon_threadsafe(self._bus.publish, event, {"kind": "watched", **data})
 
         def work() -> int:
             from shortlist.server.settings_store import SettingsStore
@@ -143,23 +150,28 @@ class RunService:
             ctx = self.build_context(dry_run=True)  # dry: builds clients, writes nothing to Plex
             with self._sessions() as session:
                 profiles = self.enabled_profiles(session)
-            for profile in profiles:
+            total = len(profiles)
+            emit("sync.progress", {"done": 0, "total": total})
+            for i, profile in enumerate(profiles, start=1):
                 try:
                     profile.history = ctx.history_source.fetch(profile, min_completion=ctx.config.min_completion)
                 except Exception as e:
                     logger.warning("watch-sync: history fetch failed for {}: {}", profile.slug, type(e).__name__)
+                emit("sync.progress", {"done": i, "total": total})
             self._reconcile_watched(profiles)
             with self._sessions() as session:
                 # Stamp the sync so the dashboard can show "watch status synced N ago".
                 SettingsStore(session).set("report.watch_synced_at", datetime.now(UTC).isoformat())
-            return len(profiles)
+            return total
 
         async with self._lock:
             try:
                 count = await loop.run_in_executor(None, work)
                 logger.info("watch-sync: refreshed watch status for {} user(s)", count)
+                self._bus.publish("sync.finished", {"kind": "watched", "ok": True, "count": count})
             except Exception as e:  # e.g. Plex not configured yet — never crash the scheduler
                 logger.info("watch-sync skipped: {}", type(e).__name__)
+                self._bus.publish("sync.finished", {"kind": "watched", "ok": False, "error": type(e).__name__})
 
     async def reconcile_watched_from_db(self) -> dict:
         """One-off Tools action: fill every enabled user's watch history from the PMS database — the

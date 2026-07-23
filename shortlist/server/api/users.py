@@ -439,8 +439,19 @@ def _sync_owner(
 
 @router.post("/sync")
 async def sync_users(request: Request) -> dict:
-    """Pull shared + Home users — and the owner — from plex.tv into the users table (idempotent)."""
+    """Pull shared + Home users — and the owner — from plex.tv into the users table (idempotent).
+
+    Streams ``sync.progress``/``sync.finished`` (``kind="users"``) over the SSE bus so the Tools page
+    can show a live bar: an indeterminate ``fetch`` phase for the one opaque plex.tv round-trip, then
+    a determinate ``save`` bar over the roster upsert.
+    """
     state = request.app.state
+    bus = state.bus
+
+    def emit(event: str, data: dict) -> None:
+        # This handler runs on the event loop, so publish directly — no thread hop needed.
+        bus.publish(event, {"kind": "users", **data})
+
     with state.sessions() as session:
         store = SettingsStore(session, state.secrets)
         token = store.get("plex.token")
@@ -473,13 +484,16 @@ async def sync_users(request: Request) -> dict:
                 logger.warning("could not read friendly names from Tautulli ({})", type(e).__name__)
         return users, account, friendly
 
+    emit("sync.progress", {"phase": "fetch"})  # indeterminate: one opaque plex.tv + Tautulli round-trip
     remote, owner_account, friendly_names = await asyncio.get_running_loop().run_in_executor(None, fetch)
     added = updated = 0
     # if plex.tv ever does list the owner, `_sync_owner` is the one that writes them — not both
     roster = [r for r in remote if r.id != owner_account_id]
+    total = len(roster) + 1  # + the owner's own transaction below
+    emit("sync.progress", {"phase": "save", "done": 0, "total": total})
     with state.sessions() as session:
         before = {u.id: u.nickname or u.friendly_name or u.username for u in session.query(User)}
-        for r in roster:
+        for i, r in enumerate(roster, start=1):
             user = session.query(User).filter_by(plex_account_id=r.id).one_or_none()
             if user is None:
                 session.add(
@@ -501,6 +515,7 @@ async def sync_users(request: Request) -> dict:
                 # (the owner's own choice) is never touched, so an override always survives.
                 user.friendly_name = friendly_names.get(r.id, user.friendly_name)
                 updated += 1
+            emit("sync.progress", {"phase": "save", "done": i, "total": total})
         # A Tautulli rename changes what `{user}` renders to, exactly like a nickname edit — and the
         # rows already on Plex still carry the old title. Without the same reconcile `patch_user`
         # does, a multi-row user keeps the stale copy alongside the new one forever: `remove_row`
@@ -523,8 +538,11 @@ async def sync_users(request: Request) -> dict:
         added += 1
     elif owner == "updated":
         updated += 1
+    emit("sync.progress", {"phase": "save", "done": total, "total": total})
     with state.sessions() as session:  # the owner's own name can drift on the same sync
         display_changed = display_changed or _display_names_drifted(session, before)
     if display_changed:
         await _rename_after_nickname(state)
-    return {"added": added, "updated": updated, "total": len(roster) + (1 if owner else 0)}
+    result = {"added": added, "updated": updated, "total": len(roster) + (1 if owner else 0)}
+    emit("sync.finished", {"ok": True, **result})
+    return result

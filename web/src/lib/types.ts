@@ -522,6 +522,37 @@ export interface UninstallProgressEvent {
   total?: number;
 }
 
+/** Which Tools-page sync a `sync.*` event belongs to. */
+export type SyncKind = "watched" | "users";
+
+/**
+ * Live progress for a Tools-page sync (SSE `sync.progress`).
+ *
+ * The watched sync is one determinate loop (`done`/`total` users). The users sync has two phases:
+ * an indeterminate `fetch` (the opaque plex.tv round-trip), then a determinate `save` bar.
+ */
+export interface SyncProgressEvent {
+  kind: SyncKind;
+  /** Only the users sync sends phases; the watched sync is a single implicit "save" loop. */
+  phase?: "fetch" | "save";
+  done?: number;
+  total?: number;
+}
+
+/** A Tools-page sync finished (SSE `sync.finished`). */
+export interface SyncFinishedEvent {
+  kind: SyncKind;
+  ok: boolean;
+  /** watched sync: how many users were refreshed. */
+  count?: number;
+  /** users sync: the same counts the POST returns, echoed so the bar can settle on them. */
+  added?: number;
+  updated?: number;
+  total?: number;
+  /** On failure (watched sync), the exception class name — never a tokened message (rule 9). */
+  error?: string | null;
+}
+
 /**
  * A server plex.tv says this account can reach, with every advertised address already tried
  * from where Shortlist actually runs — only the owner's network knows which one works.

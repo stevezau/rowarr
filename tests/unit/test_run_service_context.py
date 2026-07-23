@@ -323,6 +323,52 @@ class TestSyncWatched:
         with sessions() as s:
             assert s.query(PickRow).filter_by(tmdb_id=42).one().watched_at is not None
 
+    def test_streams_per_user_progress_and_a_finished_event(self, service, monkeypatch):
+        """The Tools page bar is driven by these events — a sync that emits nothing shows no bar."""
+        import asyncio
+        from types import SimpleNamespace
+
+        from shortlist.engine.models import UserProfile, UserType
+
+        published: list[tuple[str, dict]] = []
+        monkeypatch.setattr(service._bus, "publish", lambda event, data: published.append((event, data)))
+
+        profiles = [
+            UserProfile(username=f"u{i}", plex_account_id=i, user_type=UserType.SHARED, slug=f"u{i}") for i in range(3)
+        ]
+        fake_ctx = SimpleNamespace(
+            history_source=SimpleNamespace(fetch=lambda p, **k: []),
+            config=SimpleNamespace(min_completion=0.7),
+        )
+        monkeypatch.setattr(service, "build_context", lambda **k: fake_ctx)
+        monkeypatch.setattr(service, "enabled_profiles", lambda session, user_ids=None: profiles)
+
+        asyncio.run(service.sync_watched())
+
+        progress = [d for e, d in published if e == "sync.progress"]
+        # An initial 0/3 plus one per user, all tagged for the watched card, counting up to the total.
+        assert progress[0] == {"kind": "watched", "done": 0, "total": 3}
+        assert [d["done"] for d in progress] == [0, 1, 2, 3]
+        assert all(d["total"] == 3 for d in progress)
+        assert ("sync.finished", {"kind": "watched", "ok": True, "count": 3}) in published
+
+    def test_a_sync_that_cannot_start_still_reports_a_failed_finish(self, service, monkeypatch):
+        """Plex not configured raises inside build_context — the bar must resolve to an error, not hang."""
+        import asyncio
+
+        published: list[tuple[str, dict]] = []
+        monkeypatch.setattr(service._bus, "publish", lambda event, data: published.append((event, data)))
+
+        def boom(**kwargs):
+            raise RuntimeError("Plex is not configured")
+
+        monkeypatch.setattr(service, "build_context", boom)
+
+        asyncio.run(service.sync_watched())  # must not raise — the scheduler relies on this
+
+        finished = [d for e, d in published if e == "sync.finished"]
+        assert finished == [{"kind": "watched", "ok": False, "error": "RuntimeError"}]
+
 
 def test_build_scheduler_registers_the_daily_watch_sync(sessions):
     from types import SimpleNamespace

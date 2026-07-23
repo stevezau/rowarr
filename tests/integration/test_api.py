@@ -417,6 +417,31 @@ class TestUserSync:
         assert self._users(client)["sarah"]["display_name"] == "Sazza"
         assert len(calls) == 1, "a changed display name must reconcile the rows already on Plex"
 
+    def test_sync_streams_a_fetch_phase_then_a_save_bar_and_a_finish(self, client: TestClient, plextv, monkeypatch):
+        """The Tools page bar reads these events: one indeterminate `fetch`, a determinate `save`
+        count, then `sync.finished` echoing the same counts the POST returns."""
+        published: list[tuple[str, dict]] = []
+        real_publish = client.app.state.bus.publish
+        monkeypatch.setattr(
+            client.app.state.bus,
+            "publish",
+            lambda event, data: (published.append((event, data)), real_publish(event, data))[0],
+        )
+
+        body = client.post("/api/users/sync").json()
+
+        events = [(e, d) for e, d in published if e in ("sync.progress", "sync.finished")]
+        assert all(d["kind"] == "users" for _, d in events), "every sync event must be tagged for the users card"
+        phases = [d.get("phase") for e, d in events if e == "sync.progress"]
+        assert phases[0] == "fetch", "the opaque plex.tv call is announced as an indeterminate fetch first"
+        assert "save" in phases, "the roster upsert drives a determinate save bar"
+        save_events = [d for e, d in events if e == "sync.progress" and d.get("phase") == "save"]
+        assert save_events[-1]["done"] == save_events[-1]["total"], "the save bar reaches 100%"
+        # The finish event carries the same numbers the HTTP response does, so the bar can settle on them.
+        finished = next(d for e, d in events if e == "sync.finished")
+        assert finished["ok"] is True
+        assert {k: finished[k] for k in ("added", "updated", "total")} == body
+
     def test_a_sync_that_changes_no_name_does_no_plex_work(self, client: TestClient, plextv, monkeypatch):
         """The reconcile does Plex I/O — it must not fire on every routine sync."""
         from shortlist.server.api import users as users_api

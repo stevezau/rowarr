@@ -75,7 +75,10 @@ export function toInput(collection: Collection): CollectionInput {
 export function audienceSummary(collection: Collection, users: User[]): string {
   if (collection.audience === "everyone") return "Everyone";
   const names = collection.audience_user_ids
-    .map((id) => users.find((u) => u.id === id)?.username)
+    .map((id) => {
+      const user = users.find((u) => u.id === id);
+      return user && (user.display_name || user.username);
+    })
     .filter(Boolean);
   if (names.length === 0) return "No one yet";
   return names.length <= 2

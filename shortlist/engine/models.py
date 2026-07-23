@@ -612,6 +612,11 @@ class UserRunReport:
     # Searches served from the shared 14-day cache instead of billed. Reported alongside exa_searches
     # so a fully-cached run reads "1 searched · N from cache", not a bare "1" that looks like nothing ran.
     exa_cache_hits: int = 0
+    # A per-user, JSON-serializable record of the whole pipeline — seeds derived, each source's queries
+    # and returns, the LLM/Exa prompts, and the ranked pool — so the UI can show "exactly what happened
+    # for this person" without re-running anything. Purely diagnostic; the engine never reads it back.
+    # {} when tracing produced nothing (a skipped/cold user). Persisted on RunUser.trace.
+    trace: dict = field(default_factory=dict)
 
 
 @dataclass

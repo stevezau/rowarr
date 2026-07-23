@@ -27,6 +27,7 @@ import type {
   LogPage,
   RunRequest,
   RunsSummary,
+  RunUserTraceResponse,
   RowOverridePatch,
   Session,
   Settings,
@@ -223,6 +224,13 @@ export const api = {
     ),
 
   getRun: (id: number): Promise<RunDetail> => request(`/api/runs/${id}`),
+
+  /** The full pipeline trace for one user in one run (fetched on demand — the blob is large). */
+  getRunUserTrace: (
+    runId: number,
+    userId: number,
+  ): Promise<RunUserTraceResponse> =>
+    request(`/api/runs/${runId}/users/${userId}/trace`),
 
   /** Totals for the Runs page header (count, succeeded/failed, last run). */
   getRunsSummary: (): Promise<RunsSummary> => request("/api/runs/summary"),

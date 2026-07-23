@@ -533,6 +533,7 @@ class RunService:
                 exa_searches=user_report.exa_searches,
                 diff=user_report.diff.__dict__ if user_report.diff else {},
                 breakdown=user_report.breakdown,
+                trace=user_report.trace,
             )
         )
         if not dry_run:

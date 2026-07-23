@@ -227,6 +227,9 @@ class RunUser(Base):
     # the merged `diff` + `picks`). Each entry: row_slug/row_title, library_key/library_title,
     # added/removed/kept/deleted, created, and that library's own picks.
     breakdown: Mapped[list] = mapped_column(JSON, default=list)
+    # Full per-user pipeline trace (seeds, per-source queries+returns, web-search/RAG prompts) so the
+    # UI can show "exactly what happened for this person". {} on legacy rows and skipped/cold users.
+    trace: Mapped[dict] = mapped_column(JSON, default=dict)
 
     run: Mapped[Run] = relationship(back_populates="users")
     user: Mapped[User] = relationship(back_populates="run_users")

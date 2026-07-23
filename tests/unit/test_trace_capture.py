@@ -1,0 +1,190 @@
+"""Trace capture: the per-user pipeline trace (``GatherStats.trace`` / ``UserRunReport.trace``) that
+feeds the run-detail "View trace" dialog. These assert what each stage RECORDS, not just that it ran
+— the trace is the operator's only window into "what did the AI search, and what did it propose?"."""
+
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+from shortlist.engine import rows as rows_mod
+from shortlist.engine.candidates import GatherStats, gather_candidates
+from shortlist.engine.clients.search import SearchResult
+from shortlist.engine.models import MediaType, RowSpec, Seed, UserRunReport, WatchedItem
+
+
+def make_result(title: str, text: str = "") -> SearchResult:
+    return SearchResult(title=title, url="https://example.com", text=text)
+
+
+def seed(tmdb_id: int, title: str = "Seed", media: MediaType = MediaType.MOVIE, weight: float = 1.0) -> Seed:
+    return Seed(tmdb_id=tmdb_id, title=title, media_type=media, weight=weight)
+
+
+def _row_spec(slug: str = "picked") -> RowSpec:
+    return RowSpec(slug=slug, name_template="Picked for {user}", size=10, media="movie")
+
+
+def _report() -> UserRunReport:
+    return UserRunReport(username="sam", slug="sam")
+
+
+def _ranked(items: list[dict]) -> list[tuple[dict, float]]:
+    return [(item, 1.0) for item in items]
+
+
+class _FakeSearch:
+    name = "exa"
+
+    def __init__(self, results):
+        self._results = results
+        self.queries: list[str] = []
+
+    def search(self, query, *, num_results=8):
+        self.queries.append(query)
+        return self._results
+
+
+class _NonNativeCurator:
+    """Ollama-shaped: no native web search, `complete` proposes from the Exa results."""
+
+    supports_native_web_search = False
+
+    def __init__(self, reply):
+        self._reply = reply
+
+    def complete(self, system, user):
+        return self._reply
+
+
+class TestGatherTraceSources:
+    """The per-source summary: every source attempted, whether it worked, how many it contributed."""
+
+    def test_records_ok_and_failed_sources_with_contribution_counts(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: _ranked(
+            [{"id": 10, "title": "S", "genre_ids": [], "vote_average": 7.0}]
+        )
+
+        class _Boom:
+            def related(self, tmdb_id, media_type):
+                raise RuntimeError("trakt 503")
+
+        stats = GatherStats()
+        gather_candidates(mock_tmdb, [seed(1)], sources=["tmdb_similar", "trakt"], trakt=_Boom(), stats=stats)
+        by_source = {s["source"]: s for s in stats.trace["sources"]}
+        assert by_source["tmdb_similar"]["status"] == "ok"
+        assert by_source["tmdb_similar"]["contributed"] == 1
+        assert by_source["trakt"]["status"] == "failed"
+        assert by_source["trakt"]["contributed"] == 0
+        assert "trakt 503" in by_source["trakt"]["detail"]  # the real reason, for the operator
+
+    def test_discover_records_the_genres_it_widened_into(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: _ranked([])
+        mock_tmdb.genre_ids_for.side_effect = lambda tid, mt: [18, 28]
+        mock_tmdb.genre_names.return_value = {18: "Drama", 28: "Action"}
+        mock_tmdb.discover.side_effect = lambda mt, gids, **kw: []
+
+        stats = GatherStats()
+        gather_candidates(mock_tmdb, [seed(1)], sources=["tmdb_discover"], stats=stats)
+        assert stats.trace["discover_genres"]["movie"] == ["Drama", "Action"]
+
+
+class TestGatherTraceWeb:
+    """The web-search detail: the queries sent, the RAG prompt, and resolved vs. hallucinated titles."""
+
+    def test_records_exa_queries_rag_prompt_and_resolved_split(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: _ranked([])
+        mock_tmdb.genre_names.return_value = {}
+        # "Real Film" resolves to a TMDB id; "Made Up" does not (a hallucination -> unresolved).
+        resolved = {"Real Film": {"id": 800, "title": "Found", "genre_ids": [], "vote_average": 7.5}}
+        mock_tmdb.search.side_effect = lambda title, mt, year=None: resolved.get(title)
+        search = _FakeSearch([make_result("Best of 2021", "great films")])
+        reply = (
+            '[{"title": "Real Film", "year": 2022, "media": "movie"}, '
+            '{"title": "Made Up", "year": null, "media": "movie"}]'
+        )
+        curator = _NonNativeCurator(reply)
+
+        stats = GatherStats()
+        gather_candidates(
+            mock_tmdb,
+            [seed(1, "Arrival")],
+            sources=["llm_web"],
+            curator=curator,
+            profile=SimpleNamespace(history=[]),
+            search=search,
+            web_search_mode="exa",
+            stats=stats,
+        )
+        web = stats.trace["web"]
+        assert web["mode"] == "exa"
+        # One search per seed title, with the query and what it returned.
+        assert len(web["searches"]) == 1
+        assert web["searches"][0]["seed"] == "Arrival"
+        assert web["searches"][0]["returned"] == ["Best of 2021"]
+        assert web["searches"][0]["cached"] is False
+        # The exact prompt the model ranked from is captured for inspection.
+        assert web["rag_user"] and web["rag_system"]
+        # The resolved/unresolved split makes hallucinations visible in the UI.
+        assert any("Real Film" in t for t in web["resolved"])
+        assert any("Made Up" in t for t in web["unresolved"])
+
+
+class TestRecordHistoryTrace:
+    """rows._record_history_trace: the history/seeds stage. Display only — bounded, sorted, summarised."""
+
+    def _watch(self, title: str, day: int, media: MediaType = MediaType.MOVIE) -> WatchedItem:
+        return WatchedItem(title=title, media_type=media, watched_at=datetime(2026, 7, day, tzinfo=UTC))
+
+    def test_records_recent_watches_seeds_and_counts(self):
+        report = _report()
+        history = [self._watch("Old", 1), self._watch("Newer", 10), self._watch("Newest", 20)]
+        spec = _row_spec()
+        seeds = [seed(1, "A", weight=0.4), seed(2, "B", weight=0.9)]
+
+        rows_mod._record_history_trace(
+            report,
+            history,
+            [spec],
+            seeds_for=lambda _spec: seeds,
+            watched_movies={1, 2, 3},
+            show_plays={7: 4},
+        )
+
+        hist = report.trace["history"]
+        assert hist["total"] == 3
+        assert hist["watched_movies"] == 3
+        assert hist["watched_shows"] == 1
+        # Most-recent first.
+        assert [w["title"] for w in hist["recent"]] == ["Newest", "Newer", "Old"]
+        # Seeds strongest-first, with the weight rounded for display.
+        assert [s["title"] for s in report.trace["seeds"]] == ["B", "A"]
+        assert report.trace["seeds"][0]["weight"] == 0.9
+
+    def test_recent_watches_are_capped(self):
+        report = _report()
+        history = [self._watch(f"W{i}", (i % 27) + 1) for i in range(rows_mod._TRACE_HISTORY_SAMPLE + 15)]
+        spec = _row_spec()
+
+        rows_mod._record_history_trace(
+            report, history, [spec], seeds_for=lambda _spec: [], watched_movies=set(), show_plays={}
+        )
+        assert report.trace["history"]["total"] == len(history)  # full count preserved
+        assert len(report.trace["history"]["recent"]) == rows_mod._TRACE_HISTORY_SAMPLE  # sample bounded
+
+
+class TestRecordGatherTrace:
+    """rows._record_gather: folds a pool's GatherStats.trace under report.trace['gathers'] with a label."""
+
+    def test_labels_the_pool_and_appends_its_trace(self):
+        report = _report()
+        stats = GatherStats()
+        stats.trace["sources"] = [{"source": "tmdb_similar", "status": "ok", "contributed": 5, "detail": ""}]
+
+        rows_mod._record_gather(report, stats, pool_label="movie · Movies")
+        assert len(report.trace["gathers"]) == 1
+        assert report.trace["gathers"][0]["pool"] == "movie · Movies"
+        assert report.trace["gathers"][0]["sources"][0]["source"] == "tmdb_similar"
+
+    def test_empty_trace_records_no_gather(self):
+        report = _report()
+        rows_mod._record_gather(report, GatherStats(), pool_label="movie · Movies")
+        assert "gathers" not in report.trace  # nothing to show -> nothing recorded

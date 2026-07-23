@@ -118,14 +118,22 @@ def _media_filter(items: list, media: str) -> list:
 
 # How many episodes watched = the person is clearly watching this show, not discovering it. The
 # ``show_pct`` fraction alone is unreachable for a long RETURNING series: it keeps adding episodes,
-# so watched/total never hits 90% even after 160 plays (SFLIX/MooHouse Gold Rush 160/226 = 71%, and
-# even the owner's own watched count topped out at 173/226; 2026-07-20). This floor catches those.
+# so watched/total never hits 80% even after 160 plays (SFLIX/MooHouse Gold Rush 160/226 = 71%, and
+# even the owner's own watched count topped out at 173/226; 2026-07-20). A per-show floor catches those.
 #
-# Lowered from 10 to 3 (issue #12): users were getting in-progress shows recommended back because
-# mark-as-watched doesn't appear in history (only the PMS database sees it, and reconcile is manual),
-# so show_plays undercounts. 3 episodes = "you've given this a real try" — past the pilot, unlikely
-# to want it recommended as a discovery.
+# The floor SCALES with series length rather than being flat. 3 episodes = "given it a real try" for a
+# limited series (issue #12: mark-as-watched doesn't appear in play history, only the PMS database sees
+# it and reconcile is manual, so plays undercount — a flat 3 was needed to stop in-progress shows
+# recurring). But 3 of a 200-episode run is 1.5%, still plainly a discovery. ``_ENGAGED_FRACTION`` lifts
+# the floor toward ~15% of length for long shows (200 eps -> 30) while ``_ENGAGED_EPISODES`` holds the
+# 3-episode minimum for short ones.
 _ENGAGED_EPISODES = 3
+_ENGAGED_FRACTION = 0.15
+
+
+def _engaged_floor(total: int) -> float:
+    """Episodes watched at which a show counts as 'engaged, not a fresh pick', scaled to its length."""
+    return max(_ENGAGED_EPISODES, total * _ENGAGED_FRACTION)
 
 
 def _watched_titles(
@@ -137,15 +145,17 @@ def _watched_titles(
     """The (tmdb_id, media_type) titles this person has already watched — the ones a watched-cap counts.
 
     Every watched movie, plus every show they've clearly watched: seen to >= ``show_pct`` of its
-    episodes, OR watched at least ``_ENGAGED_EPISODES`` of them (a season's worth — a returning series
-    that keeps airing never reaches the fraction, but a person 160 episodes deep isn't a fresh pick).
-    For a short series the fraction is the tighter bar, so ``min`` keeps it strict there. A show whose
-    episode count is unknown is counted as watched rather than risk re-surfacing one they've worked through.
+    episodes, OR watched a length-scaled "engaged" floor of them (``_engaged_floor``). A returning
+    series that keeps airing never reaches the fraction, so the floor is what catches a person 160
+    episodes deep; scaling it with length stops 3 episodes of a 200-episode run counting as finished.
+    For a short series the ``show_pct`` fraction is the tighter bar, so ``min`` keeps it strict there.
+    A show whose episode count is unknown is counted as watched rather than risk re-surfacing one they've
+    worked through.
     """
     finished: set[tuple[int, MediaType]] = {(tid, MediaType.MOVIE) for tid in watched_movies}
     for tid, plays in show_plays.items():
         total = episode_counts.get(tid)
-        if not total or plays >= min(total * show_pct, _ENGAGED_EPISODES):
+        if not total or plays >= min(total * show_pct, _engaged_floor(total)):
             finished.add((tid, MediaType.SHOW))
     return finished
 
@@ -342,7 +352,7 @@ def _add_step_tokens(report: UserRunReport, step: str, n: int) -> None:
         report.llm_tokens_by_step[step] = report.llm_tokens_by_step.get(step, 0) + n
 
 
-def _record_gather(report: UserRunReport, stats: candidates_mod.GatherStats) -> None:
+def _record_gather(report: UserRunReport, stats: candidates_mod.GatherStats, *, pool_label: str | None = None) -> None:
     """Fold a candidate-gather's AI cost into the user report: per-source tokens (also into the grand
     total), Exa searches, and Exa cache hits. Called once per pool COMPUTATION — a cache hit re-adds
     nothing to tokens, but IS counted in exa_cache_hits so the run shows what the cache saved.
@@ -350,12 +360,53 @@ def _record_gather(report: UserRunReport, stats: candidates_mod.GatherStats) -> 
     This is the ONLY AI cost now — the AI is used only to FIND titles (web search). Ranking the pool
     and writing each row's reason are done in code (``picker.build_picks``), so there is no per-row
     LLM spend to attribute anymore.
+
+    ``pool_label`` names the pool this gather computed (e.g. "movie · Movies"); its trace is filed
+    under ``report.trace["gathers"]`` so the UI can show what each distinct pool queried. Most users
+    have a single pool shared by every row, so this is usually one entry.
     """
     for source, tokens in stats.tokens_by_source.items():
         report.llm_tokens += tokens
         _add_step_tokens(report, source, tokens)
     report.exa_searches += stats.exa_searches
     report.exa_cache_hits += stats.exa_cache_hits
+    if stats.trace:
+        report.trace.setdefault("gathers", []).append({"pool": pool_label or "", **stats.trace})
+
+
+_TRACE_HISTORY_SAMPLE = 40  # most recent watches to record in the trace (display only — full count is in counts)
+
+
+def _record_history_trace(
+    report: UserRunReport,
+    history: list,
+    specs: list[RowSpec],
+    seeds_for,
+    watched_movies: set[int],
+    show_plays: dict[int, int],
+) -> None:
+    """File the history/seeds/watched stage of the trace: the most recent watches, the seeds derived
+    from them (the widest set any row uses), and a watched summary. Display only."""
+    recent = sorted(history, key=lambda i: i.watched_at, reverse=True)[:_TRACE_HISTORY_SAMPLE]
+    seeds = max((seeds_for(spec) for spec in specs), key=len, default=[])
+    report.trace["history"] = {
+        "total": len(history),
+        "recent": [
+            {
+                "title": i.title,
+                "media": i.media_type.value,
+                "year": i.year,
+                "watched_at": i.watched_at.isoformat() if i.watched_at else None,
+            }
+            for i in recent
+        ],
+        "watched_movies": len(watched_movies),
+        "watched_shows": len(show_plays),
+    }
+    report.trace["seeds"] = [
+        {"title": s.title, "media": s.media_type.value, "tmdb_id": s.tmdb_id, "weight": round(s.weight, 3)}
+        for s in sorted(seeds, key=lambda s: s.weight, reverse=True)
+    ]
 
 
 def _in_audience(user: UserProfile, spec: RowSpec) -> bool:
@@ -529,7 +580,9 @@ def _run_user(
                 logger.warning("{}: row '{}' has no working candidate source ({})", user.username, spec.slug, e)
                 return None
             # Once per pool computation (this cache miss) — the gather's AI cost belongs to this user.
-            _record_gather(user_report, gather_stats)
+            # Label the pool by its media + sources so a multi-pool user's trace stays legible.
+            pool_label = f"{spec.media} · {', '.join(key[0])}"
+            _record_gather(user_report, gather_stats, pool_label=pool_label)
         return pool_cache[key]
 
     if cold:
@@ -566,6 +619,7 @@ def _run_user(
         # The finished-title set, derived once: read by pools_for (0% hard-exclude) and the per-row
         # watched cap (>0). Mutated in place so the pools_for closure sees it.
         watched_titles |= _watched_titles(watched_movies, show_plays, ctx.episode_counts, cfg.watched_show_pct)
+        _record_history_trace(user_report, user.history, specs, seeds_for, watched_movies, show_plays)
         _pipeline._emit(ctx, user.slug, "candidates", {"history": len(user.history), "seeds": user_report.counts.seeds})
         for spec in specs:  # build every row's pool up front so counts and demand see them all
             pools_for(spec)

@@ -20,7 +20,11 @@
 - **Runs** — a live **Activity** log streams each user through history → candidates → ranking →
   delivering as the run happens (seeded from the server so a reload replays it); per-user diffs
   grouped by row then library ("added X to Movies, Y to TV Shows"), each library showing its own
-  ranked picks; errors as first-class rows with copy-for-GitHub buttons, LLM token usage.
+  ranked picks; errors as first-class rows with copy-for-GitHub buttons, LLM token usage. Open a
+  person and click **View trace** to see the full pipeline for them: the watch history and seeds it
+  started from, every candidate source's query and what it returned, the exact web-search queries and
+  the prompt the AI ranked from, and which proposed titles resolved to a real match vs. were dropped
+  as hallucinations.
 - **Logs** — what this instance has been doing, with a level filter (this level _and louder_), a
   text filter, live follow, **Copy**, and **Download .zip** for attaching to a bug report. Tokens,
   API keys and passwords are stripped out server-side before anything reaches the page or the zip,

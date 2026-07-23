@@ -166,19 +166,19 @@ class TestWatchedTitles:
         return _watched_titles(set(movies), dict(plays), dict(episodes), pct)
 
     def test_counts_finished_movies_and_shows_but_not_partial(self):
-        # movie 1 watched; show 10 finished (9 of 10 eps); show 20 partway (2 of 10); show 30 new
-        # season but already at the _ENGAGED_EPISODES floor (5 >= 3), so counts as finished.
-        # Show 40: only 2 eps of a 40-ep show = below floor, still fresh.
+        # movie 1 watched; show 10 finished (9 of 10 eps); show 20 partway (2 of 10); show 30 well
+        # past the scaled floor of a 40-ep show (8 >= 15% of 40 = 6), so counts as finished.
+        # Show 40: only 2 eps of a 40-ep show = below the scaled floor (6), still fresh.
         finished = self._finished(
             movies={1},
-            plays={10: 9, 20: 2, 30: 5, 40: 2},
+            plays={10: 9, 20: 2, 30: 8, 40: 2},
             episodes={10: 10, 20: 10, 30: 40, 40: 40},
         )
         assert (1, MediaType.MOVIE) in finished  # finished movie
-        assert (10, MediaType.SHOW) in finished  # finished show (9 >= min(10*0.9, 3) = 3)
-        assert (20, MediaType.SHOW) not in finished  # partway (2 < 3) -> still recommend
-        assert (30, MediaType.SHOW) in finished  # 5 >= 3 -> counts as watched
-        assert (40, MediaType.SHOW) not in finished  # 2 < 3 -> eligible again
+        assert (10, MediaType.SHOW) in finished  # finished show (9 >= min(10*0.9, floor 3) = 3)
+        assert (20, MediaType.SHOW) not in finished  # partway (2 < floor 3) -> still recommend
+        assert (30, MediaType.SHOW) in finished  # 8 >= floor max(3, 40*0.15=6) = 6 -> counts as watched
+        assert (40, MediaType.SHOW) not in finished  # 2 < floor 6 -> eligible again
 
     def test_unknown_episode_count_is_treated_as_finished(self):
         finished = self._finished(movies=set(), plays={10: 3}, episodes={})

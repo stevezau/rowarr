@@ -116,7 +116,7 @@ users                 id · plex_account_id · username · slug · avatar_url ·
                       · enabled BOOL · cold_start BOOL · label ("shortlist_<slug>") · prefs JSON
                       (row_name_tpl, row_size, excluded_genres, max_rating, paused)
 runs                  id · trigger(schedule|manual|wizard) · started_at · finished_at · status · dry_run BOOL · stats JSON
-run_users             run_id FK · user_id FK · status · error · duration_ms · llm_tokens · diff JSON (added/removed/kept)
+run_users             run_id FK · user_id FK · status · error · duration_ms · llm_tokens · diff JSON (added/removed/kept) · trace JSON (per-user pipeline trace: seeds, per-source queries/returns, web-search+RAG prompts; {} when none)
 picks                 id · run_id FK · user_id FK · tmdb_id · rating_key · rank · reason · seed_tmdb_id · seed_title
                       · created_at · watched_at NULL          ← watched_at backfilled nightly = hit-rate
 restriction_snapshots id · user_id FK · taken_at · reason(initial|sync|uninstall_restore) · filters_before JSON · filters_after JSON

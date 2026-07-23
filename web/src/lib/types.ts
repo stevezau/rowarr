@@ -336,11 +336,85 @@ export interface RunUserResult {
   picks: Pick[];
   /** Per-(row, library) breakdown; empty on legacy runs (render the merged diff + picks instead). */
   breakdown: RunLibraryBreakdown[];
+  /** Whether a full pipeline trace was recorded for this user (fetch it from the trace endpoint). */
+  has_trace?: boolean;
 }
 
 /** GET /api/runs/{id} — the run plus its per-user results. */
 export interface RunDetail extends Run {
   users: RunUserResult[];
+}
+
+/** One recent watch shown in a trace. */
+export interface TraceWatch {
+  title: string;
+  media: string;
+  year: number | null;
+  watched_at: string | null;
+}
+
+/** A seed derived from history — a history title used to find candidates. */
+export interface TraceSeed {
+  title: string;
+  media: string;
+  tmdb_id: number;
+  weight: number;
+}
+
+/** One candidate source's contribution in a gather. */
+export interface TraceSource {
+  source: string;
+  status: "ok" | "failed";
+  contributed: number;
+  detail: string;
+}
+
+/** One Exa search: the query sent for a seed and the titles it returned. */
+export interface TraceWebSearch {
+  seed: string;
+  query: string;
+  cached: boolean;
+  returned: string[];
+}
+
+/** The web-search (llm_web) detail of a gather: what was searched and what the LLM proposed. */
+export interface TraceWeb {
+  mode: string;
+  searches?: TraceWebSearch[];
+  rag_system?: string;
+  rag_user?: string;
+  proposed?: string[];
+  native_proposed?: string[];
+  resolved?: string[];
+  unresolved?: string[];
+}
+
+/** One candidate pool a user's rows gathered (usually one, shared across rows). */
+export interface TraceGather {
+  pool: string;
+  sources?: TraceSource[];
+  discover_genres?: Record<string, string[]>;
+  web?: TraceWeb;
+}
+
+/** The full pipeline trace for one user in one run (GET /api/runs/{id}/users/{uid}/trace). */
+export interface RunUserTrace {
+  history?: {
+    total: number;
+    recent: TraceWatch[];
+    watched_movies: number;
+    watched_shows: number;
+  };
+  seeds?: TraceSeed[];
+  gathers?: TraceGather[];
+}
+
+/** GET /api/runs/{id}/users/{uid}/trace response. */
+export interface RunUserTraceResponse {
+  username: string;
+  display_name?: string;
+  status: string;
+  trace: RunUserTrace;
 }
 
 /** POST /api/runs body. */

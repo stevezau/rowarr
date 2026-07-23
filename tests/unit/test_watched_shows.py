@@ -2,7 +2,7 @@
 not be recommended back to a user (issue #12: in-progress shows were being recommended)."""
 
 from shortlist.engine.models import MediaType
-from shortlist.engine.rows import _watched_titles
+from shortlist.engine.rows import _engaged_floor, _watched_titles
 
 
 class TestWatchedShowFilter:
@@ -10,37 +10,64 @@ class TestWatchedShowFilter:
     on episode-play count vs. total episodes. A show is finished when the user has watched either:
 
     - >= ``show_pct`` of its episodes (default 0.8 = 80%), OR
-    - >= ``_ENGAGED_EPISODES`` episodes (default 3, lowered from 10 for issue #12)
+    - >= a length-scaled "engaged" floor (``_engaged_floor``): ``max(3, 15% of episodes)``.
 
-    The bar is ``min(total * show_pct, _ENGAGED_EPISODES)``, so for a short show the percentage is
-    tighter, and for a long show the episode count is tighter."""
+    The bar is ``min(total * show_pct, _engaged_floor(total))``, so for a short show the percentage is
+    tighter, and for a long show the scaled floor is tighter — but that floor is no longer a flat 3:
+    3 episodes of a 200-episode run is still a discovery, so the floor grows with length."""
 
-    def test_a_show_with_3_episodes_watched_is_finished(self):
-        """3 episodes = past the pilot, given it a real try → finished. Catches mark-as-watched
-        undercounting (issue #12): if history misses marked episodes, show_plays undercounts, and only
-        a low bar keeps in-progress shows from being recommended back."""
+    def test_a_show_with_3_episodes_watched_of_a_short_series_is_finished(self):
+        """3 episodes of a 6-episode limited series = past the pilot, given it a real try → finished.
+        For a short show the engaged floor is still 3 (15% of 6 = 0.9, below the minimum), which catches
+        mark-as-watched undercounting (issue #12): if history misses marked episodes, plays undercount,
+        and only a low floor keeps in-progress limited series from being recommended back."""
         watched_movies = set()
         show_plays = {100: 3}  # tmdb_id 100 → 3 episodes watched
-        episode_counts = {100: 60}  # show has 60 episodes total
+        episode_counts = {100: 6}  # a 6-episode limited series
         show_pct = 0.8
 
         finished = _watched_titles(watched_movies, show_plays, episode_counts, show_pct)
 
-        assert (100, MediaType.SHOW) in finished, "3 episodes watched (>= _ENGAGED_EPISODES=3) → finished"
+        assert (100, MediaType.SHOW) in finished, "3 of 6 (>= floor 3) → finished"
 
-    def test_a_show_with_2_episodes_watched_is_not_finished(self):
-        """2 episodes = still sampling, not committed → not finished yet."""
+    def test_a_few_episodes_of_a_long_series_is_not_finished(self):
+        """The fix: 3 episodes of a 60-episode show is 5% — plainly still a discovery, NOT finished.
+        The engaged floor scales to 15% of length (9 here), so a light sample no longer suppresses a
+        long show the way the old flat-3 floor did."""
         watched_movies = set()
-        show_plays = {100: 2}
+        show_plays = {100: 3}
+        episode_counts = {100: 60}  # 3 of 60 = 5%
+        show_pct = 0.8
+
+        finished = _watched_titles(watched_movies, show_plays, episode_counts, show_pct)
+
+        # bar = min(60*0.8=48, floor=max(3, 60*0.15=9)=9) = 9; 3 < 9 → still a fresh pick
+        assert (100, MediaType.SHOW) not in finished, "3 of 60 (< floor 9) → not finished"
+
+    def test_a_long_series_watched_to_its_scaled_floor_is_finished(self):
+        """Once past ~15% of a long run, the person is engaged, not discovering → finished."""
+        watched_movies = set()
+        show_plays = {100: 9}  # exactly the 15%-of-60 floor
         episode_counts = {100: 60}
         show_pct = 0.8
 
         finished = _watched_titles(watched_movies, show_plays, episode_counts, show_pct)
 
-        assert (100, MediaType.SHOW) not in finished, "2 episodes < _ENGAGED_EPISODES=3 → not finished"
+        assert (100, MediaType.SHOW) in finished, "9 of 60 (>= floor 9) → finished"
+
+    def test_two_episodes_of_a_short_series_is_not_finished(self):
+        """2 episodes = still sampling, below the floor-of-3 → not finished yet."""
+        watched_movies = set()
+        show_plays = {100: 2}
+        episode_counts = {100: 6}
+        show_pct = 0.8
+
+        finished = _watched_titles(watched_movies, show_plays, episode_counts, show_pct)
+
+        assert (100, MediaType.SHOW) not in finished, "2 < floor 3 → not finished"
 
     def test_a_short_show_at_80_percent_is_finished(self):
-        """For a 10-episode show, the percentage bar (8 episodes) is tighter than the count bar (3)."""
+        """For a 10-episode show, the percentage bar (8) is tighter than the scaled floor (max(3,1.5)=3)."""
         watched_movies = set()
         show_plays = {200: 8}  # 8 of 10 = 80%
         episode_counts = {200: 10}
@@ -50,8 +77,8 @@ class TestWatchedShowFilter:
 
         assert (200, MediaType.SHOW) in finished, "8/10 = 80% → finished"
 
-    def test_a_short_show_at_70_percent_is_not_finished(self):
-        """7 of 10 = 70%, which is < 80% and also >= 3 episodes → finished by the count bar."""
+    def test_a_short_show_at_70_percent_is_finished_by_the_floor(self):
+        """7 of 10 = 70% (< 80%) but well past the floor of 3 → finished by the floor bar."""
         watched_movies = set()
         show_plays = {200: 7}
         episode_counts = {200: 10}
@@ -59,11 +86,12 @@ class TestWatchedShowFilter:
 
         finished = _watched_titles(watched_movies, show_plays, episode_counts, show_pct)
 
-        # 7 >= min(10*0.8, 3) = min(8, 3) = 3 → finished
-        assert (200, MediaType.SHOW) in finished, "7 episodes >= 3 → finished by count bar"
+        # 7 >= min(10*0.8=8, floor=max(3, 1.5)=3) = 3 → finished
+        assert (200, MediaType.SHOW) in finished, "7 episodes >= floor 3 → finished"
 
     def test_a_long_returning_series_never_hits_80_percent(self):
-        """Gold Rush on SFLIX: 160 plays of 226 episodes = 71%, never hits 80%. The count bar (3) catches it."""
+        """Gold Rush on SFLIX: 160 plays of 226 episodes = 71%, never hits 80%. The scaled floor
+        (15% of 226 ≈ 34) catches it — and 160 is well past that."""
         watched_movies = set()
         show_plays = {300: 160}
         episode_counts = {300: 226}
@@ -71,8 +99,8 @@ class TestWatchedShowFilter:
 
         finished = _watched_titles(watched_movies, show_plays, episode_counts, show_pct)
 
-        # 160 >= min(226*0.8, 3) = min(180.8, 3) = 3 → finished
-        assert (300, MediaType.SHOW) in finished, "160 plays >> 3 → finished by count bar"
+        # 160 >= min(226*0.8=180.8, floor=max(3, 226*0.15=33.9)=33.9) = 33.9 → finished
+        assert (300, MediaType.SHOW) in finished, "160 plays >> floor 34 → finished by the floor bar"
 
     def test_an_unindexed_show_is_treated_as_finished(self):
         """If a show has plays but no episode_count (not in the library index), treat it as finished
@@ -98,3 +126,21 @@ class TestWatchedShowFilter:
 
         assert (500, MediaType.MOVIE) in finished
         assert (600, MediaType.MOVIE) in finished
+
+
+class TestEngagedFloor:
+    """``_engaged_floor`` scales the "watched enough to not be a discovery" bar with series length."""
+
+    def test_short_series_uses_the_minimum(self):
+        """Below the crossover (~20 episodes), the flat 3-episode minimum holds."""
+        assert _engaged_floor(6) == 3  # 15% of 6 = 0.9, floored to 3
+        assert _engaged_floor(10) == 3  # 15% of 10 = 1.5, floored to 3
+
+    def test_long_series_scales_up(self):
+        """Past the crossover the floor grows to ~15% of length, so a light sample stays a discovery."""
+        assert _engaged_floor(60) == 9.0  # 15% of 60
+        assert _engaged_floor(200) == 30.0  # 15% of 200
+
+    def test_crossover_is_around_twenty_episodes(self):
+        """15% of 20 = 3, exactly the minimum — the two bars meet here."""
+        assert _engaged_floor(20) == 3.0

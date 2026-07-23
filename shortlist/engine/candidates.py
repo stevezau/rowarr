@@ -61,6 +61,12 @@ class GatherStats:
     tokens_by_source: dict[str, int] = field(default_factory=dict)
     exa_searches: int = 0
     exa_cache_hits: int = 0
+    # A diagnostic record of WHAT each source queried and returned this gather — the raw material of
+    # the per-user run trace (``UserRunReport.trace``). Always populated (it's a few bounded lists of
+    # strings, negligible next to the network calls a gather makes) and purely for display; the engine
+    # never reads it back. Shape: {"sources": [{source, status, contributed, sample, detail}],
+    # "web": {mode, searches, rag_system, rag_user, proposed, resolved}}.
+    trace: dict = field(default_factory=dict)
 
     def add_tokens(self, source: str, n: int) -> None:
         """Add a source's token spend (a no-op for 0, e.g. NullCurator or a skipped call)."""
@@ -110,15 +116,20 @@ def web_recommendations(
     read ``last_tokens`` right after each LLM call, before the next one overwrites it.
     """
     native = getattr(curator, "supports_native_web_search", False)
+    web_trace: dict = {"mode": mode}
+    stats.trace["web"] = web_trace
     if mode == "native":
         if not native:
             return []
         recs = curator.recommend_web(profile, seeds, k)
         stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
+        web_trace["proposed"] = [_rec_label(r) for r in recs]
         return recs
     if mode == "exa":
         return (
-            _web_via_search(curator, search, profile, seeds, k, stats, cache=cache, recent_count=recent_count)
+            _web_via_search(
+                curator, search, profile, seeds, k, stats, web_trace, cache=cache, recent_count=recent_count
+            )
             if search is not None
             else []
         )
@@ -127,9 +138,19 @@ def web_recommendations(
     if native:
         recs += curator.recommend_web(profile, seeds, k)
         stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
+        web_trace["native_proposed"] = [_rec_label(r) for r in recs]
     if search is not None:
-        recs += _web_via_search(curator, search, profile, seeds, k, stats, cache=cache, recent_count=recent_count)
+        recs += _web_via_search(
+            curator, search, profile, seeds, k, stats, web_trace, cache=cache, recent_count=recent_count
+        )
     return recs
+
+
+def _rec_label(rec: dict) -> str:
+    """A web recommendation as a display string: ``"Title (2024) [show]"`` — for the run trace."""
+    year = rec.get("year")
+    media = rec.get("media") or "movie"
+    return f"{rec.get('title', '?')}{f' ({year})' if year else ''} [{media}]"
 
 
 def _web_via_search(
@@ -139,6 +160,7 @@ def _web_via_search(
     seeds: list[Seed],
     k: int,
     stats: GatherStats,
+    web_trace: dict | None = None,
     *,
     cache: Cache | None = None,
     recent_count: int = _WEB_SEARCH_MAX_TITLES,
@@ -146,21 +168,30 @@ def _web_via_search(
     """External-search path: one CACHED web search per recent title, then the curator picks from the
     union. Caching by (media, tmdb_id) means a title many users watched is searched once server-wide —
     Exa bills per search, so this is what keeps the per-title approach affordable across a big roster.
+
+    ``web_trace`` (optional) collects a display record of the queries sent, whether each was cached,
+    the RAG prompt handed to the curator, and the titles it proposed — the raw material of the run
+    trace. Purely diagnostic; nothing here reads it back.
     """
     cache = cache or NullCache()
+    trace_queries: list[dict] = []
     results: list[SearchResult] = []
     seen_urls: set[str] = set()
     for seed in seeds[: max(1, recent_count)]:
         key = f"exasearch:{seed.media_type.value}:{seed.tmdb_id}"
+        query = build_web_query_for_title(seed.title)
         cached = cache.get(key)
         if cached is not None:
             stats.exa_cache_hits += 1  # served from the shared cache — not billed (see GatherStats)
             items = json.loads(cached)
         else:
             stats.exa_searches += 1  # a real (uncached) search — count the billable request
-            hits = search.search(build_web_query_for_title(seed.title), num_results=_WEB_SEARCH_PER_TITLE)
+            hits = search.search(query, num_results=_WEB_SEARCH_PER_TITLE)
             items = [{"title": r.title, "url": r.url, "text": r.text} for r in hits]
             cache.set(key, json.dumps(items), WEB_SEARCH_CACHE_TTL_S)
+        trace_queries.append(
+            {"seed": seed.title, "query": query, "cached": cached is not None, "returned": [i["title"] for i in items]}
+        )
         for it in items:
             # Dedup by url, but only when there IS one — Exa maps a missing url to "", and deduping
             # on "" would collapse every url-less snippet to a single result, dropping usable context.
@@ -169,11 +200,17 @@ def _web_via_search(
             if it["url"]:
                 seen_urls.add(it["url"])
             results.append(SearchResult(title=it["title"], url=it["url"], text=it["text"]))
+    if web_trace is not None:
+        web_trace["searches"] = trace_queries
     if not results:
         return []
     system, user = build_web_rag_prompt(profile, results[:_WEB_SEARCH_RAG_CAP], k)
     titles = parse_web_titles(curator.complete(system, user), k)
     stats.add_tokens("llm_web", getattr(curator, "last_tokens", 0))
+    if web_trace is not None:
+        web_trace["rag_system"] = system
+        web_trace["rag_user"] = user
+        web_trace["proposed"] = [_rec_label(t) for t in titles]
     return titles
 
 
@@ -302,10 +339,15 @@ def gather_candidates(
     if "tmdb_discover" in enabled:
         attempted.add("tmdb_discover")
         try:
+            discover_genres: dict[str, list[str]] = {}
             for media_type in {s.media_type for s in seeds}:
                 # No seed provenance — this is "in genres you like", not "because you watched X".
-                for item in tmdb.discover(media_type, _dominant_genre_ids(tmdb, seeds, media_type)):
+                genre_ids = _dominant_genre_ids(tmdb, seeds, media_type)
+                gmap = genres_for(media_type)
+                discover_genres[media_type.value] = [gmap[g] for g in genre_ids if g in gmap]
+                for item in tmdb.discover(media_type, genre_ids):
                     add(item, media_type, "tmdb_discover")
+            stats.trace["discover_genres"] = discover_genres  # the top genres discover widened into, per type
         except Exception as e:
             # Discover is a supplementary "widen" source: a TMDB hiccup here must never discard the
             # tmdb_similar pool already gathered for this user. Degrade to "no widening", not a failure.
@@ -340,6 +382,8 @@ def gather_candidates(
             # Web search (the provider's own tool, or an external search provider like Exa) proposes
             # titles to watch next; each is resolved to a real TMDB id and (later) library-verified,
             # so a hallucinated title simply resolves to nothing rather than reaching a row.
+            resolved: list[str] = []
+            unresolved: list[str] = []
             for rec in web_recommendations(
                 curator,
                 search,
@@ -355,6 +399,12 @@ def gather_candidates(
                 found = tmdb.search(rec["title"], media_type, year=rec.get("year"))
                 if found:
                     add(found, media_type, "llm_web")
+                    resolved.append(_rec_label(rec))
+                else:
+                    unresolved.append(_rec_label(rec))  # proposed but no TMDB match — a likely hallucination
+            web = stats.trace.setdefault("web", {})
+            web["resolved"] = resolved
+            web["unresolved"] = unresolved
         except Exception as e:
             failures["llm_web"] = f"{type(e).__name__}: {e}"
             logger.warning("llm_web source failed ({}); continuing with the other sources", type(e).__name__)
@@ -373,6 +423,17 @@ def gather_candidates(
     by_source = Counter(source for cand in pool.values() for source in cand.sources)
     breakdown = ", ".join(f"{source} {count}" for source, count in by_source.most_common())
     logger.debug("candidates · {} → {} unique from {} seeds", breakdown or "none", len(pool), len(seeds))
+    # A per-source line for the run trace: every source we tried, whether it worked, and how many
+    # pooled candidates it contributed (a title several sources found counts under each).
+    stats.trace["sources"] = [
+        {
+            "source": source,
+            "status": "failed" if source in failures else "ok",
+            "contributed": by_source.get(source, 0),
+            "detail": failures.get(source, ""),
+        }
+        for source in sorted(attempted)
+    ]
     return list(pool.values())
 
 

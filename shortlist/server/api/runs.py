@@ -152,9 +152,30 @@ async def get_run(run_id: int, request: Request) -> dict:
                     ],
                     # Per-(row, library) breakdown; [] on legacy runs -> UI falls back to diff + picks.
                     "breakdown": _with_provenance(run_user.breakdown or [], picks),
+                    # Whether a full pipeline trace was recorded for this user (fetched on demand from
+                    # the trace endpoint — the blob is large, so it stays out of the detail payload).
+                    "has_trace": bool(run_user.trace),
                 }
             )
         return {**_run_summary(run), "users": users}
+
+
+@router.get("/{run_id}/users/{user_id}/trace")
+async def get_run_user_trace(run_id: int, user_id: int, request: Request) -> dict:
+    """The full pipeline trace for one user in one run: seeds derived, each candidate source's
+    queries and returns, the web-search / RAG prompts, and the titles proposed. Fetched on demand
+    (it's a large blob) so the run-detail page stays light. Empty ``{}`` on a run predating the
+    feature or a skipped/cold user — the UI reads that as "no trace for this run", not an error."""
+    with request.app.state.sessions() as session:
+        run_user = session.get(RunUser, (run_id, user_id))
+        if run_user is None:
+            raise HTTPException(status_code=404, detail="no such user in this run")
+        return {
+            "username": run_user.user.username,
+            "display_name": run_user.user.display_name,
+            "status": run_user.status,
+            "trace": run_user.trace or {},
+        }
 
 
 @router.get("/{run_id}/log")

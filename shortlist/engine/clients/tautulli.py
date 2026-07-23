@@ -13,7 +13,9 @@ class TautulliClient:
         self._api_key = api_key
         self._timeout = timeout
 
-    def _cmd(self, cmd: str, **params) -> dict:
+    def _cmd(self, cmd: str, **params) -> dict | list:
+        # Returns the response `data`, whose shape is per-command: get_users → list of user dicts,
+        # get_history → {data: [...], recordsFiltered: ...}. Callers must know their command's shape.
         r = http_retry.get(
             f"{self._base_url}/api/v2",
             params={"apikey": self._api_key, "cmd": cmd, **params},
@@ -39,7 +41,11 @@ class TautulliClient:
         better default row title than the Plex username — but only a DEFAULT: Shortlist's own
         nickname always wins.
         """
-        rows = self._cmd("get_users").get("data", [])
+        # get_users returns the user list AS the response `data` — unlike get_history, whose `data`
+        # is a {data: [...], recordsFiltered: ...} envelope. `_cmd` already unwraps `data`, so this
+        # is the list; calling `.get("data")` on it raised AttributeError, which sync_users swallowed
+        # (0 friendly names for everyone — SFLIX shipped that way).
+        rows = self._cmd("get_users")
         names: dict[int, str] = {}
         for row in rows:
             try:

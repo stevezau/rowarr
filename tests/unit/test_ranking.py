@@ -105,16 +105,18 @@ class TestWatchedTitles:
 
     def test_counts_finished_movies_and_shows_but_not_partial(self):
         # movie 1 watched; show 10 finished (9 of 10 eps); show 20 partway (2 of 10); show 30 new
-        # season so only 5 of 40 eps watched.
+        # season but already at the _ENGAGED_EPISODES floor (5 >= 3), so counts as finished.
+        # Show 40: only 2 eps of a 40-ep show = below floor, still fresh.
         finished = self._finished(
             movies={1},
-            plays={10: 9, 20: 2, 30: 5},
-            episodes={10: 10, 20: 10, 30: 40},
+            plays={10: 9, 20: 2, 30: 5, 40: 2},
+            episodes={10: 10, 20: 10, 30: 40, 40: 40},
         )
         assert (1, MediaType.MOVIE) in finished  # finished movie
-        assert (10, MediaType.SHOW) in finished  # finished show
-        assert (20, MediaType.SHOW) not in finished  # partway -> still recommend
-        assert (30, MediaType.SHOW) not in finished  # new season -> eligible again
+        assert (10, MediaType.SHOW) in finished  # finished show (9 >= min(10*0.9, 3) = 3)
+        assert (20, MediaType.SHOW) not in finished  # partway (2 < 3) -> still recommend
+        assert (30, MediaType.SHOW) in finished  # 5 >= 3 -> counts as watched
+        assert (40, MediaType.SHOW) not in finished  # 2 < 3 -> eligible again
 
     def test_unknown_episode_count_is_treated_as_finished(self):
         finished = self._finished(movies=set(), plays={10: 3}, episodes={})
@@ -128,7 +130,8 @@ class TestWatchedTitles:
 
     def test_a_lightly_sampled_show_is_still_a_fresh_pick(self):
         # A handful of episodes of a big show: below both the fraction AND the floor -> recommendable.
-        finished = self._finished(movies=set(), plays={40: 4}, episodes={40: 226})
+        # With _ENGAGED_EPISODES=3, need <3 plays to stay fresh: 2 of 226 is well below both bars.
+        finished = self._finished(movies=set(), plays={40: 2}, episodes={40: 226})
         assert (40, MediaType.SHOW) not in finished
 
     def test_a_near_complete_short_show_counts_at_the_lowered_bar(self):

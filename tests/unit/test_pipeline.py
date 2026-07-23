@@ -634,22 +634,6 @@ class TestPerRowOverrides:
         assert offered, "the shows-only row was offered no candidates at all"
         assert all(i >= 5000 for i in offered), f"a shows-only row was offered movies: {offered}"
 
-    def test_the_ai_library_catalog_is_built_when_only_a_ROW_asks_for_it(self, ctx: EngineContext, mock_plextv):
-        """A row overriding its sources to llm_library found an empty catalog — it was only built when
-        the GLOBAL setting listed the source — so it produced nothing, forever, reporting ok."""
-        ctx.config.candidate_sources = ["tmdb_similar"]  # global set does NOT include llm_library
-        ctx.config.rows = [RowSpec(slug="gems", name_template="Gems", size=5, candidate_sources=["llm_library"])]
-        ctx.plex.build_library_catalog.return_value = [
-            {"tmdb_id": 10, "rating_key": 1010, "title": "Owned Ten", "year": 2010, "genres": []},
-        ]
-        sarah = make_profile("sarah", account_id=100)
-        mock_plextv.users = [plextv_user(100, "sarah")]
-        ctx.curator.curate.side_effect = curated_picks
-
-        pipeline_mod.run(ctx, [sarah])
-
-        assert ctx.plex.build_library_catalog.called, "the AI-from-library catalog was never built"
-
     def test_one_rows_dead_source_does_not_kill_the_users_other_rows(self, ctx: EngineContext, mock_plextv):
         """A row pinned to a single source (Trakt-only) whose source is down must fail alone. It used
         to raise out of the whole user, so their healthy rows delivered nothing either."""
@@ -899,23 +883,6 @@ class TestPerRowOverrides:
         shared_report = next(u for u in report.users if u.slug == "shared_popular")
         assert shared_report.breakdown, "the shared row records a breakdown"
         assert all(e["row_slug"] == "popular" for e in shared_report.breakdown)
-
-    def test_a_shared_row_accounts_its_llm_tokens(self, ctx: EngineContext, mock_plextv):
-        """Shared-row LLM spend used to vanish — only the per-person path accumulated tokens. Each
-        curated library section adds its curator's token count to the shared report."""
-        ctx.config.rows = [RowSpec(slug="popular", name_template="Popular", size=5, shared=True, min_watchers=2)]
-        sarah = make_profile("sarah", account_id=100)
-        mike = make_profile("mike", account_id=200)
-        mock_plextv.users = [plextv_user(100, "sarah"), plextv_user(200, "mike")]
-        ctx.history_source.fetch.return_value = [make_watched("Fargo", days_ago=1, rating_key=999)]
-        ctx.curator.curate.side_effect = curated_picks
-        ctx.curator.last_tokens = 37  # each curated section reports this
-
-        report = pipeline_mod.run(ctx, [sarah, mike])
-
-        shared_report = next(u for u in report.users if u.slug == "shared_popular")
-        sections = len({e["library_key"] for e in shared_report.breakdown})
-        assert shared_report.llm_tokens == 37 * sections, "shared-row tokens sum across curated libraries"
 
     @_LLM_CURATE_GATE_WIP
     def test_per_person_tokens_are_split_by_step_and_stamped_per_row(self, ctx: EngineContext, mock_plextv):

@@ -734,7 +734,8 @@ class RunService:
         run.status = status or ("ok" if report.ok else "error")
         run.finished_at = datetime.now(UTC)
         # Run-total AI cost, summed from every user (real + shared). by_step merges each user's
-        # {curate/llm_web/llm_library: n} so the run header can show WHERE the tokens went.
+        # {llm_web: n} so the run header can show WHERE the tokens went. (Since the curate step was
+        # removed, llm_web — web-search title discovery — is the only paid AI path left.)
         tokens_by_step: dict[str, int] = {}
         for user_report in report.users:
             for step, n in user_report.llm_tokens_by_step.items():

@@ -359,18 +359,6 @@ class TestUsersApi:
         assert set(removed_labels) == {"shortlist_sarah", "shortlist_mike"}
         assert not any(u["enabled"] for u in client.get("/api/users").json())
 
-    def test_patch_prompt_prefs_persist(self, client: TestClient):
-        users = client.get("/api/users").json()
-        target = next(u for u in users if u["username"] == "sarah")
-        r = client.patch(
-            f"/api/users/{target['id']}",
-            json={"prefs": {"prompt_tone": "cinephile", "prompt_guidance": "she loves slow burns"}},
-        )
-        assert r.status_code == 200
-        prefs = r.json()["prefs"]
-        assert prefs["prompt_tone"] == "cinephile"
-        assert prefs["prompt_guidance"] == "she loves slow burns"
-
 
 class TestUserSync:
     """`POST /users/sync` — the roster from plex.tv, PLUS the owner, who is never in that list.
@@ -580,15 +568,6 @@ class TestUserRowsApi:
         row = client.get(f"/api/users/{uid}/rows").json()[0]
         assert row["muted"] is True
         assert row["override"]["row_size"] == 20
-
-    def test_override_curation_recipe_persists_and_clears(self, client: TestClient):
-        uid = self._sarah_id(client)
-        cid = client.get(f"/api/users/{uid}/rows").json()[0]["collection_id"]
-        client.put(f"/api/users/{uid}/rows/{cid}", json={"prompt_tone": "playful"})
-        assert client.get(f"/api/users/{uid}/rows").json()[0]["override"]["prompt_tone"] == "playful"
-        # An all-blank recipe clears it back to inheriting the row's own.
-        client.put(f"/api/users/{uid}/rows/{cid}", json={"prompt_tone": "", "prompt_guidance": ""})
-        assert client.get(f"/api/users/{uid}/rows").json()[0]["override"]["prompt_tone"] == ""
 
     def test_override_on_unknown_user_or_row_404(self, client: TestClient):
         assert client.put("/api/users/9999/rows/1", json={"muted": True}).status_code == 404
@@ -1149,14 +1128,6 @@ class TestSettingsValidation:
         assert client.put("/api/settings", json={"values": {"curator.provider": "bogus"}}).status_code == 422
         assert client.put("/api/settings", json={"values": {"curator.provider": "none"}}).status_code == 200
 
-    def test_prompt_default_returns_the_editable_builtin_template(self, client: TestClient):
-        personal = client.get("/api/settings/prompt-default").json()["template"]
-        shared = client.get("/api/settings/prompt-default?shared=true").json()["template"]
-        # $-style variables (matching the custom-template renderer), scoped per row kind.
-        assert "$k" in personal and "personal" in personal
-        assert "$k" in shared and "everyone" in shared
-        assert personal != shared
-
     def test_curator_models_is_empty_for_the_built_in_picker(self, client: TestClient):
         client.put("/api/settings", json={"values": {"curator.provider": "none"}})
         assert client.post("/api/settings/curator/models").json() == {"provider": "none", "models": []}
@@ -1328,15 +1299,6 @@ class TestSettingsApi:
 
             assert SettingsStore(session, client.app.state.secrets).get("plex.token") == "real-token"
 
-    def test_prompt_settings_round_trip(self, client: TestClient):
-        r = client.put(
-            "/api/settings",
-            json={"values": {"curator.prompt_tone": "warm", "curator.prompt_guidance": "house style"}},
-        )
-        assert r.status_code == 200
-        assert r.json()["curator.prompt_tone"] == "warm"
-        assert r.json()["curator.prompt_guidance"] == "house style"
-
     def test_exa_key_is_encrypted_at_rest_and_redacted_in_the_api(self, client: TestClient):
         # The Exa web-search key is a secret: stored encrypted, shown as the redacted sentinel, and
         # a round-tripped sentinel must not overwrite the real value (rule 9).
@@ -1372,16 +1334,6 @@ class TestSettingsApi:
         assert "super-secret-abc" not in body["message"]
         assert "X-Plex-Token=REDACTED" in body["message"]
 
-    def test_prompt_preview_reflects_the_recipe(self, client: TestClient):
-        r = client.post("/api/settings/prompt-preview", json={"tone": "cinephile", "guidance": "Prefer noir."})
-        assert r.status_code == 200
-        system = r.json()["system"]
-        assert "Prefer noir." in system
-        assert "film buff" in system  # cinephile tone clause
-        assert "Use only tmdb_id values from the candidate list" in system  # contract always present
-        shared = client.post("/api/settings/prompt-preview", json={"shared": True}).json()
-        assert "popular on this server" in shared["system"].lower()
-
 
 class _FakeStore:
     """Minimal SettingsStore stand-in: .get(key) returns the value or None."""
@@ -1391,42 +1343,6 @@ class _FakeStore:
 
     def get(self, key: str):
         return self._values.get(key)
-
-
-class TestResolvePrompt:
-    """The global-vs-per-person recipe merge (ContextBuilder._resolve_prompt), cell by cell."""
-
-    def _resolve(self, glob: dict, prefs: dict):
-        from shortlist.server.services.context_builder import ContextBuilder
-
-        return ContextBuilder._resolve_prompt(_FakeStore(glob), prefs)
-
-    def test_defaults_when_nothing_is_set(self):
-        cfg = self._resolve({}, {})
-        assert (cfg.tone, cfg.guidance, cfg.template) == ("balanced", "", "")
-
-    def test_user_tone_overrides_global(self):
-        cfg = self._resolve({"curator.prompt_tone": "warm"}, {"prompt_tone": "cinephile"})
-        assert cfg.tone == "cinephile"
-
-    def test_empty_user_tone_inherits_global(self):
-        cfg = self._resolve({"curator.prompt_tone": "warm"}, {"prompt_tone": ""})
-        assert cfg.tone == "warm"
-
-    def test_guidance_is_additive_global_then_user(self):
-        cfg = self._resolve(
-            {"curator.prompt_guidance": "house rule"},
-            {"prompt_guidance": "note for this person"},
-        )
-        assert cfg.guidance == "house rule\nnote for this person"
-
-    def test_guidance_skips_blank_parts(self):
-        assert self._resolve({"curator.prompt_guidance": "only global"}, {}).guidance == "only global"
-        assert self._resolve({}, {"prompt_guidance": "only user"}).guidance == "only user"
-
-    def test_template_user_wins_else_global(self):
-        assert self._resolve({"curator.prompt_template": "G"}, {}).template == "G"
-        assert self._resolve({"curator.prompt_template": "G"}, {"prompt_template": "U"}).template == "U"
 
 
 class TestCollectionsSeed:
@@ -1729,36 +1645,6 @@ class TestCollectionsSeed:
         # The test config has no OpenAI/Google curator, so generation is not available.
         assert status.json()["capable"] is False
 
-    def test_default_row_prompt_by_build(self, client: TestClient):
-        """The default row's style comes from global Settings — but HOW it gets there differs by
-        build, and the shared cell used to fall through to a bare default (ignoring Settings).
-
-        per_person: spec.prompt stays None so each user's own resolved prompt (global + their
-        overrides) wins. shared: there is no user profile to inherit from, so the global recipe
-        must be passed explicitly.
-        """
-        from shortlist.server.services.context_builder import ContextBuilder
-        from shortlist.server.services.sse import EventBus
-        from shortlist.server.settings_store import SettingsStore
-
-        client.put("/api/settings", json={"values": {"curator.prompt_tone": "cinephile"}})
-        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
-
-        def picked_spec():
-            with client.app.state.sessions() as session:
-                specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
-            return next(spec for spec in specs if spec.slug == "picked")
-
-        assert picked_spec().prompt is None  # per_person: the per-user prompt wins downstream
-
-        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
-        client.patch(f"/api/collections/{picked['id']}", json={"name": picked["name"], "build": "shared"})
-
-        prompt = picked_spec().prompt
-        assert prompt is not None, "a shared default row must carry the global recipe, not a bare default"
-        assert prompt.tone == "cinephile"
-        assert prompt.shared is True
-
 
 class TestCollectionsApi:
     def test_list_starts_with_the_seeded_default(self, client: TestClient):
@@ -1768,17 +1654,16 @@ class TestCollectionsApi:
     def test_create_update_delete_per_person(self, client: TestClient):
         created = client.post(
             "/api/collections",
-            json={"name": "Hidden Gems", "size": 10, "prompt": {"tone": "cinephile"}},
+            json={"name": "Hidden Gems", "size": 10},
         )
         assert created.status_code == 201
         cid = created.json()["id"]
         assert created.json()["slug"] == "hidden_gems"
         assert created.json()["build"] == "per_person"
-        assert created.json()["prompt"]["tone"] == "cinephile"
 
         updated = client.patch(
             f"/api/collections/{cid}",
-            json={"name": "Hidden Gems", "size": 20, "enabled": False, "prompt": {"tone": "warm"}},
+            json={"name": "Hidden Gems", "size": 20, "enabled": False},
         )
         assert updated.status_code == 200
         assert updated.json()["size"] == 20 and updated.json()["enabled"] is False
@@ -2326,67 +2211,6 @@ class TestCollectionsApi:
         patched = client.patch(f"/api/collections/{cid}", json={"name": "4K Only", "library_keys": ["3", "5"]})
         assert patched.status_code == 200
         assert patched.json()["library_keys"] == ["3", "5"]
-
-    def test_a_custom_row_inherits_the_global_curation_style(self, client: TestClient):
-        """Settings -> Curation style said it wrote "everyone's rows". It wrote exactly one: the
-        default. Every custom row got a bare `balanced` recipe that beat the global one downstream."""
-        from shortlist.server.services.context_builder import ContextBuilder
-        from shortlist.server.services.sse import EventBus
-        from shortlist.server.settings_store import SettingsStore
-
-        client.put(
-            "/api/settings",
-            json={"values": {"curator.prompt_tone": "cinephile", "curator.prompt_guidance": "no horror"}},
-        )
-        client.post("/api/collections", json={"name": "Hidden Gems"})
-        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
-        with client.app.state.sessions() as session:
-            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
-        gems = next(spec for spec in specs if spec.slug == "hidden_gems")
-
-        assert gems.prompt.tone == "cinephile"  # inherited, not a bare "balanced"
-        assert "no horror" in gems.prompt.guidance
-
-    def test_a_rows_own_style_still_beats_the_global_one(self, client: TestClient):
-        from shortlist.server.services.context_builder import ContextBuilder
-        from shortlist.server.services.sse import EventBus
-        from shortlist.server.settings_store import SettingsStore
-
-        client.put("/api/settings", json={"values": {"curator.prompt_tone": "cinephile"}})
-        created = client.post(
-            "/api/collections",
-            json={"name": "Family Night", "prompt": {"tone": "playful", "guidance": "keep it light", "template": ""}},
-        )
-        assert created.status_code == 201
-        builder = ContextBuilder(client.app.state.sessions, client.app.state.secrets, EventBus())
-        with client.app.state.sessions() as session:
-            specs = builder._build_rows(session, SettingsStore(session, client.app.state.secrets))
-        row = next(spec for spec in specs if spec.slug == "family_night")
-
-        assert row.prompt.tone == "playful"  # the row's own choice wins
-        assert "keep it light" in row.prompt.guidance
-
-    def test_default_row_never_stores_a_prompt_the_engine_would_ignore(self, client: TestClient):
-        # The default row is curated with the GLOBAL recipe (ContextBuilder passes prompt=None for
-        # it), so a per-row prompt here would save cleanly and then do nothing. The API blanks it.
-        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
-        patched = client.patch(
-            f"/api/collections/{picked['id']}",
-            json={"name": picked["name"], "prompt": {"tone": "cinephile", "guidance": "x", "template": "y"}},
-        )
-        assert patched.status_code == 200
-        assert patched.json()["prompt"] == {}
-        assert client.get("/api/collections").json()[0]["prompt"] == {}
-
-    def test_other_rows_keep_their_own_prompt(self, client: TestClient):
-        # The other cell of the same branch: every non-default row's recipe IS honoured, so it must
-        # persist exactly as sent.
-        created = client.post("/api/collections", json={"name": "Hidden Gems"})
-        cid = created.json()["id"]
-        recipe = {"tone": "cinephile", "guidance": "deep cuts", "template": ""}
-        patched = client.patch(f"/api/collections/{cid}", json={"name": "Hidden Gems", "prompt": recipe})
-        assert patched.status_code == 200
-        assert patched.json()["prompt"] == recipe
 
     def test_slug_collision_gets_suffixed(self, client: TestClient):
         # Different names (duplicates are rejected) that slugify to the same base collide on slug.

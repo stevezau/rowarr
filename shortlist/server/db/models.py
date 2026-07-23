@@ -128,7 +128,10 @@ class Collection(Base):
     # Per-library override of where THIS row sits in the Recommended shelf: {sectionKey: {anchor, before}}.
     # {} -> inherit the global default (settings `rows.hub_anchor`). A library absent here inherits too.
     hub_anchor: Mapped[dict] = mapped_column(JSON, default=dict)
-    prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig recipe
+    # Dead as of the curate removal (migration 0036 clears it): the LLM no longer ranks a candidate
+    # pool, so there is no per-row curation recipe. Column kept — dropping it would rebuild the whole
+    # table (inbound FKs); a future migration can remove it.
+    prompt: Mapped[dict] = mapped_column(JSON, default=dict)
     # Custom collection poster for this row. {} -> Plex's own artwork. Shape:
     # {"mode": "upload"|"generate", "title", "subtitle", "style"}. No image bytes live here — an
     # uploaded/generated image is stored in the `poster_assets` table, keyed by collection id / prompt.
@@ -175,7 +178,8 @@ class CollectionUserOverride(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     muted: Mapped[bool] = mapped_column(Boolean, default=False)  # this person doesn't get this row
     row_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None -> the row's own size
-    prompt: Mapped[dict] = mapped_column(JSON, default=dict)  # PromptConfig override; {} -> the row's own
+    # Dead as of the curate removal (migration 0036 clears it) — see Collection.prompt. Column kept.
+    prompt: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -206,8 +210,9 @@ class RunUser(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     llm_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    # `llm_tokens` split by WHERE it went: {"curate": N, "llm_web": M, "llm_library": P}. {} on legacy
-    # rows. Exa is counted apart from tokens — it bills per search request, not per token.
+    # `llm_tokens` split by WHERE it went: {"llm_web": M}. {} on legacy rows (and on rows written
+    # before the curate step was removed, which may still carry a "curate"/"llm_library" key). Exa is
+    # counted apart from tokens — it bills per search request, not per token.
     llm_tokens_by_step: Mapped[dict] = mapped_column(JSON, default=dict)
     exa_searches: Mapped[int] = mapped_column(Integer, default=0)
     diff: Mapped[dict] = mapped_column(JSON, default=dict)

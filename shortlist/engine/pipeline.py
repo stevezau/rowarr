@@ -87,12 +87,6 @@ class EngineContext:
     # them from Shortlist entirely. A non-Shortlist account that merely shares the server is NOT here,
     # so it still sees public shared rows.
     disabled_account_ids: set[int] = field(default_factory=set)
-    # media_type -> [{tmdb_id, rating_key, title, year, genres}] for the delivery libraries, built
-    # once per run and only when the AI-from-library candidate source is enabled (else empty).
-    library_catalog: dict[MediaType, list[dict]] = field(default_factory=dict)
-    # The same catalog split per library, so a row pinned to specific libraries only ever offers
-    # the AI titles it could actually deliver.
-    section_catalog: dict[str, list[dict]] = field(default_factory=dict)
     # section key -> {tmdb_id: ratingKey}: per-library index so a row delivered into a specific
     # library uses that library's ratingKeys. Built by _build_indexes each run.
     section_index: dict[str, dict[int, int]] = field(default_factory=dict)
@@ -273,27 +267,6 @@ def _library_index(ctx: EngineContext, section) -> tuple[dict[int, int], dict[in
     return index, episodes
 
 
-def _library_catalog(ctx: EngineContext, section) -> list[dict]:
-    """This section's AI-from-library catalog — from the cross-run cache when the library is unchanged.
-
-    Same signature-keyed cross-run cache as ``_library_index`` right next to it. Without this the
-    llm_library source re-walked every targeted library in full (``section.all()``) on EVERY run, even
-    when nothing changed — a second full library scan beside the (already-cached) index. A signature
-    change (a title added/removed/edited) misses and re-scans; a missing signature / NullCache always
-    re-scans (same safe fallback as the index)."""
-    signature = ctx.plex.section_signature(section)
-    cache_key = f"catalog:{section.key}:{signature}" if signature else None
-    if cache_key and (cached := ctx.index_cache.get(cache_key)):
-        catalog = json.loads(cached)
-        _emit(ctx, section.title, "catalogued (cached)", {"items": len(catalog)})
-        return catalog
-    _emit(ctx, section.title, "cataloguing", {})
-    catalog = ctx.plex.build_library_catalog(section)
-    if cache_key:
-        ctx.index_cache.set(cache_key, json.dumps(catalog), INDEX_CACHE_TTL_S)
-    return catalog
-
-
 def _build_indexes(
     ctx: EngineContext, users: list[UserProfile], sections: list
 ) -> tuple[dict[int, int], dict[MediaType, dict[int, int]]]:
@@ -325,7 +298,6 @@ def _build_indexes(
     seed_index: dict[int, int] = {}
     library_index: dict[MediaType, dict[int, int]] = {MediaType.MOVIE: {}, MediaType.SHOW: {}}
     section_index: dict[str, dict[int, int]] = {}
-    section_catalog: dict[str, list[dict]] = {}
     episode_counts: dict[int, int] = {}
     # Only when there is someone to recommend to. The indexes walk every item in every TARGETED
     # library, and are read only inside _run_user — so with no users this is thousands of PMS reads
@@ -359,33 +331,7 @@ def _build_indexes(
     ctx.section_index = section_index
     ctx.episode_counts = episode_counts
     ctx.delivery_sections = index_sections
-    # The AI-from-library source needs titles/genres. Built when ANY row wants it — not just the
-    # global setting: a row overriding its sources to llm_library found an empty catalog and
-    # produced nothing, forever, while reporting ok. And built from every TARGETED library, not one
-    # representative per type, or a row pinned to "4K Movies" would be offered the "Movies" catalog.
-    if users and _wants_library_catalog(ctx.config):
-        catalog: dict[MediaType, list[dict]] = {MediaType.MOVIE: [], MediaType.SHOW: []}
-        seen: dict[MediaType, set[int]] = {MediaType.MOVIE: set(), MediaType.SHOW: set()}
-        for section in index_sections:
-            kind = MediaType.MOVIE if section.type == "movie" else MediaType.SHOW
-            items = _library_catalog(ctx, section)  # cross-run cached, like the index
-            section_catalog[section.key] = items
-            # Deduped across libraries: the same film in "Movies" and "4K Movies" is one title to
-            # recommend, and listing it twice would spend the LLM's slice of the catalog on itself.
-            for item in items:
-                if item["tmdb_id"] not in seen[kind]:
-                    seen[kind].add(item["tmdb_id"])
-                    catalog[kind].append(item)
-        ctx.library_catalog = catalog
-        ctx.section_catalog = section_catalog
     return seed_index, library_index
-
-
-def _wants_library_catalog(config) -> bool:
-    """Whether any row on this server uses the AI-from-library source (globally or as an override)."""
-    if "llm_library" in config.candidate_sources:
-        return True
-    return any("llm_library" in (spec.candidate_sources or []) for spec in config.rows)
 
 
 def _sweep_phase(ctx: EngineContext, report: RunReport) -> bool:

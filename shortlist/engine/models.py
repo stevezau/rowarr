@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
@@ -85,13 +85,13 @@ class Candidate:
     seeds: list[Seed] = field(default_factory=list)  # every seed that suggested it
     rating_key: int | None = None  # set once matched to the library
     # Which candidate source(s) produced it. Ranking needs this: seedless sources (tmdb_discover,
-    # llm_library, llm_web) would otherwise be crowded out wholesale by the seeded ones — see
-    # ranking.pre_rank, which gives each source a fair share of the pool it hands the curator.
+    # llm_web) would otherwise be crowded out wholesale by the seeded ones — see ranking.pre_rank,
+    # which gives each source a fair share of the pool it draws the row from.
     sources: set[str] = field(default_factory=set)
     # How strongly the source that produced it vouched for it, 0..1. TMDB sets this from which
     # endpoint suggested the title and how near the top of that list it sat — the similarity signal
-    # that used to be discarded. Sources with no ranking of their own (discover, Trakt, the LLM
-    # sources) keep the neutral 1.0: they are deliberate picks, not the tail of a list, and
+    # that used to be discarded. Sources with no ranking of their own (discover, Trakt, the web
+    # source) keep the neutral 1.0: they are deliberate picks, not the tail of a list, and
     # penalising them for lacking a signal they never had is what `pre_rank`'s round-robin exists to
     # prevent. A title several seeds suggested keeps the strongest claim any of them made.
     affinity: float = 1.0
@@ -138,49 +138,11 @@ class Pick:
 
 
 @dataclass
-class PromptConfig:
-    """User-tunable curation instructions for the LLM.
-
-    The fixed output contract (JSON schema, "use only provided titles", the reason-length cap) is
-    enforced in code regardless of these values, so any tone/guidance/template here is safe: it can
-    steer taste and wording but can never produce an unavailable title or leak history.
-    """
-
-    tone: str = "balanced"  # a TONE_PRESETS key
-    guidance: str = ""  # free-text extra instructions injected into the system prompt
-    template: str = ""  # full custom system prompt; empty -> built-in skeleton
-    shared: bool = False  # True -> aggregate ("popular on this server") framing, no "because you watched"
-
-
-def overlay_prompt(base: PromptConfig | None, over: PromptConfig | None) -> PromptConfig | None:
-    """Lay ``over``'s SET fields on top of ``base``. A blank field means INHERIT.
-
-    Used twice, with the same meaning both times: a row's recipe over the global one, and one
-    person's override over their row's. Guidance is additive (the house note plus the specific one),
-    matching how the global+per-user recipe has always resolved; tone and template are replacements.
-
-    Blank-means-inherit is the whole point. When an override replaced the recipe wholesale, setting
-    just the tone for one person silently wiped that row's guidance and custom prompt.
-    """
-    if over is None:
-        return base
-    if base is None:
-        return over
-    return replace(
-        base,
-        tone=over.tone or base.tone,
-        guidance="\n".join(part for part in (base.guidance, over.guidance) if part),
-        template=over.template or base.template,
-    )
-
-
-@dataclass
 class RowOverride:
     """One person's per-row tweaks. Any None/False field falls through to the row's own settings."""
 
     muted: bool = False  # this person doesn't get this row at all
     size: int | None = None  # override the row's size for this person
-    prompt: PromptConfig | None = None  # override the row's curation recipe for this person
 
 
 @dataclass
@@ -199,7 +161,6 @@ class UserProfile:
     history: list[WatchedItem] = field(default_factory=list)
     excluded_genres: set[str] = field(default_factory=set)
     row_name_template: str | None = None
-    prompt: PromptConfig | None = None  # resolved effective recipe; None -> built-in defaults
     request_tag: str = ""  # tag added to titles requested for this user (layered onto global + row tags)
     # Per-row overrides keyed by collection slug; a slug absent here uses the row's own settings.
     row_overrides: dict[str, RowOverride] = field(default_factory=dict)
@@ -262,9 +223,6 @@ class RowSpec:
     shared: bool = False
     # None -> visible to everyone; otherwise the set of plex_account_ids this row is built for / seen by.
     audience: set[int] | None = None
-    # Per-collection recipe. None on the default 'picked' row -> use the per-user prompt on the
-    # profile (the Phase A global+per-user tuning), so that behaviour is preserved exactly.
-    prompt: PromptConfig | None = None
     # Shared rows only: a title must have been watched by at least this many distinct people to
     # qualify, so no one person's solo viewing can reach a public row (aggregate-privacy floor).
     min_watchers: int = 2
@@ -362,7 +320,7 @@ class RequestWhy:
     suggested it — so the owner can see exactly how a request got here, not just a bare count.
 
     ``seed`` is the history title behind it ("because you watched …"); empty for seedless sources
-    (tmdb_discover / llm_library / llm_web). ``source`` is the candidate source that produced it.
+    (tmdb_discover / llm_web). ``source`` is the candidate source that produced it.
     """
 
     user: str
@@ -642,11 +600,11 @@ class UserRunReport:
     # Distinct from `error` because the UI counts every non-null `error` as a failed user.
     reason: str | None = None
     duration_s: float = 0.0
-    # Total AI tokens this user cost this run (curate + the AI candidate sources). WAS curate-only —
-    # the llm_web/llm_library spend used to be discarded, undercounting every AI-source user.
+    # Total AI tokens this user cost this run — the llm_web source (web-search title discovery) is
+    # the only thing that spends them now.
     llm_tokens: int = 0
-    # The same total split by WHERE it went: {"curate": N, "llm_web": M, "llm_library": P}. Lets the
-    # UI answer "what did the AI actually spend tokens on" per person, not just a lump sum.
+    # The same total split by WHERE it went: {"llm_web": N}. Lets the UI answer "what did the AI
+    # actually spend tokens on" per person, not just a lump sum.
     llm_tokens_by_step: dict[str, int] = field(default_factory=dict)
     # Exa web searches run for this user (the llm_web external backend). Tracked apart from tokens:
     # Exa bills per search request, not per token, so the two must never be summed together.

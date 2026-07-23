@@ -219,12 +219,12 @@ class PlexClient:
         self._invalidate_collections()
 
     def sections_by_type(self) -> dict[MediaType, LibrarySection]:
-        """One representative library per media type — used for cold-start discovery and the
-        AI-from-library catalog, NOT for choosing where rows are delivered.
+        """One representative library per media type — used for cold-start discovery, NOT for
+        choosing where rows are delivered.
 
         Row delivery targets ``library_keys`` (all libraries by default; see the delivery module),
         so a server with several libraries of a type builds rows in every one. This helper is only a
-        stable single pick per type for the two callers that need just one: the lowest section key
+        stable single pick per type for the callers that need just one: the lowest section key
         wins — deliberately NOT the order the PMS lists them in, so a reordering can't shift which
         library those callers read.
         """
@@ -269,29 +269,6 @@ class PlexClient:
             return None
         stamp = int(updated.timestamp()) if hasattr(updated, "timestamp") else updated
         return f"{total}:{stamp}"
-
-    def build_library_catalog(self, section: LibrarySection) -> list[dict]:
-        """Every TMDB-identified item with the metadata the AI-from-library source reasons over.
-
-        Same one scan shape as build_library_index, but keeps title/year/genres so the LLM can pick
-        owned titles that fit a person's taste. Built at most once per run (only when that source is on).
-        """
-        catalog: list[dict] = []
-        for item in section.all():
-            tmdb_id = _tmdb_guid(item)
-            if tmdb_id is None:
-                continue
-            catalog.append(
-                {
-                    "tmdb_id": tmdb_id,
-                    "rating_key": item.ratingKey,
-                    "title": item.title,
-                    "year": getattr(item, "year", None),
-                    "genres": [g.tag for g in (getattr(item, "genres", None) or [])],
-                }
-            )
-        logger.debug("library catalog for '{}': {} titled items", section.title, len(catalog))
-        return catalog
 
     def top_rated(self, section: LibrarySection, limit: int) -> list[tuple[int, object]]:
         """Highest audience-rated titles that carry a TMDB id — the cold-start 'popular' source.

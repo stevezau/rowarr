@@ -1,5 +1,5 @@
 """Collections API: define curated rows — how each is built (per-person | shared), who it's for
-(audience), and its recipe (size, media, name, prompt). Owner-only."""
+(audience), and its recipe (size, media, name). Owner-only."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from shortlist.engine.candidates import KNOWN_SOURCES
-from shortlist.engine.curator.base import TONE_PRESETS
 from shortlist.engine.models import dedupe_slug, slugify
 from shortlist.server.auth import require_owner
 from shortlist.server.db.models import DEFAULT_SLUG, Collection, CollectionAudience, Event, PickRow, User
@@ -37,19 +36,6 @@ PLACEMENTS = {"both", "home", "library"}
 # "" (Plex default), "upload", "text" (built-in Pillow), "ai" (image model). "generate" is the
 # pre-text-engine name for "ai", accepted for backward compatibility.
 POSTER_MODES = {"", "upload", "text", "ai", "generate"}
-
-
-class PromptIn(BaseModel):
-    """A row's curation recipe. EVERY field is blank-means-inherit-the-global-one.
-
-    `tone` defaulted to "balanced", which is indistinguishable from "unset" — so a row could never
-    inherit Settings -> Curation style, and every row silently overrode it with a bare balanced
-    recipe. Blank is the only honest default.
-    """
-
-    tone: str = ""
-    guidance: str = ""
-    template: str = ""
 
 
 class HubAnchorIn(BaseModel):
@@ -98,7 +84,6 @@ class CollectionIn(BaseModel):
     # Per-library Recommended-shelf override for this row, keyed by section key. {} -> inherit the
     # global default (settings `rows.hub_anchor`).
     hub_anchor: dict[str, HubAnchorIn] = Field(default_factory=dict)
-    prompt: PromptIn = Field(default_factory=PromptIn)
     poster: PosterIn = Field(default_factory=PosterIn)
 
 
@@ -112,8 +97,6 @@ def _validate(body: CollectionIn) -> None:
     unknown = [s for s in body.candidate_sources if s not in KNOWN_SOURCES]
     if unknown:
         raise HTTPException(422, f"unknown candidate source(s) {unknown}; valid: {sorted(KNOWN_SOURCES)}")
-    if body.prompt.tone and body.prompt.tone not in TONE_PRESETS:
-        raise HTTPException(422, f"unknown tone {body.prompt.tone!r}; valid: {sorted(TONE_PRESETS)} (or blank)")
     if body.placement not in PLACEMENTS:
         raise HTTPException(422, f"placement must be one of {sorted(PLACEMENTS)}")
     if body.poster.mode not in POSTER_MODES:
@@ -195,15 +178,8 @@ def _serialize(session, collection: Collection) -> dict:
         "pin_top": bool(collection.pin_top),
         "hub_anchor": collection.hub_anchor or {},
         "library_keys": [str(k) for k in (collection.library_keys or [])],
-        "prompt": collection.prompt or {},
         "poster": _poster_view(session, collection),
     }
-
-
-def _prompt_for(slug: str, body: CollectionIn) -> dict:
-    """The recipe to persist for ``slug`` — always empty on the default row, which the engine
-    curates with the global recipe. Keeps DB state from disagreeing with what a run will do."""
-    return {} if slug == DEFAULT_SLUG else body.prompt.model_dump()
 
 
 def _reject_duplicate_name(session, name: str, *, exclude_id: int | None = None) -> None:
@@ -265,7 +241,6 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
             pin_top=body.pin_top,
             hub_anchor={k: v.model_dump() for k, v in body.hub_anchor.items()},
             library_keys=body.library_keys,
-            prompt=_prompt_for(slug, body),
             poster=body.poster.model_dump(),
         )
         session.add(collection)
@@ -277,7 +252,7 @@ async def create_collection(body: CollectionIn, request: Request) -> dict:
     return result
 
 
-# Columns a PATCH may set directly, name (needs a dup check) and audience/prompt (need shaping)
+# Columns a PATCH may set directly, name (needs a dup check) and audience (needs shaping)
 # handled separately.
 _PATCHABLE_COLUMNS = (
     "build",
@@ -343,8 +318,6 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
                 setattr(collection, column, getattr(body, column))
         if "schedule" in sent:
             collection.schedule = body.schedule.strip()  # a whitespace-only cron means "no schedule"
-        if "prompt" in sent:
-            collection.prompt = _prompt_for(collection.slug, body)
         if "poster" in sent:
             old_poster_mode = (collection.poster or {}).get("mode") or ""
             collection.poster = body.poster.model_dump()

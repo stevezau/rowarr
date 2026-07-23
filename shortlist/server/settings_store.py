@@ -24,10 +24,6 @@ DEFAULTS: dict[str, Any] = {
     # Any server speaking the OpenAI API (llama.cpp, LM Studio, vLLM, LocalAI, OpenRouter): its
     # root, usually ending in /v1. Used only when curator.provider is openai_compatible.
     "curator.openai_base_url": "",
-    # Global curation recipe (the LLM prompt), overridable per user via prefs.
-    "curator.prompt_tone": "balanced",
-    "curator.prompt_guidance": "",
-    "curator.prompt_template": "",
     "row.name_template": "✨ {library_name} Picked for You",  # {library_name} -> each library's own name
     "row.size": 15,
     # Requests (Sonarr/Radarr): ask for picks the library doesn't have yet. Off by default and

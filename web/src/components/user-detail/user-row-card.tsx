@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import {
-  CurationStyleFields,
-  type CurationStyleValue,
-} from "@/components/curation-style";
 import { MutationAlert } from "@/components/mutation-alert";
 import { PickList } from "@/components/pick-list";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
@@ -29,11 +25,6 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
   const [size, setSize] = useState<string>(
     row.override.row_size ? String(row.override.row_size) : "default",
   );
-  const [curation, setCuration] = useState<CurationStyleValue>({
-    tone: row.override.prompt_tone,
-    guidance: row.override.prompt_guidance,
-    template: row.override.prompt_template,
-  });
   const [saved, setSaved] = useState(false);
 
   // Muted is what the SERVER says, with the in-flight value laid over it only while the PUT is
@@ -43,8 +34,8 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
   const muted =
     (mute.isPending ? mute.variables?.patch.muted : undefined) ?? row.muted;
 
-  // The mute sends ONLY {muted} so it can never persist half-typed drawer edits; the drawer sends
-  // only size + curation (the server writes just the fields it receives).
+  // The mute sends ONLY {muted} so it can never persist a half-changed size; the drawer sends only
+  // the size (the server writes just the fields it receives).
   const setMuted = (nextMuted: boolean) =>
     mute.mutate({
       collectionId: row.collection_id,
@@ -53,17 +44,12 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
 
   // The drawer auto-saves like every other section of the app, so collapsing it ("Hide
   // customization" — which sounds harmless) or walking away can't silently discard an edit.
-  const retrySave = useAutosave({ size, curation }, () => {
+  const retrySave = useAutosave({ size }, () => {
     setSaved(false);
     save.mutate(
       {
         collectionId: row.collection_id,
-        patch: {
-          row_size: size === "default" ? null : Number(size),
-          prompt_tone: curation.tone,
-          prompt_guidance: curation.guidance,
-          prompt_template: curation.template,
-        },
+        patch: { row_size: size === "default" ? null : Number(size) },
       },
       { onSuccess: () => setSaved(true) },
     );
@@ -167,15 +153,6 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
                     label="Titles for this person"
                   />
                 )}
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Curation style</p>
-                <CurationStyleFields
-                  value={curation}
-                  onChange={setCuration}
-                  allowInherit
-                  scope="user"
-                />
               </div>
             </div>
           )}

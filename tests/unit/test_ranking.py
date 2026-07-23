@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from loguru import logger
 
 from shortlist.engine.models import Candidate, MediaType, Pick, RowSpec, Seed, UserProfile, UserType
-from shortlist.engine.ranking import pre_rank, score
+from shortlist.engine.ranking import diversify_by_seed, pre_rank, score
 from tests.conftest import make_candidate
 
 
@@ -92,6 +92,68 @@ class TestPreRank:
         """Candidates built by hand (cold start, tests) carry no source tag and must not vanish."""
         pool = [make_candidate(i, f"m{i}", rating=float(i)) for i in range(1, 6)]
         assert len(pre_rank(pool, keep=3)) == 3
+
+
+class TestDiversifyBySeed:
+    """The final row-selection step that replaced the LLM curate call: each *seed* gets a fair share
+    of the row so one heavily-watched title can't swallow it. Input is `pre_rank` output (best-first)."""
+
+    @staticmethod
+    def _seeded(tmdb_id: int, seed_id: int, weight: float = 1.0) -> Candidate:
+        """A candidate whose sole (and therefore top) seed is `seed_id` — so it queues under it."""
+        return make_candidate(tmdb_id, f"t{tmdb_id}", seeds=[seed(seed_id, weight)])
+
+    def test_a_short_pool_is_returned_unchanged(self):
+        pool = [self._seeded(10, 1), self._seeded(11, 1), self._seeded(12, 2)]
+        # keep >= len: nothing to spread, hand the pool back exactly (same objects, same order).
+        assert diversify_by_seed(pool, keep=5) is pool
+
+    def test_the_single_best_pick_still_leads(self):
+        # Best-first input: the top-scored title heads a seed's queue, so seed A's best is picked first
+        # and diversifying never displaces the strongest pick.
+        pool = [self._seeded(10, 1), self._seeded(20, 2), self._seeded(11, 1), self._seeded(21, 2)]
+        out = diversify_by_seed(pool, keep=2)
+        assert out[0].tmdb_id == 10
+
+    def test_each_seed_gets_a_slot_before_any_seed_gets_a_second(self):
+        pool = [
+            self._seeded(10, 1),  # seed 1, best
+            self._seeded(11, 1),  # seed 1, second
+            self._seeded(20, 2),  # seed 2, best
+            self._seeded(30, 3),  # seed 3, best
+        ]
+        out = diversify_by_seed(pool, keep=3)
+        # One per seed in the order each seed's best appeared — NOT 10,11,20 (which a score-sort gives).
+        assert [c.tmdb_id for c in out] == [10, 20, 30]
+
+    def test_one_flooding_seed_cannot_occupy_every_slot(self):
+        """The bug this exists to prevent: 30 Breaking Bad look-alikes and a handful of everything else
+        gave a row of nothing but Breaking Bad. Every other taste must still reach the row."""
+        pool = [self._seeded(100 + i, 1) for i in range(30)]  # one seed floods the pool
+        pool += [self._seeded(200, 2), self._seeded(300, 3), self._seeded(400, 4)]
+        out = diversify_by_seed(pool, keep=8)
+        seeds_present = {c.top_seed.tmdb_id for c in out}
+        assert seeds_present == {1, 2, 3, 4}, "all four tastes must survive to the row"
+        assert sum(1 for c in out if c.top_seed.tmdb_id == 1) < 8, "the flooding seed can't take every slot"
+
+    def test_seedless_candidates_share_one_queue_and_interleave(self):
+        """discover / web / cold-start picks carry no seed — they queue together under None and get
+        their fair share alongside the seeded tastes, not dropped."""
+        pool = [
+            self._seeded(10, 1),
+            make_candidate(90, "web1", seeds=[]),  # seedless
+            self._seeded(11, 1),
+            make_candidate(91, "web2", seeds=[]),  # seedless
+        ]
+        out = diversify_by_seed(pool, keep=2)
+        # Seed 1's best, then the seedless queue's best — one taste each, not both seed-1 titles.
+        assert [c.tmdb_id for c in out] == [10, 90]
+
+    def test_falls_back_to_the_remaining_queue_when_others_run_dry(self):
+        # keep exceeds the seed count, so after every seed is served the still-full queue backfills.
+        pool = [self._seeded(10, 1), self._seeded(11, 1), self._seeded(12, 1), self._seeded(20, 2)]
+        out = diversify_by_seed(pool, keep=3)
+        assert [c.tmdb_id for c in out] == [10, 20, 11]  # seed1, seed2, back to seed1's next
 
 
 class TestWatchedTitles:

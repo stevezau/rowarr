@@ -1,4 +1,4 @@
-"""Per-user row overrides: which rows a user gets, and their mute/resize/restyle tweaks. Owner-only.
+"""Per-user row overrides: which rows a user gets, and their mute/resize tweaks. Owner-only.
 
 Split out of ``users.py`` so that module is about the user roster (list/patch/sync) and this one is
 about the per-person row settings that hang off ``/users/{id}/rows``.
@@ -87,7 +87,7 @@ async def user_rows(user_id: int, request: Request) -> list[dict]:
 
 @router.put("/{user_id}/rows/{collection_id}")
 async def set_user_row_override(user_id: int, collection_id: int, patch: RowOverridePatch, request: Request) -> dict:
-    """Mute, resize, or restyle one row for one person — upserts their override."""
+    """Mute or resize one row for one person — upserts their override."""
     with request.app.state.sessions() as session:
         if session.get(User, user_id) is None:
             raise HTTPException(status_code=404, detail="user not found")

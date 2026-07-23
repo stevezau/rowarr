@@ -25,7 +25,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
         collectionId: number,
         patch: RowOverridePatch,
       ) => setUserRowOverride(id, collectionId, patch),
-      previewPrompt: () => Promise.resolve({ system: "", user: "" }),
     },
   };
 });
@@ -54,9 +53,6 @@ function row(patch: Partial<UserRow> = {}): UserRow {
     muted: false,
     override: {
       row_size: null,
-      prompt_tone: "",
-      prompt_guidance: "",
-      prompt_template: "",
     },
     picks: [],
     ...patch,

@@ -12,12 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAutosavedSettings } from "@/lib/autosave";
 import { FRESHNESS_DEFAULT, WATCHED_PCT_DEFAULT } from "@/lib/constants";
-import {
-  hasCurator,
-  hasTrakt,
-  SOURCES,
-  webSearchProvider,
-} from "@/lib/sources";
+import { hasTrakt, SOURCES, webSearchProvider } from "@/lib/sources";
 import type { Settings } from "@/lib/types";
 
 // Every source except AI web search — that one gets its own card (backend choice + inline key).
@@ -60,17 +55,6 @@ function InlineFix({
         helpUrl="https://trakt.tv/oauth/applications"
         settings={settings}
       />
-    );
-  }
-  if (sourceId === "llm_library" && !hasCurator(settings)) {
-    return (
-      <p className="text-sm text-warning">
-        Needs an AI curator to read each person’s taste —{" "}
-        <a href="#connections" className="font-medium underline">
-          set one up in Connections
-        </a>
-        .
-      </p>
     );
   }
   return null;

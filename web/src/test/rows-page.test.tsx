@@ -50,7 +50,6 @@ const SUBSET_ROW: Collection = {
   placement: "both",
   pin_top: false,
   hub_anchor: {},
-  prompt: { tone: "balanced", guidance: "", template: "" },
   poster: { mode: "", title: "", subtitle: "", style: "", has_image: false },
 };
 

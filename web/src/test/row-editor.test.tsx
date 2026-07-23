@@ -53,7 +53,6 @@ function row(patch: Partial<Collection> = {}): Collection {
     placement: "both",
     pin_top: false,
     hub_anchor: {},
-    prompt: { tone: "", guidance: "", template: "" },
     poster: { mode: "", title: "", subtitle: "", style: "", has_image: false },
     ...patch,
   };
@@ -219,12 +218,10 @@ describe("RowEditor — recent watches to search", () => {
   });
 });
 
-
 describe("RowEditor — a shared row that can never build", () => {
   const sharedRow = (patch: Partial<Collection> = {}) =>
     row({ build: "shared", min_watchers: 2, ...patch });
-  const warning = () =>
-    screen.queryByText(/This row can’t build yet/i);
+  const warning = () => screen.queryByText(/This row can’t build yet/i);
 
   it("warns when only one person in the audience is active in runs", () => {
     // The exact shape of issue #3: a shared row on a server with one enabled user can never reach
@@ -234,7 +231,9 @@ describe("RowEditor — a shared row that can never build", () => {
       user({ id: 2, username: "mike", enabled: false }),
     ]);
     expect(warning()).toBeInTheDocument();
-    expect(screen.getByText(/only 1 of them is active in runs/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/only 1 of them is active in runs/i),
+    ).toBeInTheDocument();
   });
 
   it("counts a PAUSED user as inactive — the engine drops them before any row is built", () => {
@@ -250,7 +249,9 @@ describe("RowEditor — a shared row that can never build", () => {
       user({ id: 1, username: "sarah" }),
       user({ id: 2, username: "mike" }),
     ]);
-    expect(screen.getByText(/nobody in its audience is active in runs/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/nobody in its audience is active in runs/i),
+    ).toBeInTheDocument();
   });
 
   it("stays quiet once the row can actually build", () => {

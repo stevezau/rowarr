@@ -9,14 +9,18 @@ import { ApiError } from "@/lib/api";
 import type { User, UserPatch } from "@/lib/types";
 import { UsersPage } from "@/pages/users";
 
-const { getUsers, patchUser, setAllUsersEnabled, syncUsers } = vi.hoisted(() => ({
-  getUsers: vi.fn(),
-  patchUser: vi.fn(),
-  syncUsers: vi.fn(() => Promise.resolve({ added: 1, updated: 48, total: 49 })),
-  setAllUsersEnabled: vi.fn((_enabled: boolean) =>
-    Promise.resolve({ updated: 1, cleaned: 0, enabled: true }),
-  ),
-}));
+const { getUsers, patchUser, setAllUsersEnabled, syncUsers } = vi.hoisted(
+  () => ({
+    getUsers: vi.fn(),
+    patchUser: vi.fn(),
+    syncUsers: vi.fn(() =>
+      Promise.resolve({ added: 1, updated: 48, total: 49 }),
+    ),
+    setAllUsersEnabled: vi.fn((_enabled: boolean) =>
+      Promise.resolve({ updated: 1, cleaned: 0, enabled: true }),
+    ),
+  }),
+);
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof ApiModule>();
@@ -164,7 +168,6 @@ describe("UsersPage", () => {
   });
 });
 
-
 describe("UsersPage — pulling the roster again", () => {
   beforeEach(() => {
     getUsers.mockReset();
@@ -182,14 +185,20 @@ describe("UsersPage — pulling the roster again", () => {
       .mockResolvedValueOnce([SARAH])
       .mockResolvedValue([
         SARAH,
-        { ...SARAH, id: 9, username: "steve", slug: "steve", user_type: "owner" },
+        {
+          ...SARAH,
+          id: 9,
+          username: "steve",
+          slug: "steve",
+          user_type: "owner",
+        },
       ]);
     renderPage();
     expect(await screen.findByText("sarah")).toBeInTheDocument();
     expect(screen.queryByText("steve")).toBeNull();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Sync from Plex/i }),
+      await screen.findByRole("button", { name: /Sync users/i }),
     );
 
     await waitFor(() => expect(syncUsers).toHaveBeenCalledTimes(1));
@@ -202,7 +211,7 @@ describe("UsersPage — pulling the roster again", () => {
     renderPage();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Sync from Plex/i }),
+      await screen.findByRole("button", { name: /Sync users/i }),
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/plex.tv/i);
@@ -229,7 +238,9 @@ describe("UsersPage — the Type column", () => {
   });
 
   it("puts 'New viewer' beside the watch history it explains, not under Type", async () => {
-    getUsers.mockResolvedValue([{ ...SARAH, cold_start: true, history_depth: 0 }]);
+    getUsers.mockResolvedValue([
+      { ...SARAH, cold_start: true, history_depth: 0 },
+    ]);
 
     renderPage();
 

@@ -67,7 +67,6 @@ export interface Collection {
   pin_top: boolean;
   /** Per-library Recommended-shelf override for THIS row; {} inherits the global default. */
   hub_anchor: HubAnchorMap;
-  prompt: { tone?: string; guidance?: string; template?: string };
   /** This row's custom poster; mode "" leaves Plex's own artwork alone. */
   poster: Poster;
 }
@@ -158,7 +157,6 @@ export interface CollectionInput {
   placement: "both" | "home" | "library";
   pin_top: boolean;
   hub_anchor: HubAnchorMap;
-  prompt: { tone: string; guidance: string; template: string };
   poster: PosterInput;
 }
 
@@ -169,34 +167,7 @@ export interface UserPrefs {
   excluded_genres?: string[];
   max_rating?: string | null;
   paused?: boolean;
-  // Per-person curation-recipe overrides. Empty string = inherit the global default.
-  prompt_tone?: string;
-  prompt_guidance?: string;
-  prompt_template?: string;
 }
-
-/** POST /api/settings/prompt-preview request + response. */
-export interface PromptPreviewRequest {
-  tone?: string;
-  guidance?: string;
-  template?: string;
-  shared?: boolean;
-}
-
-export interface PromptPreview {
-  system: string;
-  user: string;
-}
-
-/** The tone presets the curation recipe offers. */
-export const PROMPT_TONES = [
-  "balanced",
-  "warm",
-  "concise",
-  "cinephile",
-  "playful",
-] as const;
-export type PromptTone = (typeof PROMPT_TONES)[number];
 
 export interface UserPatch {
   nickname?: string;
@@ -281,9 +252,6 @@ export interface UserRow {
   muted: boolean;
   override: {
     row_size: number | null;
-    prompt_tone: string;
-    prompt_guidance: string;
-    prompt_template: string;
   };
   picks: Pick[];
 }
@@ -292,9 +260,6 @@ export interface UserRow {
 export interface RowOverridePatch {
   muted?: boolean;
   row_size?: number | null;
-  prompt_tone?: string;
-  prompt_guidance?: string;
-  prompt_template?: string;
 }
 
 /** GET /api/users/{id}/runs — one of this user's recent run results. */
@@ -683,8 +648,6 @@ export interface RequestCandidate {
   arr_slug: string | null;
   /** When this row last changed state — the "sent at" for a sent item. */
   updated_at: string | null;
-  /** Download status from Sonarr/Radarr: 'downloaded' | 'downloading' | 'queued' | 'monitored' | 'unmonitored' | null (not in arr). */
-  arr_status: string | null;
 }
 
 /** One reason a missing title is in the inbox: a person, the row that wanted it, and what suggested it. */

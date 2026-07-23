@@ -198,12 +198,18 @@ async def test_connection(service: str, request: Request) -> dict:
             if service == "plexdb":
                 # Without this, a one-character-wrong path saves cleanly, logs one warning per user
                 # buried in a 49-user run, and the feature silently never does anything.
-                from shortlist.engine.clients.plex_db import PlexDbReader
+                from shortlist.server.services.context_builder import _flag_reader
 
-                path = (get("plex.db_path") or "").strip()
-                if not path:
-                    return "Not set — leave empty to skip reading watched state from Plex's database"
-                return PlexDbReader(path).check()
+                # Resolve exactly as the reconcile does — an explicit `plex.db_path` wins, else the
+                # `/plexdb` default mount. Testing must agree with what Reconcile will actually read,
+                # or a zero-config `/plexdb` mount fails the Test yet works on the run (and vice versa).
+                reader = _flag_reader(SettingsStore(session, state.secrets))
+                if reader is None:
+                    return (
+                        "No Plex database found — mount it at /plexdb, or set a path below, "
+                        "to read marked-watched titles"
+                    )
+                return reader.check()
             if service == "tautulli":
                 from shortlist.engine.clients.tautulli import TautulliClient
 

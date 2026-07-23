@@ -68,7 +68,6 @@ function candidate(
     excluded: false,
     arr_slug: null,
     updated_at: null,
-    arr_status: null,
     ...overrides,
   };
 }

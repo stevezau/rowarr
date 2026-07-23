@@ -16,8 +16,6 @@ import type {
   PosterInput,
   PinStatus,
   PlexServer,
-  PromptPreview,
-  PromptPreviewRequest,
   ProbeRequest,
   ProbeResult,
   RequestCandidate,
@@ -191,7 +189,9 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
 
-  syncUsers: (): Promise<unknown> =>
+  /** Re-pull shared + Home users (and the owner) from plex.tv/Tautulli. Returns how many rows the
+   *  sync added vs. updated, and the total roster size, so the UI can report a real result. */
+  syncUsers: (): Promise<{ added: number; updated: number; total: number }> =>
     request("/api/users/sync", { method: "POST" }),
 
   getUserRows: (id: number): Promise<UserRow[]> =>
@@ -428,17 +428,6 @@ export const api = {
       throw new ApiError(response.status, await errorMessageFrom(response));
     return response.blob();
   },
-
-  /** Assemble the prompt from a recipe against sample data, to preview its effect before saving. */
-  previewPrompt: (body: PromptPreviewRequest): Promise<PromptPreview> =>
-    request("/api/settings/prompt-preview", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-
-  /** The built-in prompt as an editable template, to pre-fill the "write the whole prompt" box. */
-  getPromptDefault: (shared: boolean): Promise<{ template: string }> =>
-    request(`/api/settings/prompt-default?shared=${shared}`),
 
   // --- Requests (Sonarr/Radarr approval inbox) ---
   listRequests: (): Promise<RequestCandidate[]> => request("/api/requests"),

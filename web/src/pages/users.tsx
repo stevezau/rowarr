@@ -197,7 +197,7 @@ export function UsersPage() {
         empty={
           <EmptyState
             title="No users yet"
-            hint="Shortlist hasn’t imported any Plex users. Use “Sync from Plex” above, or check the Plex connection under Settings."
+            hint="Shortlist hasn’t imported any Plex users. Use “Sync users” above, or check the Plex connection under Settings."
           />
         }
       >

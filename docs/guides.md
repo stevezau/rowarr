@@ -6,18 +6,18 @@
   watched (hit rate over time, per user and per row), recent watches, and a **Sync watched now**
   button to refresh those numbers on demand.
 - **Rows** — create, edit, and reorder your rows. Each card shows who sees it and how it
-  differs from the defaults (sources, libraries, curation style, placement). This is where
+  differs from the defaults (sources, libraries, freshness, placement). This is where
   the whole multi-row feature lives — see "Naming a row" and "Row placement" below.
 - **Users** — everyone the server is shared with, plus you (badged `owner` — plex.tv's user list
   leaves the owner out, so Shortlist adds you itself). **Sync from Plex** pulls the roster again
   after you invite someone new (or to pick up your own owner row on an install that predates it).
   Enable/disable each person or **Enable all / Disable all** at once, pause someone (keeps their
   row, skips them on runs), set a request tag, add per-row overrides
-  (size, curation style, mute), and see each user's restriction status. Opening a person shows
+  (size, mute), and see each user's restriction status. Opening a person shows
   their recent watch history (distinct titles, with season/episode numbers for TV), their picks
   grouped by row (long lists collapse behind a "show more"), and a **Run now** button to rebuild
   just that person.
-- **Runs** — a live **Activity** log streams each user through history → candidates → curating →
+- **Runs** — a live **Activity** log streams each user through history → candidates → ranking →
   delivering as the run happens (seeded from the server so a reload replays it); per-user diffs
   grouped by row then library ("added X to Movies, Y to TV Shows"), each library showing its own
   ranked picks; errors as first-class rows with copy-for-GitHub buttons, LLM token usage.
@@ -29,7 +29,7 @@
 - **Requests** — the approval inbox for titles your picks wanted but the library doesn't have
   yet. Approve to send to Radarr/Sonarr, or reject so they never come back (see "Requests" below).
 - **Settings** — organised into a grouped sidebar sub-nav so it doesn't read as one long wall:
-  **Connect** (Connections), **Rows** (Recommendations, Curation style, Row defaults, Row
+  **Connect** (Connections), **Rows** (Finding titles, Row defaults, Row
   placement), **Add-ons** (Requests), and **System** (Advanced, API access, Danger Zone). Every
   connection is re-testable in place. (Each row's run schedule lives in that row's editor, not
   here — see Schedules below.)
@@ -96,7 +96,7 @@ Each row can have its own artwork on Plex. In the **Row editor** → **Poster**,
 - **Text** — a clean built-in poster: your **Title** and **Subtitle** over a gradient. No AI needed,
   works on any setup. Use `{user}`, `{library_name}`, and `{top_seed}` to personalise the text.
 - **AI image** — an image generated from your text and **Art style**, using your AI provider's image
-  model. This reuses your AI curator's key, so it's available when that provider is **OpenAI** or
+  model. This reuses your AI provider's key, so it's available when that provider is **OpenAI** or
   **Google** (Anthropic and local servers can't generate images — use a Text poster or Upload instead).
 
 Hit **Preview** to see a sample before saving. Generated images are made once and reused across
@@ -111,24 +111,20 @@ globally and per user. Expect ~20-40% on engaged users after a few weeks.
 
 ## Recommendation sources
 
-Settings → **Recommendations** controls where candidate titles come from. Shortlist pools every
+Settings → **Finding titles** controls where candidate titles come from. Shortlist pools every
 source you enable, keeps only what's already in your library, then ranks them (a simple, no-AI
-score); if you've set up an AI curator it makes the final pick and writes the "why". More sources =
-wider reach. Available today:
+score) and writes each pick's "why" in code. More sources = wider reach. Available today:
 
 - **TMDB — similar titles**: the baseline — titles TMDB says are similar to what each person watched.
 - **TMDB — discover by taste**: widens into popular, well-rated titles in the genres each person
   leans toward (derived from their watch history).
-- **AI — suggests from your library** (needs an AI curator): the curator reads each person's taste
-  and proposes owned titles that fit, reaching across your whole library rather than just what's
-  similar to one seed. Large libraries are sliced to each person's genres before the LLM sees them.
 - **Trakt — related titles** (needs a Trakt API key, added in Connections): uses Trakt's
   recommendation graph, which often surfaces "what to watch next" picks TMDB's similar list misses.
 - **AI — web search for what to watch next**: searches the live web for current, well-reviewed titles
   to watch next, then resolves each against your library — reaching beyond TMDB/Trakt to fresh releases
   and critics' lists. Works on **every** provider, via the **Search backend** you pick in its card:
-  your curator's own web search (Claude, GPT, or Gemini), an **Exa** key (any provider — the only path
-  for a local Ollama model), or **Auto** (the default), which uses your curator's tool _and_ Exa
+  your provider's own web search (Claude, GPT, or Gemini), an **Exa** key (any provider — the only path
+  for a local Ollama model), or **Auto** (the default), which uses your provider's tool _and_ Exa
   together when both are set up, since they surface mostly different titles. If a backend needs a key
   you don't have yet, the card lets you enter it right there.
 
@@ -140,11 +136,11 @@ libraries you pick.
 
 ### Freshness, already-watched, and cost
 
-Settings → Recommendations has three more dials (each per-row overridable):
+Settings → Finding titles has three more dials (each per-row overridable):
 
 - **Freshness** — how often a row's picks change. This is a **cadence, not a nightly shuffle**:
   `1.0` refreshes every night, lower means every few days, and `0.0` means "build once, then never
-  reshuffle". On most nights an unchanged row is left exactly as-is — no re-curation, no Plex write
+  reshuffle". On most nights an unchanged row is left exactly as-is — no rebuild, no Plex write
   — which is why a person's row stays familiar instead of being reshuffled daily. On a refresh night
   the strongest ~two-thirds of picks stay and the weakest third rotates out. Default `0.5`
   (about weekly). If you trigger two runs the same day, a row that already isn't due won't change —
@@ -187,28 +183,28 @@ different machine to Plex.
 
 ### Everything above is only the _default_ — rows override it
 
-Settings → Recommendations sets what a row uses **unless the row says otherwise**. Open any row
+Settings → Finding titles sets what a row uses **unless the row says otherwise**. Open any row
 (Rows → Edit) and it defines its own recipe:
 
-| In the row editor          | What it overrides                                                      |
-| -------------------------- | ---------------------------------------------------------------------- |
-| **Recommendation sources** | Switch to "Choose for this row" and tick its own sources               |
-| **Curation style**         | Its own tone, guidance, and (optionally) a full custom AI prompt       |
-| **Libraries**              | Which Plex libraries it builds in — which also sets what it recommends |
-| **Row size**, **Audience** | How many titles, and who gets it                                       |
-| **Request tag**            | The Sonarr/Radarr tag on titles requested for this row's audience      |
+| In the row editor              | What it overrides                                                      |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| **Recommendation sources**     | Switch to "Choose for this row" and tick its own sources               |
+| **Libraries**                  | Which Plex libraries it builds in — which also sets what it recommends |
+| **Freshness**, **Watched cap** | How often it refreshes, and how much already-watched it allows         |
+| **Row size**, **Audience**     | How many titles, and who gets it                                       |
+| **Request tag**                | The Sonarr/Radarr tag on titles requested for this row's audience      |
 
-So a "What to watch next" row can be Trakt-only with a concise tone, a "Hidden gems" row can be
-AI-from-library with a cinephile prompt pointed at just your 4K library, and your default
-"Picked for You" can stay on the global settings — all on the same server, all at once. The Rows
-list shows each row's overrides on its card, so you can see at a glance which rows differ.
+So a "What to watch next" row can be Trakt-only, a "Hidden gems" row can be AI-web-search-only
+pointed at just your 4K library, and your default "Picked for You" can stay on the global settings —
+all on the same server, all at once. The Rows list shows each row's overrides on its card, so you can
+see at a glance which rows differ.
 
-A row left on "Use global default" stays in sync with Settings → Recommendations.
+A row left on "Use global default" stays in sync with Settings → Finding titles.
 
-**The one exception is the seeded "Picked for You" row**: its **name**, **size** and **curation
-style** always follow the global Settings (Defaults and Curation style) so they stay in sync
-everywhere — the row editor points you there instead of offering its own. Its sources, libraries and
-audience are its own, exactly like any other row.
+**The one exception is the seeded "Picked for You" row**: its **name** and **size** always follow the
+global Settings (Row defaults) so they stay in sync everywhere — the row editor points you there
+instead of offering its own. Its sources, libraries and audience are its own, exactly like any other
+row.
 
 **Changes clean up Plex right away.** You don't have to wait for a run:
 
@@ -227,73 +223,69 @@ audience are its own, exactly like any other row.
 
 ## How Shortlist uses AI (and how to control the cost)
 
-**AI is off by default** (the curator is set to "None" out of the box, and both AI sources are off) —
-Shortlist works fully with **no AI at all**. Turning on a curator (Claude, GPT, Gemini, or a local
-Ollama model) makes the picks noticeably better. Here's exactly where AI does and doesn't touch your
-rows, in plain English, so you can decide what to pay for.
+**AI is off by default** (the AI provider is set to "None" out of the box, and the AI web-search
+source is off) — Shortlist works fully with **no AI at all**. AI now has exactly one job: the
+**AI web-search source**, which finds acclaimed "what to watch next" titles the TMDB lists miss.
+Everything else — gathering candidates, ranking them, and writing the "why" under each pick — is done
+in code, with no AI and no per-token cost.
 
 **Building a row happens in four steps:**
 
-1. **Find candidates.** Every source you enabled goes looking for titles. Most of them use **no AI**:
-   the two TMDB sources (similar + discover) and Trakt are plain lookups against those services — free,
-   no API key beyond the ones you already set up. Two sources _do_ use your AI curator — see below.
+1. **Find candidates.** Every source you enabled goes looking for titles. Most use **no AI**: the two
+   TMDB sources (similar + discover) and Trakt are plain lookups against those services — free, no API
+   key beyond the ones you already set up. Only the **AI web-search** source uses your AI provider —
+   see below.
 2. **Keep only what you own.** Everything found is matched against your actual library and against what
    the person has already watched. Anything you don't have, or they've already seen, is dropped. **This
-   is why the AI can never invent a title you don't own** — it only ever gets to choose from real,
-   owned, unwatched titles.
-3. **Balance the shortlist.** Shortlist takes a fair share from each source (so one chatty source
-   can't crowd out the rest) and scores them. **No AI here** — it's a simple ranking.
-4. **Curate + explain.** Your AI curator makes the final selection from that balanced shortlist and
-   writes the one-line "why" under each pick ("Because you liked Fargo…"). This is the single place AI
-   adds the most value, and it's what most people notice.
+   is why a pick can never be a title you don't own** — every source only ever contributes real, owned,
+   unwatched titles.
+3. **Balance and rank.** Shortlist takes a fair share from each source (so one chatty source can't
+   crowd out the rest) and scores them. **No AI here** — it's a simple ranking.
+4. **Deliver + explain.** The top-ranked titles fill the row, each with a one-line "why" written from
+   the seed behind it ("Because you liked sci-fi like Dune", "Because you watched Fargo"). **No AI
+   here either** — the reasons are generated in code, so they cost nothing and read the same whether or
+   not you use AI.
 
-### The two AI-powered sources
+### The one AI-powered source
 
 - **AI — web search** (the "AI web search" toggle): searches the live web for acclaimed, current
-  "what to watch next" titles, then keeps the ones you own. In our own testing this was the **strongest
-  extra source** — it surfaces well-reviewed titles the TMDB lists simply don't return. If you pay for
-  any AI source, this is the one to keep.
-- **AI — suggests from your library** (the "AI from library" toggle): asks the curator to scan your
-  library for owned titles that fit each person. Honest assessment from our testing: it adds the
-  **fewest unique picks for the most AI cost** — nearly everything it finds, the other sources already
-  found. **It's the first thing to turn off to cut your bill**, and it's off by default.
+  "what to watch next" titles, then keeps the ones you own. In our own testing this was a strong extra
+  source — it surfaces well-reviewed titles the TMDB lists simply don't return. It's the only place AI
+  spends anything, and it's off by default.
 
 ### If you don't want to use AI
 
-Leave the curator on **None** (Settings → Curation style — this is the default) and the two AI sources off. You still get full,
-per-person private rows: candidates come from TMDB/Trakt, and the final selection uses the score
-ranking with plain "Because you watched…" reasons instead of AI-written ones. Everything about privacy,
-scheduling and requests works exactly the same. You lose the AI web-search source and the tailored
-"why" text — that's the whole difference.
+Leave the AI provider on **None** (Settings → Connections — this is the default) and the AI web-search
+source off. You still get full, per-person private rows: candidates come from TMDB/Trakt, ranked by
+score with plain "Because you watched…" reasons. Everything about privacy, scheduling and requests
+works exactly the same. The only thing you lose is the AI web-search source — nothing else changes,
+because nothing else used AI.
 
 ### Tuning AI cost
 
-Costs come from the curator (Anthropic/OpenAI/Google charge per token; Ollama is free but runs on your
-own hardware). Roughly cheapest-to-priciest levers:
+Cost comes entirely from the AI web-search source (Anthropic/OpenAI/Google charge per token; a local
+Ollama/OpenAI-compatible server is free but runs on your own hardware). Roughly cheapest-to-priciest
+levers:
 
-1. **Turn off "AI from library."** Biggest saving for the least loss — most people should leave it off.
-2. **Use a small, cheap model.** A fast/mini model (e.g. Claude Haiku, GPT-mini, Gemini Flash) is
-   plenty for curation; you don't need a flagship model to pick from a 40-title shortlist.
-3. **Run less often.** Nightly is the default; a longer schedule means fewer runs and fewer tokens.
-   This is the most direct way to lower your total bill.
-4. **Fewer AI sources per row.** A row can override the global sources (Rows → Edit) — keep AI web
-   search only on the rows that benefit, and let the rest run on the free TMDB sources.
+1. **Turn AI web search off, or limit which rows use it.** A row can override the global sources
+   (Rows → Edit) — keep AI web search only on the rows that benefit, and let the rest run on the free
+   TMDB/Trakt sources.
+2. **Search fewer recent watches.** The source runs one web search per person's recent watch; lower
+   `recommendations.recent_count` (Settings → Finding titles) to cut searches. Results are cached 14
+   days and shared across users, so a popular title is searched once server-wide.
+3. **Use a small, cheap model.** A fast/mini model (e.g. Claude Haiku, GPT-mini, Gemini Flash) is
+   plenty; you don't need a flagship model to read a few search results.
+4. **Run less often.** Nightly is the default; a longer schedule means fewer runs and fewer searches.
 
-Worth knowing: the curator re-picks and re-explains **every** enabled person on every run, so a quiet
-night with no library changes still spends roughly the same tokens as a busy one — how _often_ you run
-(and which model) is what drives cost, not how much changed. (Runs do skip the Plex _write_ when a
-person's row is unchanged, but that saves time on the Plex side, not AI tokens.)
-
-The "AI web search" card also lets you pick the **search backend** — your curator's own web search
-(Claude/GPT/Gemini), an **Exa** key (works with any provider, and the only option for Ollama), or
-**Auto**, which uses both when available because they tend to find different titles.
+The "AI web search" card also lets you pick the **search backend** — your provider's own web search
+(Claude/GPT/Gemini), an **Exa** key (works with any provider, and the only option for a local model),
+or **Auto**, which uses both when available because they tend to find different titles.
 
 **Seeing where the tokens go.** Every run records its AI cost so there's no guessing. Open a run
 (Runs → click a run) and you'll see the **total AI tokens** for the run, then per person a breakdown
-by _what the AI did_ — `final picks` (curation), `web search`, `library scan` — plus any **Exa
-searches** (counted separately, since Exa bills per search, not per token). Each row also shows the
-tokens its curation cost. The runs list shows each run's token total at a glance. Use it to spot which
-step or which people cost the most, then tune with the levers above.
+by _what the AI did_ — `web search` — plus any **Exa searches** (counted separately, since Exa bills
+per search, not per token). The runs list shows each run's token total at a glance. Use it to spot
+which people cost the most, then tune with the levers above.
 
 ## Requests (Radarr / Sonarr)
 

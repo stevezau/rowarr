@@ -48,6 +48,9 @@ class RequestCandidateOut(BaseModel):
     excluded: bool = False  # on a Sonarr/Radarr exclusion list — the inbox warns approving is a no-op
     arr_slug: str | None = None  # the arr titleSlug -> the sent log deep-links straight to its page
     updated_at: str | None  # when this row last changed state (the "sent at" for a sent item)
+    arr_status: str | None = (
+        None  # "downloaded" | "downloading" | "queued" | "monitored" | "unmonitored" | None (not in arr)
+    )
 
 
 class RequestAction(BaseModel):
@@ -177,6 +180,55 @@ def clear_requests(body: RequestAction, request: Request) -> dict:
         session.add(Event(scope="requests.clear", level="info", message={"ids": body.ids, "count": count}))
         session.commit()
     return {"cleared": count}
+
+
+@router.get("/status")
+async def get_arr_status(request: Request) -> dict[int, str]:
+    """Fetch Arr download status for all sent requests. Returns {request_id: 'downloaded' | 'downloading' | ...}.
+
+    Only queries Arr for titles with status='sent' — pending/rejected are skipped. Runs in executor
+    since Arr clients are sync. A title not found in Arr appears as None in the map.
+    """
+    state = request.app.state
+    svc = state.run_service
+
+    def _fetch_statuses() -> dict[int, str | None]:
+        cfg, tmdb = svc.build_requests_context()
+        if cfg is None:
+            return {}
+
+        from shortlist.engine.clients.arr import RadarrClient, SonarrClient
+        from shortlist.engine.clients.tmdb import TmdbClient
+
+        with state.sessions() as session:
+            rows = session.query(RequestCandidate).filter(RequestCandidate.status == "sent").all()
+
+        statuses: dict[int, str | None] = {}
+        radarr = RadarrClient(cfg.radarr) if cfg.radarr else None
+        sonarr = SonarrClient(cfg.sonarr) if cfg.sonarr else None
+
+        for row in rows:
+            try:
+                if row.media_type == "movie" and radarr:
+                    result = radarr.get_status(row.tmdb_id)
+                    statuses[row.id] = result["status"] if result else None
+                elif row.media_type == "tv" and sonarr:
+                    # Need tvdb_id - get it from TMDB
+                    tmdb_client = TmdbClient(tmdb.api_key)
+                    external = tmdb_client.external_ids(row.tmdb_id, MediaType.TV)
+                    tvdb_id = external.get("tvdb_id")
+                    if tvdb_id:
+                        result = sonarr.get_status_by_tvdb(tvdb_id)
+                        statuses[row.id] = result["status"] if result else None
+                    else:
+                        statuses[row.id] = None
+            except Exception:
+                # Arr errors shouldn't block the whole status fetch — just mark this one unknown
+                statuses[row.id] = None
+
+        return statuses
+
+    return await asyncio.get_running_loop().run_in_executor(None, _fetch_statuses)
 
 
 @router.post("/send")

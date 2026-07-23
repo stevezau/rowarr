@@ -477,6 +477,10 @@ export const api = {
       body: JSON.stringify({ ids }),
     }),
 
+  // Fetch Arr download status for all sent requests
+  getArrStatus: (): Promise<Record<number, string | null>> =>
+    request("/api/requests/status"),
+
   // --- System ---
   /**
    * Full uninstall (or a dry-run preview of it). The backend requires the

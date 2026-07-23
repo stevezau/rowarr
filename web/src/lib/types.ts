@@ -683,6 +683,8 @@ export interface RequestCandidate {
   arr_slug: string | null;
   /** When this row last changed state — the "sent at" for a sent item. */
   updated_at: string | null;
+  /** Download status from Sonarr/Radarr: 'downloaded' | 'downloading' | 'queued' | 'monitored' | 'unmonitored' | null (not in arr). */
+  arr_status: string | null;
 }
 
 /** One reason a missing title is in the inbox: a person, the row that wanted it, and what suggested it. */
@@ -709,7 +711,6 @@ export interface RequestSendResult {
   dry_run: boolean;
   outcomes: RequestSendOutcome[];
 }
-
 
 /** One parsed line from the rotating log file (GET /api/system/logs). A traceback is folded into
  *  the entry it belongs to, so `message` can span several lines. */

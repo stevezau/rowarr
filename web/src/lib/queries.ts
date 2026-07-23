@@ -348,6 +348,14 @@ export function useRequests() {
   return useQuery({ queryKey: queryKeys.requests, queryFn: api.listRequests });
 }
 
+export function useArrStatus() {
+  return useQuery({
+    queryKey: ["arrStatus"],
+    queryFn: api.getArrStatus,
+    staleTime: 30_000, // status changes slowly, cache 30s
+  });
+}
+
 export function useNotifications() {
   return useQuery({
     queryKey: ["notifications"],
@@ -443,7 +451,6 @@ export function useClearRequests() {
       queryClient.invalidateQueries({ queryKey: queryKeys.requests }),
   });
 }
-
 
 /** The app's log file. `follow` polls so a live run narrates itself without the operator reloading;
  *  `keepPreviousData` stops the list blanking out on every poll or filter change. */

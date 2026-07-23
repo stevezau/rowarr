@@ -349,6 +349,8 @@ export interface RunDetail extends Run {
 export interface TraceWatch {
   title: string;
   media: string;
+  /** Display name of the Plex library it lives in ("" when unknown — fall back to a media label). */
+  library: string;
   year: number | null;
   watched_at: string | null;
 }
@@ -357,8 +359,19 @@ export interface TraceWatch {
 export interface TraceSeed {
   title: string;
   media: string;
+  /** Display name of the Plex library it lives in ("" when unknown — fall back to a media label). */
+  library: string;
   tmdb_id: number;
   weight: number;
+}
+
+/** One seed's query against a source: what it searched for and a sample of what came back. */
+export interface TraceSeedQuery {
+  seed: string;
+  media: string;
+  returned: string[];
+  /** Total returned before the `returned` sample was capped — so the UI can say "+N more". */
+  total: number;
 }
 
 /** One candidate source's contribution in a gather. */
@@ -367,6 +380,8 @@ export interface TraceSource {
   status: "ok" | "failed";
   contributed: number;
   detail: string;
+  /** Per-seed query sample (seeded TMDB/Trakt sources only; empty for discover/llm_web). */
+  queries?: TraceSeedQuery[];
 }
 
 /** One Exa search: the query sent for a seed and the titles it returned. */

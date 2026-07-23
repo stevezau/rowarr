@@ -384,9 +384,17 @@ def _record_history_trace(
     seeds_for,
     watched_movies: set[int],
     show_plays: dict[int, int],
+    library_of_watch=lambda _item: "",
+    library_of_seed=lambda _seed: "",
 ) -> None:
     """File the history/seeds/watched stage of the trace: the most recent watches, the seeds derived
-    from them (the widest set any row uses), and a watched summary. Display only."""
+    from them (the widest set any row uses), and a watched summary. Display only.
+
+    ``library_of_watch``/``library_of_seed`` resolve each item to its Plex library's display name so
+    the UI can group by real library — a server can have several movie or TV libraries with custom
+    names, so grouping by media type alone would be wrong. Both default to "" (unknown), which the UI
+    falls back to a media-type label for.
+    """
     recent = sorted(history, key=lambda i: i.watched_at, reverse=True)[:_TRACE_HISTORY_SAMPLE]
     seeds = max((seeds_for(spec) for spec in specs), key=len, default=[])
     report.trace["history"] = {
@@ -395,6 +403,7 @@ def _record_history_trace(
             {
                 "title": i.title,
                 "media": i.media_type.value,
+                "library": library_of_watch(i),
                 "year": i.year,
                 "watched_at": i.watched_at.isoformat() if i.watched_at else None,
             }
@@ -404,7 +413,13 @@ def _record_history_trace(
         "watched_shows": len(show_plays),
     }
     report.trace["seeds"] = [
-        {"title": s.title, "media": s.media_type.value, "tmdb_id": s.tmdb_id, "weight": round(s.weight, 3)}
+        {
+            "title": s.title,
+            "media": s.media_type.value,
+            "library": library_of_seed(s),
+            "tmdb_id": s.tmdb_id,
+            "weight": round(s.weight, 3),
+        }
         for s in sorted(seeds, key=lambda s: s.weight, reverse=True)
     ]
 
@@ -619,7 +634,31 @@ def _run_user(
         # The finished-title set, derived once: read by pools_for (0% hard-exclude) and the per-row
         # watched cap (>0). Mutated in place so the pools_for closure sees it.
         watched_titles |= _watched_titles(watched_movies, show_plays, ctx.episode_counts, cfg.watched_show_pct)
-        _record_history_trace(user_report, user.history, specs, seeds_for, watched_movies, show_plays)
+        # Resolve each watch/seed to the display name of the Plex library it lives in, so the trace can
+        # group by REAL library (a server can have several movie or TV libraries, custom-named). Both
+        # maps are built from data the run already holds — no extra Plex reads.
+        section_titles = {str(s.key): getattr(s, "title", "") or "" for s in ctx.delivery_sections}
+        rating_key_to_section = _sections_of(ctx, [])  # ratingKey -> section key, across all libraries
+        tmdb_to_section = {  # tmdb_id -> section key (first library holding it; good enough for display)
+            tmdb_id: str(section_key) for section_key, index in ctx.section_index.items() for tmdb_id in index
+        }
+
+        def library_of_watch(item: WatchedItem) -> str:
+            return section_titles.get(rating_key_to_section.get(item.rating_key or -1, ""), "")
+
+        def library_of_seed(s) -> str:
+            return section_titles.get(tmdb_to_section.get(s.tmdb_id, ""), "")
+
+        _record_history_trace(
+            user_report,
+            user.history,
+            specs,
+            seeds_for,
+            watched_movies,
+            show_plays,
+            library_of_watch=library_of_watch,
+            library_of_seed=library_of_seed,
+        )
         _pipeline._emit(ctx, user.slug, "candidates", {"history": len(user.history), "seeds": user_report.counts.seeds})
         for spec in specs:  # build every row's pool up front so counts and demand see them all
             pools_for(spec)

@@ -42,6 +42,8 @@ KNOWN_SOURCES = ("tmdb_similar", "tmdb_discover", "trakt", "llm_web")
 DEFAULT_SOURCES = ("tmdb_similar",)
 _DISCOVER_TOP_GENRES = 3  # how many of a person's dominant genres to widen into
 _LLM_WEB_K = 20  # how many titles the web-search LLM proposes (each resolved to TMDB, then verified)
+_TRACE_SEEDS_SAMPLE = 12  # per source, how many seeds' queries to record in the trace (display only)
+_TRACE_RETURNS_SAMPLE = 8  # per seed, how many returned titles to record in the trace (display only)
 
 
 @dataclass
@@ -322,14 +324,34 @@ def gather_candidates(
     for media_type in {s.media_type for s in seeds}:
         genres_for(media_type)
 
+    # Per-source, per-seed "what we asked for → what came back" records for the trace, so the operator
+    # can follow a TMDB/Trakt query the same way they can an AI web search. Bounded to a sample.
+    seed_queries: dict[str, list[dict]] = {}
+
+    def _record_seed_query(source: str, seed: Seed, returned: list[str]) -> None:
+        rows = seed_queries.setdefault(source, [])
+        if len(rows) >= _TRACE_SEEDS_SAMPLE:
+            return
+        rows.append(
+            {
+                "seed": seed.title,
+                "media": seed.media_type.value,
+                "returned": returned[:_TRACE_RETURNS_SAMPLE],
+                "total": len(returned),
+            }
+        )
+
     if "tmdb_similar" in enabled:
         attempted.add("tmdb_similar")
         try:
             for seed in seeds:
                 seed_genres = _seed_genre_ids(tmdb, seed)
+                returned: list[str] = []
                 for item, affinity in tmdb.suggestions(seed.tmdb_id, seed.media_type):
                     coherence = genre_coherence(seed_genres, item.get("genre_ids") or [])
                     add(item, seed.media_type, "tmdb_similar", affinity * coherence).seeds.append(seed)
+                    returned.append(item.get("title") or item.get("name") or "")
+                _record_seed_query("tmdb_similar", seed, returned)
         except Exception as e:
             # The only source that used to have no isolation: a TMDB hiccup here killed the user's
             # whole run, discarding the pools every other source had already gathered.
@@ -361,12 +383,15 @@ def gather_candidates(
         attempted.add("trakt")
         try:
             for seed in seeds:
+                returned = []
                 for item in trakt.related(seed.tmdb_id, seed.media_type):
                     # Related-to-a-seed, so keep the provenance (a real "because you watched X").
                     cand = merge(
                         item["tmdb_id"], item["title"], seed.media_type, item.get("year"), item.get("genres"), "trakt"
                     )
                     cand.seeds.append(seed)
+                    returned.append(item["title"])
+                _record_seed_query("trakt", seed, returned)
         except Exception as e:
             failures["trakt"] = f"{type(e).__name__}: {e}"
             logger.warning("trakt source failed ({}); continuing with the other sources", type(e).__name__)
@@ -431,6 +456,9 @@ def gather_candidates(
             "status": "failed" if source in failures else "ok",
             "contributed": by_source.get(source, 0),
             "detail": failures.get(source, ""),
+            # Per-seed "searched for X → got these back" sample; only the seeded TMDB/Trakt sources
+            # have one (discover queries by genre, llm_web records its own queries under `web`).
+            "queries": seed_queries.get(source, []),
         }
         for source in sorted(attempted)
     ]

@@ -1011,9 +1011,9 @@ export function RunDetailPage() {
                               {selected.has_trace && userId !== null && (
                                 <Button
                                   asChild
-                                  variant="outline"
+                                  variant="secondary"
                                   size="sm"
-                                  className="gap-1.5"
+                                  className="gap-1.5 border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
                                 >
                                   <Link to={`/runs/${run.id}/trace/${userId}`}>
                                     <Telescope

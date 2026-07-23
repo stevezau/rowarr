@@ -68,13 +68,31 @@ class TestGatherTraceSources:
                 raise RuntimeError("trakt 503")
 
         stats = GatherStats()
-        gather_candidates(mock_tmdb, [seed(1)], sources=["tmdb_similar", "trakt"], trakt=_Boom(), stats=stats)
+        gather_candidates(
+            mock_tmdb, [seed(1, "Arrival")], sources=["tmdb_similar", "trakt"], trakt=_Boom(), stats=stats
+        )
         by_source = {s["source"]: s for s in stats.trace["sources"]}
         assert by_source["tmdb_similar"]["status"] == "ok"
         assert by_source["tmdb_similar"]["contributed"] == 1
         assert by_source["trakt"]["status"] == "failed"
         assert by_source["trakt"]["contributed"] == 0
         assert "trakt 503" in by_source["trakt"]["detail"]  # the real reason, for the operator
+        # The seeded source records what each seed searched for and what came back, so the operator can
+        # follow a TMDB query the way they can an AI web search.
+        assert by_source["tmdb_similar"]["queries"][0]["seed"] == "Arrival"
+        assert by_source["tmdb_similar"]["queries"][0]["returned"] == ["S"]
+
+    def test_per_seed_query_sample_is_bounded(self, mock_tmdb):
+        mock_tmdb.suggestions.side_effect = lambda tid, mt: _ranked(
+            [{"id": 10, "title": "S", "genre_ids": [], "vote_average": 7.0}]
+        )
+        from shortlist.engine.candidates import _TRACE_SEEDS_SAMPLE
+
+        many = [seed(i, f"Seed {i}") for i in range(_TRACE_SEEDS_SAMPLE + 10)]
+        stats = GatherStats()
+        gather_candidates(mock_tmdb, many, sources=["tmdb_similar"], stats=stats)
+        queries = {s["source"]: s for s in stats.trace["sources"]}["tmdb_similar"]["queries"]
+        assert len(queries) == _TRACE_SEEDS_SAMPLE  # sampled, not one row per seed
 
     def test_discover_records_the_genres_it_widened_into(self, mock_tmdb):
         mock_tmdb.suggestions.side_effect = lambda tid, mt: _ranked([])
@@ -158,6 +176,27 @@ class TestRecordHistoryTrace:
         # Seeds strongest-first, with the weight rounded for display.
         assert [s["title"] for s in report.trace["seeds"]] == ["B", "A"]
         assert report.trace["seeds"][0]["weight"] == 0.9
+
+    def test_records_the_real_library_name_for_each_watch_and_seed(self):
+        # A server with two movie libraries: grouping by media type alone would wrongly merge them,
+        # so the trace must carry each item's real library display name.
+        report = _report()
+        history = [self._watch("Dune", 20), self._watch("Akira", 19)]
+        seeds = [seed(1, "Dune"), seed(2, "Akira")]
+        libraries = {"Dune": "Movies", "Akira": "4K Movies"}
+
+        rows_mod._record_history_trace(
+            report,
+            history,
+            [_row_spec()],
+            seeds_for=lambda _spec: seeds,
+            watched_movies=set(),
+            show_plays={},
+            library_of_watch=lambda item: libraries[item.title],
+            library_of_seed=lambda s: libraries[s.title],
+        )
+        assert {w["title"]: w["library"] for w in report.trace["history"]["recent"]} == libraries
+        assert {s["title"]: s["library"] for s in report.trace["seeds"]} == libraries
 
     def test_recent_watches_are_capped(self):
         report = _report()

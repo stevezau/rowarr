@@ -278,32 +278,59 @@ function HistoryPanel({
 }: {
   history: NonNullable<RunUserTrace["history"]>;
 }) {
+  const groups = groupByLibrary(history.recent);
   return (
     <Panel
       title="What they watched"
-      intro="We start from what this person has actually been watching on your server. These are their most recent plays."
+      intro="We start from what this person has actually been watching on your server, split by library. These are their most recent plays."
     >
       <div className="flex flex-wrap gap-3">
         <Stat value={history.total} label="recent watches" />
         <Stat value={history.watched_movies} label="movies finished" />
         <Stat value={history.watched_shows} label="shows played" />
       </div>
-      {history.recent.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Most recently watched</p>
-          <ul className="flex flex-wrap gap-1.5">
-            {history.recent.map((w, i) => (
-              <li key={`${w.title}-${i}`}>
-                <Badge variant="secondary" className="font-normal">
-                  {w.title}
-                  {w.year ? ` (${w.year})` : ""}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="space-y-4">
+        {groups.map((g) => (
+          <div key={g.label} className="space-y-2">
+            <GroupHeading
+              label={g.label}
+              count={g.items.length}
+              unit="recent"
+            />
+            <ul className="flex flex-wrap gap-1.5">
+              {g.items.map((w, i) => (
+                <li key={`${w.title}-${i}`}>
+                  <Badge variant="secondary" className="font-normal">
+                    {w.title}
+                    {w.year ? ` (${w.year})` : ""}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </Panel>
+  );
+}
+
+/** A library group heading: the real library name (or a media-type fallback) plus a count. */
+function GroupHeading({
+  label,
+  count,
+  unit,
+}: {
+  label: string;
+  count: number;
+  unit: string;
+}) {
+  return (
+    <p className="text-sm font-medium">
+      {label}{" "}
+      <span className="font-normal text-muted-foreground">
+        · {count} {unit}
+      </span>
+    </p>
   );
 }
 
@@ -319,34 +346,55 @@ function Stat({ value, label }: { value: number; label: string }) {
 }
 
 function SeedsPanel({ seeds }: { seeds: TraceSeed[] }) {
+  // Normalise the bar to the strongest seed so it always reads as "relative to their top title",
+  // never as an absolute score the operator has to interpret.
   const max = Math.max(...seeds.map((s) => s.weight), 0.0001);
+  const groups = groupByLibrary(seeds);
   return (
     <Panel
       title="Titles we searched from"
-      intro="From their history we pick the titles that best represent their taste — favouring what they watched recently and often — then find things like them. The bar shows how much each one shaped tonight’s picks."
+      intro="From their history we pick the titles that best represent their taste — favouring what they watched recently and often — then look for things like them, per library."
     >
-      <ul className="space-y-2">
-        {seeds.map((s) => (
-          <li key={`${s.media}-${s.tmdb_id}`} className="space-y-1">
-            <div className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-sm">{s.title}</span>
-              <Badge variant="outline" className="shrink-0 font-normal">
-                {mediaLabel(s.media)}
-              </Badge>
-            </div>
-            <div
-              className="h-1.5 overflow-hidden rounded-full bg-muted"
-              role="img"
-              aria-label={`Influence: ${Math.round((s.weight / max) * 100)}%`}
-            >
-              <div
-                className="h-full rounded-full bg-primary/70"
-                style={{ width: `${Math.max(6, (s.weight / max) * 100)}%` }}
-              />
-            </div>
-          </li>
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span
+          className="h-1.5 w-8 rounded-full bg-primary/70"
+          aria-hidden="true"
+        />
+        Longer bar = watched more recently and more often, so it shaped
+        tonight’s picks more.
+      </p>
+      <div className="space-y-4">
+        {groups.map((g) => (
+          <div key={g.label} className="space-y-2">
+            <GroupHeading
+              label={g.label}
+              count={g.items.length}
+              unit={g.items.length === 1 ? "title" : "titles"}
+            />
+            <ul className="space-y-2">
+              {g.items.map((s) => (
+                <li key={`${s.media}-${s.tmdb_id}`} className="space-y-1">
+                  <span className="block truncate text-sm">{s.title}</span>
+                  <div
+                    className="h-1.5 overflow-hidden rounded-full bg-muted"
+                    role="img"
+                    aria-label={`Influence relative to top title: ${Math.round(
+                      (s.weight / max) * 100,
+                    )}%`}
+                  >
+                    <div
+                      className="h-full rounded-full bg-primary/70"
+                      style={{
+                        width: `${Math.max(6, (s.weight / max) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
     </Panel>
   );
 }
@@ -355,7 +403,7 @@ function SourcesPanel({ gathers }: { gathers: TraceGather[] }) {
   return (
     <Panel
       title="Where we looked"
-      intro="Each place we searched for candidates, and how many titles it turned up. If one failed, the reason is shown so you can tell an empty result from an outage."
+      intro="Every place we searched for candidates and what each one turned up. Expand a source to follow it title by title — exactly what we asked for and what came back. If one failed, the reason is shown so you can tell an empty result from an outage."
     >
       <div className="space-y-5">
         {gathers.map((gather, i) => (
@@ -390,23 +438,23 @@ function SourcesPanel({ gathers }: { gathers: TraceGather[] }) {
 
 function SourceRow({ src }: { src: TraceSource }) {
   const failed = src.status === "failed";
-  return (
-    <li className="flex items-start justify-between gap-3 rounded-lg border p-3">
-      <div className="min-w-0 space-y-0.5">
+  const queries = src.queries ?? [];
+  const status = failed ? (
+    <span className="text-destructive">
+      Couldn’t reach it{src.detail ? ` — ${src.detail}` : ""}
+    </span>
+  ) : src.contributed > 0 ? (
+    `Found ${src.contributed.toLocaleString()} candidate${
+      src.contributed === 1 ? "" : "s"
+    }`
+  ) : (
+    "Nothing new this time"
+  );
+  const header = (
+    <>
+      <div className="min-w-0 space-y-0.5 text-left">
         <p className="text-sm font-medium">{sourceLabel(src.source)}</p>
-        {failed ? (
-          <p className="text-xs text-destructive">
-            Couldn’t reach it{src.detail ? ` — ${src.detail}` : ""}
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {src.contributed > 0
-              ? `Found ${src.contributed.toLocaleString()} candidate${
-                  src.contributed === 1 ? "" : "s"
-                }`
-              : "Nothing new this time"}
-          </p>
-        )}
+        <p className="text-xs text-muted-foreground">{status}</p>
       </div>
       <Badge
         variant={failed ? "destructive" : "secondary"}
@@ -414,6 +462,54 @@ function SourceRow({ src }: { src: TraceSource }) {
       >
         {failed ? "Failed" : src.contributed.toLocaleString()}
       </Badge>
+    </>
+  );
+
+  // With no per-seed detail (discover, or a source that failed), it's a static row. With detail,
+  // it's an expandable <details> so the operator can follow each seed's query and results.
+  if (queries.length === 0) {
+    return (
+      <li className="flex items-start justify-between gap-3 rounded-lg border p-3">
+        {header}
+      </li>
+    );
+  }
+  return (
+    <li className="rounded-lg border">
+      <details>
+        <summary className="flex cursor-pointer items-start justify-between gap-3 p-3 [&::-webkit-details-marker]:hidden">
+          {header}
+        </summary>
+        <div className="space-y-2 border-t px-3 py-3">
+          <p className="text-xs text-muted-foreground">
+            Searched for each title below and got these back:
+          </p>
+          <ul className="space-y-2">
+            {queries.map((q, i) => (
+              <li key={`${q.seed}-${i}`} className="text-sm">
+                <p className="flex items-center gap-1.5">
+                  <Search
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="font-medium">{q.seed}</span>
+                  <Badge variant="outline" className="shrink-0 font-normal">
+                    {mediaLabel(q.media)}
+                  </Badge>
+                </p>
+                <p className="mt-0.5 pl-5 text-xs text-muted-foreground">
+                  {q.returned.length > 0
+                    ? q.returned.join(", ")
+                    : "nothing returned"}
+                  {q.total > q.returned.length
+                    ? ` +${(q.total - q.returned.length).toLocaleString()} more`
+                    : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </details>
     </li>
   );
 }
@@ -532,6 +628,36 @@ function mediaLabel(media: string): string {
   if (media === "show") return "Show";
   if (media === "both") return "Movies & shows";
   return media;
+}
+
+/** The heading for one media type when the real library name is unknown (legacy runs, before the
+ *  trace recorded it). NOT used when a library name is present — that always wins. */
+function mediaGroupLabel(media: string): string {
+  if (media === "movie") return "Movies";
+  if (media === "show") return "TV Shows";
+  return media || "Other";
+}
+
+interface LibraryGroup<T> {
+  label: string;
+  items: T[];
+}
+
+/** Group watches/seeds by their REAL Plex library name (a server can have several movie or TV
+ *  libraries, custom-named — so grouping by media type alone would merge distinct libraries). Falls
+ *  back to a media-type heading only for items with no recorded library (legacy runs). Input order is
+ *  preserved within each group, and groups appear in first-seen order. */
+function groupByLibrary<T extends { library: string; media: string }>(
+  items: T[],
+): LibraryGroup<T>[] {
+  const groups = new Map<string, LibraryGroup<T>>();
+  for (const item of items) {
+    const label = item.library || mediaGroupLabel(item.media);
+    const existing = groups.get(label);
+    if (existing) existing.items.push(item);
+    else groups.set(label, { label, items: [item] });
+  }
+  return [...groups.values()];
 }
 
 /** The pool label the engine emits is "{media} · {source ids}"; only the media part is worth

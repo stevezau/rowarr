@@ -25,7 +25,7 @@ from shortlist.engine.delivery import (
     row_marker,
 )
 from shortlist.engine.models import SHARED_LABEL_PREFIX, UserProfile, UserType
-from shortlist.server.db.models import Event, Run, User
+from shortlist.server.db.models import DEFAULT_SLUG, Event, Run, User
 from shortlist.server.safe_mode import force_dry_run
 
 
@@ -171,9 +171,12 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
     Each user's collection is found by the exact title the last run delivered for THIS row (its
     persisted breakdown), scoped to that user's own label, and renamed to the freshly-rendered new
     title (same account marker). Privacy-neutral, so gate-exempt (the hiding filter is keyed on the
-    label, which never changes here). A ``{library_name}`` template IS renamed here — it renders to a
-    stable per-library title, and the breakdown records which library each old title came from, so the
-    new title is re-rendered in that SAME library. Only titles that render to the default with no picks
+    label, which never changes here). For the DEFAULT row a user's own ``row_name_tpl`` override wins
+    over ``new_template`` (matching delivery's ``resolve_row_template``), so an override user is
+    re-rendered from their own template and left untouched. A ``{library_name}`` template IS renamed
+    here — it renders to a stable per-library title, and the breakdown records which library each old
+    title came from, so the new title is re-rendered in that SAME library. Only titles that render to
+    the default with no picks
     (a ``{top_seed}`` template, or a blank one) are skipped — their title changes every run anyway, and
     the next run's delivery already renames the sole-row case. Runs in an executor.
 
@@ -188,6 +191,12 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
         old_titles = titles_by_user.get(user.id, {})  # {delivered title -> library it was delivered in}
         if not old_titles:
             continue
+        # The DEFAULT row has no per-collection template, so delivery resolves each user's title as
+        # their own `row_name_tpl` override or the global template (resolve_row_template's second tier).
+        # Re-render with the SAME per-user template here, or a user who set a personal name would have
+        # their collection renamed to the global template — clobbering their override until the next run.
+        override = (user.prefs or {}).get("row_name_tpl") if slug == DEFAULT_SLUG else None
+        effective_template = override or new_template
         profile = UserProfile(
             username=user.username,
             plex_account_id=user.plex_account_id,
@@ -202,7 +211,7 @@ def _reconcile_row_rename(state, *, slug: str, new_template: str, entries: list[
         for old_display, library_title in old_titles.items():
             # Re-render in the SAME library the old title was delivered in, so a {library_name} row's
             # "✨ Movies Picked for You" is renamed to its new Movies title, not to some other library's.
-            new_display = render_row_name(new_template, profile, [], library_name=library_title)
+            new_display = render_row_name(effective_template, profile, [], library_name=library_title)
             if new_display == DEFAULT_ROW_NAME:
                 # A {top_seed}/blank template renders to the default with no picks — its title changes
                 # every run anyway, so the next run's delivery renames the sole-row case. Skip here.

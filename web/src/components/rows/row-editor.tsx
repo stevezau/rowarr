@@ -122,21 +122,20 @@ export function RowEditor({
               id="row-name"
               value={input.name}
               placeholder="e.g. Hidden Gems"
-              disabled={isDefault}
               onChange={(event) => set({ name: event.target.value })}
             />
-            {isDefault ? (
+            <p className="text-sm text-muted-foreground">
+              Use <span className="font-mono">{"{library_name}"}</span> for the
+              library’s name, <span className="font-mono">{"{user}"}</span> for
+              each person’s name, or{" "}
+              <span className="font-mono">{"{top_seed}"}</span> for their top
+              watched title.
+            </p>
+            {isDefault && (
               <p className="text-sm text-muted-foreground">
-                The default row’s name and size follow Settings → Defaults, so
-                they stay in sync everywhere. Change them there.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Use <span className="font-mono">{"{library_name}"}</span> for
-                the library’s name,{" "}
-                <span className="font-mono">{"{user}"}</span> for each person’s
-                name, or <span className="font-mono">{"{top_seed}"}</span> for
-                their top watched title.
+                This is the default row’s name, shared with Settings → Defaults
+                — changing it here changes it there too, and renames everyone’s
+                row on Plex.
               </p>
             )}
           </div>

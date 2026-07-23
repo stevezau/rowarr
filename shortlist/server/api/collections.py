@@ -284,6 +284,7 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
     state = request.app.state
     dropped_user_ids: set[int] = set()
     new_row_template: str | None = None  # set when a rename should be reconciled onto Plex
+    default_template_change: str | None = None  # set when the DEFAULT row's global name template changed
     poster_reset_needed = False  # set when a row drops a custom poster back to Plex default
     slug = build = None
     with state.sessions() as session:
@@ -307,10 +308,18 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
         # the title actually changed — delivery renders from `name_template or name`.
         touching_name = build == "per_person" and not is_default and bool(sent & {"name", "name_template"})
         old_template = (collection.name_template or collection.name) if touching_name else None
-        # The default row's name follows the global Settings → Defaults template, never this column, so
-        # a save of it is ignored here (the editor now shows the template as its name, and would
-        # otherwise round-trip that value back into the column).
-        if "name" in sent and not is_default:
+        # The default row has no per-collection name: its title IS the global `row.name_template`
+        # (Settings → Defaults), which delivery renders per library. So a rename of it writes that
+        # global setting — NOT this column — because a per-collection template would win over each
+        # user's own `row_name_tpl` override in `resolve_row_template`. Its `name` column is never
+        # touched (the editor round-trips the template as the name, which must not clobber it).
+        if "name" in sent and is_default:
+            store = SettingsStore(session, state.secrets)
+            new_template = body.name.strip()
+            if new_template and new_template != (store.get("row.name_template") or ""):
+                store.set("row.name_template", new_template)
+                default_template_change = new_template
+        elif "name" in sent:
             _reject_duplicate_name(session, body.name, exclude_id=collection_id)
             collection.name = body.name
         for column in _PATCHABLE_COLUMNS:
@@ -375,6 +384,13 @@ async def update_collection(collection_id: int, body: CollectionIn, request: Req
     # old-named copy until the next run rebuilt it). Privacy-neutral, so gate-exempt. Best-effort + audited.
     if new_row_template is not None:
         await reconcile.run_row_rename(state, slug=slug, new_template=new_row_template, scope="collection.rename")
+    # Renaming the DEFAULT row changed the global template, so reconcile it onto Plex now (same in-place
+    # rename path, keyed on the new global template). run_row_rename re-renders per user and skips anyone
+    # whose title didn't actually change — so a user with their own `row_name_tpl` override is left alone.
+    if default_template_change is not None:
+        await reconcile.run_row_rename(
+            state, slug=slug, new_template=default_template_change, scope="collection.rename"
+        )
     # Dropping a custom poster back to Plex default reverts the artwork on Plex now, not just in config.
     # Cosmetic + privacy-neutral, so gate-exempt. Best-effort + audited.
     if poster_reset_needed:

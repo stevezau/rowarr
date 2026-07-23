@@ -77,6 +77,26 @@ def test_a_row_can_be_given_a_built_in_text_poster(page: Page, app: ShortlistApp
     assert image.headers["content-type"].startswith("image/")
 
 
+def test_the_default_rows_name_can_be_edited_and_updates_the_global_template(page: Page, app: ShortlistApp):
+    """The default row's name field used to be disabled (name came only from Settings → Defaults).
+    It's now editable inline, and saving it writes the shared `row.name_template` setting."""
+    _open_rows(page)
+    # The default row is the only one on a fresh install, so its Edit button is the first.
+    page.get_by_role("button", name="Edit").first.click()
+    expect(page.get_by_role("heading", name="Edit row")).to_be_visible()
+
+    name = page.get_by_label("Name", exact=True)
+    expect(name).to_be_enabled()  # the field is no longer locked on the default row
+    expect(name).to_have_value("✨ {library_name} Picked for You")  # its value IS the global template
+    name.fill("✨ {library_name} Handpicked")
+    page.get_by_role("button", name="Save changes").click()
+
+    # The edit landed on the shared setting, not a per-collection column.
+    expect(page.get_by_text("✨ {library_name} Handpicked").first).to_be_visible(timeout=LOAD)
+    settings = app.api("GET", "/api/settings").json()
+    assert settings["row.name_template"] == "✨ {library_name} Handpicked"
+
+
 def test_the_default_row_cannot_be_deleted(page: Page, app: ShortlistApp):
     _open_rows(page)
     picked = next(c for c in app.api("GET", "/api/collections").json() if c["slug"] == "picked")

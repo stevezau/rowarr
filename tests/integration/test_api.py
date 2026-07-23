@@ -1432,6 +1432,55 @@ class TestCollectionsSeed:
 
             assert session.query(Collection).filter_by(slug="picked").one().name == "✨ Picked for You"
 
+    def test_editing_the_default_rows_name_writes_the_global_template_and_reconciles(
+        self, client: TestClient, monkeypatch
+    ):
+        """The default row's editable name IS the global `row.name_template` (a per-collection value
+        would beat each user's own `row_name_tpl` override). Editing it writes that setting and renames
+        the collections already on Plex in place — the same reconcile a nickname change fires."""
+        from shortlist.server.services import collection_reconcile as rec
+
+        calls: list[tuple[str, str, str]] = []
+
+        async def fake_rename(state, *, slug, new_template, scope):
+            calls.append((slug, new_template, scope))
+            return [], None
+
+        monkeypatch.setattr(rec, "run_row_rename", fake_rename)
+
+        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
+        r = client.patch(f"/api/collections/{picked['id']}", json={"name": "✨ {library_name} Handpicked"})
+        assert r.status_code == 200
+        # The edit is surfaced as the row's name (read back from the global template) …
+        assert r.json()["name"] == "✨ {library_name} Handpicked"
+        # … persisted to the shared setting …
+        assert client.get("/api/settings").json()["row.name_template"] == "✨ {library_name} Handpicked"
+        # … and reconciled onto Plex for the default slug.
+        assert calls == [("picked", "✨ {library_name} Handpicked", "collection.rename")]
+
+    def test_saving_the_default_row_with_an_unchanged_name_does_no_plex_work(self, client: TestClient, monkeypatch):
+        """A save that doesn't move the name (e.g. an enable toggle carrying the current name) must not
+        touch Plex — the rename reconcile does real I/O and only fires on a real change."""
+        from shortlist.server.services import collection_reconcile as rec
+
+        calls: list = []
+
+        async def fake_rename(state, **kwargs):
+            calls.append(kwargs)
+            return [], None
+
+        monkeypatch.setattr(rec, "run_row_rename", fake_rename)
+
+        client.put("/api/settings", json={"values": {"row.name_template": "✨ {library_name} Picked for You"}})
+        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
+        # The editor round-trips the current template as the name — an unchanged value, so no reconcile.
+        r = client.patch(
+            f"/api/collections/{picked['id']}",
+            json={"name": "✨ {library_name} Picked for You", "enabled": True},
+        )
+        assert r.status_code == 200
+        assert calls == [], "an unchanged default name must not reconcile onto Plex"
+
     def test_default_row_size_and_name_follow_the_global_setting(self, client: TestClient, tmp_path):
         """The wizard/Settings set row.size and row.name_template; the default 'picked' row must
         deliver at those values, not a size frozen into the collection at migration time."""
@@ -2136,6 +2185,57 @@ class TestCollectionsApi:
         r = client.patch(f"/api/collections/{cid}", json={"name": "Old Gems", "name_template": "{top_seed} Picks"})
         assert r.status_code == 200
         assert renames == []  # dynamic new title → skipped, not retitled to the default name
+
+    def test_renaming_the_default_row_leaves_a_users_own_name_override_untouched(self, client: TestClient, monkeypatch):
+        """The default row resolves each user's title as their own `row_name_tpl` or the global template.
+        Renaming the global template must retitle a user on the default, but NOT one who set a personal
+        name — the reconcile re-renders the override user from THEIR template, sees no change, skips them."""
+        from shortlist.engine.delivery import row_marker
+        from shortlist.server.db.models import Run, RunUser, User
+
+        # Two users on the default row: one on the global template, one with a personal name override.
+        with client.app.state.sessions() as session:
+            plain, custom = session.query(User).order_by(User.id).all()[:2]
+            custom.prefs = {"row_name_tpl": "🌟 My Own Picks"}
+            plain_info = (plain.slug, plain.plex_account_id)
+            custom_info = (custom.slug, custom.plex_account_id)
+            run = Run(trigger="manual", status="ok")
+            session.add(run)
+            session.flush()
+            # Each user's LAST delivered title reflects the template that applied to THEM.
+            session.add(
+                RunUser(
+                    run_id=run.id,
+                    user_id=plain.id,
+                    status="ok",
+                    breakdown=[{"row_slug": "picked", "row_title": "✨ Picked for You"}],
+                )
+            )
+            session.add(
+                RunUser(
+                    run_id=run.id,
+                    user_id=custom.id,
+                    status="ok",
+                    breakdown=[{"row_slug": "picked", "row_title": "🌟 My Own Picks"}],
+                )
+            )
+            session.commit()
+
+        renames = self._fake_rename_ctx(
+            monkeypatch,
+            client,
+            titles_by_label={
+                f"shortlist_{plain_info[0]}": "✨ Picked for You" + row_marker(plain_info[1]),
+                f"shortlist_{custom_info[0]}": "🌟 My Own Picks" + row_marker(custom_info[1]),
+            },
+        )
+
+        picked = next(c for c in client.get("/api/collections").json() if c["slug"] == "picked")
+        r = client.patch(f"/api/collections/{picked['id']}", json={"name": "✨ Handpicked"})
+        assert r.status_code == 200
+        # Only the plain user is retitled; the override user's collection is left exactly as it was.
+        plain_marker = row_marker(plain_info[1])
+        assert renames == [("✨ Picked for You" + plain_marker, "✨ Handpicked" + plain_marker)]
 
     def test_changing_a_rows_build_removes_the_old_builds_collections(self, client: TestClient, monkeypatch):
         """Flipping per-person → shared removes the old per-person per-user collections, so both builds

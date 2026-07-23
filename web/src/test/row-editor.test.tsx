@@ -130,6 +130,45 @@ describe("RowEditor — already-watched titles", () => {
   });
 });
 
+describe("RowEditor — the default row's name", () => {
+  const defaultRow = (patch: Partial<Collection> = {}) =>
+    row({
+      slug: "picked",
+      name: "✨ {library_name} Picked for You",
+      ...patch,
+    });
+
+  beforeEach(() => {
+    updateCollection.mockClear();
+  });
+
+  it("lets the owner edit the default row's name (no longer disabled)", () => {
+    renderEditor(defaultRow());
+    const name = screen.getByLabelText("Name");
+    expect(name).toBeEnabled();
+    expect(name).toHaveValue("✨ {library_name} Picked for You");
+    // The help text says the edit is shared with Settings and renames on Plex.
+    expect(
+      screen.getByText(/shared with Settings → Defaults/i),
+    ).toBeInTheDocument();
+  });
+
+  it("round-trips an edited default name into the PATCH body", async () => {
+    renderEditor(defaultRow());
+
+    const name = screen.getByLabelText("Name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "✨ Handpicked");
+    await userEvent.click(
+      screen.getByRole("button", { name: /Save changes/i }),
+    );
+
+    await waitFor(() => expect(updateCollection).toHaveBeenCalled());
+    const body = updateCollection.mock.calls.at(0)?.[1] as Collection;
+    expect(body.name).toBe("✨ Handpicked");
+  });
+});
+
 describe("RowEditor — placement", () => {
   beforeEach(() => {
     updateCollection.mockClear();

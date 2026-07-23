@@ -216,8 +216,12 @@ export function useSaveCollection() {
   return useMutation({
     mutationFn: ({ id, body }: { id: number | null; body: CollectionInput }) =>
       id === null ? api.createCollection(body) : api.updateCollection(id, body),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections });
+      // Renaming the default row writes the shared `row.name_template` setting, so refresh Settings
+      // too — otherwise Settings → Defaults would still show the old name until a reload.
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings });
+    },
   });
 }
 

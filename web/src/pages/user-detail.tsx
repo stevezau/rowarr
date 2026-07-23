@@ -1,10 +1,12 @@
 import { Clock } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { BackLink } from "@/components/back-link";
 import { OwnerNote } from "@/components/owner-note";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
+import { Segmented } from "@/components/segmented";
 import { RecentRuns } from "@/components/user-detail/recent-runs";
 import { UserDetailHeader } from "@/components/user-detail/user-detail-header";
 import { UserNickname } from "@/components/user-detail/user-nickname";
@@ -22,54 +24,72 @@ function SectionHeading({ children }: { children: ReactNode }) {
 }
 
 function UserDetailBody({ user }: { user: User }) {
+  const [tab, setTab] = useState<"rows" | "settings">("rows");
+
   return (
     <div className="space-y-8">
       <UserDetailHeader user={user} />
 
       {user.user_type === "owner" && <OwnerNote />}
 
-      <section className="space-y-3">
-        <SectionHeading>Their personal rows</SectionHeading>
-        <p className="text-sm text-muted-foreground">
-          Each per-person row {user.username} gets, with its current picks and
-          why each was chosen. Customize any of them for this person only.
-          Shared "popular on this server" rows aren&rsquo;t listed here —
-          they&rsquo;re the same for everyone and are managed under Rows.
-        </p>
-        <UserRowsSection user={user} />
-      </section>
+      <Segmented
+        options={[
+          { value: "rows", label: "Rows" },
+          { value: "settings", label: "Settings & History" },
+        ]}
+        value={tab}
+        onChange={(value) => setTab(value as "rows" | "settings")}
+      />
 
-      <section className="space-y-3">
-        <SectionHeading>What to call them</SectionHeading>
-        <UserNickname user={user} />
-      </section>
+      {tab === "rows" && (
+        <section className="space-y-3">
+          <SectionHeading>Their personal rows</SectionHeading>
+          <p className="text-sm text-muted-foreground">
+            Each per-person row {user.display_name || user.username} gets, with
+            its current picks and why each was chosen. Customize any of them for
+            this person only. Shared "popular on this server" rows aren&rsquo;t
+            listed here — they&rsquo;re the same for everyone and are managed
+            under Rows.
+          </p>
+          <UserRowsSection user={user} />
+        </section>
+      )}
 
-      <section className="space-y-3">
-        <SectionHeading>Requests</SectionHeading>
-        <UserRequestTag user={user} />
-      </section>
+      {tab === "settings" && (
+        <div className="space-y-8">
+          <section className="space-y-3">
+            <SectionHeading>What to call them</SectionHeading>
+            <UserNickname user={user} />
+          </section>
 
-      <section className="space-y-3">
-        <SectionHeading>Watch history</SectionHeading>
-        <Card>
-          <CardContent className="pt-6">
-            <WatchHistory userId={user.id} />
-          </CardContent>
-        </Card>
-      </section>
+          <section className="space-y-3">
+            <SectionHeading>Requests</SectionHeading>
+            <UserRequestTag user={user} />
+          </section>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <SectionHeading>Recent runs</SectionHeading>
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/runs">
-              <Clock aria-hidden="true" />
-              All runs
-            </Link>
-          </Button>
+          <section className="space-y-3">
+            <SectionHeading>Watch history</SectionHeading>
+            <Card>
+              <CardContent className="pt-6">
+                <WatchHistory userId={user.id} />
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <SectionHeading>Recent runs</SectionHeading>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/runs">
+                  <Clock aria-hidden="true" />
+                  All runs
+                </Link>
+              </Button>
+            </div>
+            <RecentRuns userId={user.id} />
+          </section>
         </div>
-        <RecentRuns userId={user.id} />
-      </section>
+      )}
     </div>
   );
 }

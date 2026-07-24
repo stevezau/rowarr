@@ -10,15 +10,16 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  Clock,
+  Download,
   Globe,
   History,
   Search,
-  Sparkles,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { BackLink } from "@/components/back-link";
@@ -33,6 +34,7 @@ import type {
   RunUserTrace,
   RunUserTraceResponse,
   TraceFate,
+  TraceRequestOutcome,
   TraceReturn,
   TraceSeed,
   TraceSeedQuery,
@@ -41,6 +43,18 @@ import type {
   TraceWeb,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** What the request subsystem did with each wanted-but-missing title, keyed "<tmdb_id>:<media>".
+ *  Page-scoped (one run, one user) so a deep return row can overlay "→ requested from Radarr" onto a
+ *  "not in your libraries" drop without threading the map through every source/query component. */
+const RequestsContext = createContext<Record<string, TraceRequestOutcome>>({});
+
+function useRequestOutcome(
+  tmdbId: number,
+  media: string,
+): TraceRequestOutcome | undefined {
+  return useContext(RequestsContext)[`${tmdbId}:${media}`];
+}
 
 export function RunUserTracePage() {
   const { id, userId } = useParams();
@@ -101,36 +115,38 @@ export function TraceView({ data }: { data: RunUserTraceResponse }) {
   const current = libraries.find((l) => l.key === active) ?? libraries[0];
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          How we picked for {name}
-        </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          The whole run for this person, one library at a time — from what they
-          watched all the way to what we put in their row.
-        </p>
-      </header>
+    <RequestsContext.Provider value={data.requests ?? {}}>
+      <div className="space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            How we picked for {name}
+          </h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            The whole run for this person, one library at a time — from what
+            they watched all the way to what we put in their row.
+          </p>
+        </header>
 
-      {data.error && <ErrorBanner error={data.error} />}
-      {data.reason && !data.error && <SkipBanner reason={data.reason} />}
+        {data.error && <ErrorBanner error={data.error} />}
+        {data.reason && !data.error && <SkipBanner reason={data.reason} />}
 
-      {libraries.length === 0 ? (
-        <EmptyState
-          title="No per-library detail for this run"
-          hint="We recorded an outcome but not the per-library flow — this run predates library-level tracing."
-        />
-      ) : (
-        <>
-          <LibraryTabs
-            libraries={libraries}
-            active={current?.key ?? ""}
-            onSelect={setActive}
+        {libraries.length === 0 ? (
+          <EmptyState
+            title="No per-library detail for this run"
+            hint="We recorded an outcome but not the per-library flow — this run predates library-level tracing."
           />
-          {current && <LibraryFlow lib={current} />}
-        </>
-      )}
-    </div>
+        ) : (
+          <>
+            <LibraryTabs
+              libraries={libraries}
+              active={current?.key ?? ""}
+              onSelect={setActive}
+            />
+            {current && <LibraryFlow lib={current} />}
+          </>
+        )}
+      </div>
+    </RequestsContext.Provider>
   );
 }
 
@@ -424,63 +440,45 @@ function LibraryFlow({ lib }: { lib: LibraryView }) {
   const placesSearched = lib.sources.length + (hasWeb ? 1 : 0);
   const totalWatched = lib.watchedMovies + lib.watchedShows;
   const deliveredCount = lib.delivered.reduce((n, b) => n + b.picks.length, 0);
+  // Seeds are now pure-recency: the distinct titles someone watched most recently, newest first —
+  // which is exactly what the old "what they watched" panel showed. So the two panels were identical
+  // and are merged into one. Seeds are the richer object (they carry recency + drive the search), so
+  // they lead; we fall back to the raw recent-watch sample only when nothing resolved to a seed.
+  const recentBody =
+    lib.seeds.length > 0 ? (
+      <SeedList seeds={lib.seeds} />
+    ) : lib.watched.length > 0 ? (
+      <WatchList watched={lib.watched} />
+    ) : (
+      <Muted>
+        No recent watches recorded here — seeds may come from a shared media
+        type.
+      </Muted>
+    );
   const steps: FlowStepDef[] = [
     {
       id: `${lib.key}-watched`,
       n: 1,
       icon: History,
-      rail: "Watched",
-      count: totalWatched || lib.watched.length,
-      title: `What they watched in ${lib.label}`,
+      rail: "Watched recently",
+      count: lib.seeds.length || totalWatched || lib.watched.length,
+      title: `What they watched recently in ${lib.label}`,
       subtitle:
-        totalWatched > lib.watched.length
-          ? `${watchedSummary(lib)} — their most recent are below (we keep tonight's picks anchored to what they've watched lately).`
-          : undefined,
-      body:
-        lib.watched.length > 0 ? (
-          <ul className="flex flex-wrap gap-1.5">
-            {lib.watched.map((w, i) => (
-              <li key={`${w.title}-${i}`}>
-                <Badge variant="secondary" className="font-normal">
-                  {w.title}
-                  {w.year ? ` (${w.year})` : ""}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Muted>
-            No recent watches recorded here — seeds may come from a shared media
-            type.
-          </Muted>
-        ),
-    },
-    {
-      id: `${lib.key}-seeds`,
-      n: 2,
-      icon: Sparkles,
-      rail: "Seeds",
-      count: lib.seeds.length,
-      title: "Titles we searched from",
-      subtitle:
-        "Their most recent watches — what someone reached for lately is the best signal of what to recommend tonight. Each one becomes a search seed.",
-      body:
-        lib.seeds.length > 0 ? (
-          <SeedList seeds={lib.seeds} />
-        ) : (
-          <Muted>No seeds derived for this library.</Muted>
-        ),
+        totalWatched > 0
+          ? `${watchedSummary(lib)}. Their most recent are below — what someone reached for lately is the best signal of what to recommend tonight, so each becomes a search seed for the step below.`
+          : "Their most recent watches, newest first — each becomes a search seed for the step below.",
+      body: recentBody,
     },
     {
       id: `${lib.key}-searched`,
-      n: 3,
+      n: 2,
       icon: Search,
       rail: "Searched",
       count: placesSearched,
       title: "Where we searched, and every title in and out",
       subtitle: lib.sharedSearch
-        ? `Each seed above fans out to every place we look for ${searchNoun}s. We search by taste, not by library, so these results are shared across your ${searchNoun} libraries — each title shows whether it made this library's shortlist or why it fell out.`
-        : `Each seed above fans out to every place we look. Below is each one, the exact queries we sent, and what came back — with whether each title made the shortlist or the reason it didn't.`,
+        ? `Each title above fans out to every place we look for ${searchNoun}s. We search by taste, not by library, so these results are shared across your ${searchNoun} libraries — each title shows whether it made this library's shortlist or why it fell out.`
+        : `Each title above fans out to every place we look. Below is each source, the exact queries we sent, and what came back — with whether each title made the shortlist or the reason it didn't.`,
       body: (
         <SourcesFlow
           sources={lib.sources}
@@ -492,7 +490,7 @@ function LibraryFlow({ lib }: { lib: LibraryView }) {
     },
     {
       id: `${lib.key}-delivered`,
-      n: 4,
+      n: 3,
       icon: ArrowRight,
       rail: "Delivered",
       count: deliveredCount,
@@ -660,62 +658,57 @@ function Muted({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>;
 }
 
-// ── Stage 2: seeds, with the "why" spelled out ────────────────────────────────
+// ── Stage 1: recent watches, newest first (the seeds we search from) ───────────
 
+/** The recent watches we search from — newest first, each tagged with how long ago. Seed weight is
+ *  now pure recency (frequency no longer scores), so there's no "influence" to rank: this is just the
+ *  list, in recency order. A play-count bar or "watched N×" here would imply a weighting we no longer
+ *  apply. Seeds arrive already sorted newest-first, so their order IS the recency order. */
 function SeedList({ seeds }: { seeds: TraceSeed[] }) {
-  const max = Math.max(...seeds.map((s) => s.weight), 0.0001);
   return (
-    <div className="space-y-3.5">
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span
-          className="h-2 w-8 rounded-full bg-gradient-to-r from-primary/40 to-primary"
-          aria-hidden="true"
-        />
-        Longer bar = watched more recently, so a stronger influence on tonight’s
-        picks.
-      </p>
-      <ul className="space-y-3">
-        {seeds.map((s) => {
-          const pct = Math.round((s.weight / max) * 100);
-          return (
-            <li key={`${s.media}-${s.tmdb_id}`} className="space-y-1.5">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate text-sm font-medium">{s.title}</span>
-                {seedWhy(s) && (
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {seedWhy(s)}
-                  </span>
-                )}
-              </div>
-              <div
-                className="h-2 overflow-hidden rounded-full bg-muted"
-                role="img"
-                aria-label={`Influence relative to top title: ${pct}%`}
-              >
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-primary/50 to-primary transition-all"
-                  style={{ width: `${Math.max(4, pct)}%` }}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <ol className="space-y-1.5">
+      {seeds.map((s) => (
+        <li
+          key={`${s.media}-${s.tmdb_id}`}
+          className="flex items-baseline justify-between gap-3"
+        >
+          <span className="truncate text-sm font-medium">{s.title}</span>
+          {seedWhy(s) && (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {seedWhy(s)}
+            </span>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 
-/** "watched 4×, 3 days ago" from the weight ingredients — or "" on legacy runs that lack them. */
+/** Raw recent-watch fallback: shown only when nothing resolved to a seed (so the merged step still
+ *  has content). Chips, matching the seed list's plain "these are the recent titles" read. */
+function WatchList({ watched }: { watched: TraceWatch[] }) {
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {watched.map((w, i) => (
+        <li key={`${w.title}-${i}`}>
+          <Badge variant="secondary" className="font-normal">
+            {w.title}
+            {w.year ? ` (${w.year})` : ""}
+          </Badge>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** "3 days ago" from the recency ingredient — or "" on legacy runs that lack it. Frequency
+ *  ("watched N×") is deliberately gone: watch count no longer scores a seed (recency alone does), so
+ *  surfacing it here would imply a weighting we don't apply. */
 function seedWhy(s: TraceSeed): string {
-  if (s.watch_count === undefined && s.recency_days === undefined) return "";
-  const times = s.watch_count === undefined ? "" : `watched ${s.watch_count}×`;
-  const when =
-    s.recency_days === undefined
-      ? ""
-      : s.recency_days <= 0
-        ? "most recently"
-        : `${s.recency_days} day${s.recency_days === 1 ? "" : "s"} ago`;
-  return [times, when].filter(Boolean).join(", ");
+  if (s.recency_days === undefined) return "";
+  return s.recency_days <= 0
+    ? "watched most recently"
+    : `${s.recency_days} day${s.recency_days === 1 ? "" : "s"} ago`;
 }
 
 // ── Stage 3: sources, each title in and out ───────────────────────────────────
@@ -794,25 +787,32 @@ function SourceCard({
   return (
     <div className="overflow-hidden rounded-lg border bg-background">
       <div className="flex items-start justify-between gap-3 p-3">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 space-y-1.5">
           <p className="text-sm font-medium">{sourceLabel(src.source)}</p>
           {failed ? (
             <p className="text-xs text-destructive">
               Couldn’t reach it{src.detail ? ` — ${src.detail}` : ""}
             </p>
-          ) : kept > 0 || droppedCount > 0 ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1 text-success">
-                <Check className="h-3 w-3" aria-hidden="true" />
-                {kept} kept
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>{droppedCount} dropped</span>
-            </p>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              Contributed {src.contributed.toLocaleString()}
-            </p>
+            <>
+              {/* Say plainly what we handed this source and what it gave back — the reported
+                  confusion was "what does 40 · 4 kept · 4 dropped even mean". */}
+              <p className="text-xs text-muted-foreground">
+                {sourceRole(src.source)} It added{" "}
+                {src.contributed.toLocaleString()} title
+                {src.contributed === 1 ? "" : "s"} to the pool.
+              </p>
+              {(kept > 0 || droppedCount > 0) && (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1 text-success">
+                    <Check className="h-3 w-3" aria-hidden="true" />
+                    {kept} made the shortlist
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>{droppedCount} dropped (see below)</span>
+                </p>
+              )}
+            </>
           )}
         </div>
         <Badge
@@ -826,7 +826,7 @@ function SourceCard({
       {src.source === "tmdb_discover" &&
         Object.keys(discoverGenres).length > 0 && (
           <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-            Popular titles in the genres they watch most:{" "}
+            The genres they watch most:{" "}
             {Object.entries(discoverGenres)
               .map(([m, gs]) => `${mediaLabel(m)} — ${gs.join(", ") || "none"}`)
               .join("; ")}
@@ -974,7 +974,12 @@ function WebSourceCard({
         />
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-medium">{sourceLabel("llm_web")}</p>
-          <p className="text-xs text-muted-foreground">{mech}</p>
+          <p className="text-xs text-muted-foreground">
+            {mech}
+            {source
+              ? ` It added ${source.contributed.toLocaleString()} title${source.contributed === 1 ? "" : "s"} to the pool.`
+              : ""}
+          </p>
         </div>
         <Badge
           variant={failed ? "destructive" : "secondary"}
@@ -1094,6 +1099,25 @@ function WebSourceCard({
       </div>
     </div>
   );
+}
+
+/** One sentence saying what we sent a source and what it does — so "TMDB (your genres) · 40 · 4 kept
+ *  · 4 dropped" reads as a story, not a code. Each source is fed something different: TMDB-similar and
+ *  Trakt take each recent watch and return look-alikes; TMDB-discover takes the person's top genres
+ *  (not a title) and returns what's popular in them. */
+function sourceRole(source: string): string {
+  switch (source) {
+    case "tmdb_similar":
+      return "We asked TMDB for titles similar to each recent watch above.";
+    case "tmdb_discover":
+      return "We asked TMDB for what's popular in the genres they watch most.";
+    case "trakt":
+      return "We asked Trakt for titles people who watched the same films also watched.";
+    case "cold_start":
+      return "With little history to go on, we pulled what's most-watched on this server.";
+    default:
+      return "We gathered candidate titles from this source.";
+  }
 }
 
 /** Plain-English description of HOW the AI web search ran, from the mode + whether Exa searches were

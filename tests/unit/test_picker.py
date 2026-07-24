@@ -27,10 +27,23 @@ class TestReasonFor:
         candidate = make_candidate(2, "Arrival", seeds=[_seed()], genres=[])
         assert reason_for(candidate) == "Because you watched Dune"
 
-    def test_seedless_candidate_gets_the_generic_line(self):
-        """discover / web / cold-start picks have no "because you watched" to point at."""
-        candidate = make_candidate(2, "Arrival", seeds=[], genres=["Sci-Fi"])
-        assert reason_for(candidate) == "Popular in your library"
+    def test_seedless_reason_names_the_source_it_came_from(self):
+        """A seedless pick has no "because you watched X", but its reason must still be TRUE to its
+        source — the old blanket "Popular in your library" was wrong for a web pick and contradicted
+        the "suggested by AI web search" provenance shown right beneath it."""
+        web = make_candidate(2, "Ron's Gone Wrong", seeds=[], genres=["Animation"], sources={"llm_web"})
+        assert reason_for(web) == "Suggested by AI web search"
+
+        discover = make_candidate(3, "Arrival", seeds=[], genres=["Sci-Fi"], sources={"tmdb_discover"})
+        assert reason_for(discover) == "In genres you watch a lot"
+
+        cold = make_candidate(4, "Heat", seeds=[], genres=[], sources={"cold_start"})
+        assert reason_for(cold) == "Popular on this server"
+
+    def test_seedless_with_no_recognised_source_gets_a_safe_default(self):
+        """Never fall back to a line that claims a provenance the pick doesn't have."""
+        candidate = make_candidate(2, "Arrival", seeds=[], genres=["Sci-Fi"], sources=set())
+        assert reason_for(candidate) == "Matched to your taste"
 
 
 class TestBuildPicks:

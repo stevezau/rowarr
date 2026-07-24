@@ -434,6 +434,19 @@ export interface TraceGather {
   web?: TraceWeb;
 }
 
+/** What the request subsystem did with a wanted-but-missing title (Sonarr/Radarr). Overlaid onto a
+ *  "not in your libraries" fate so a drop reads "→ requested from Radarr" instead of a dead end. */
+export interface TraceRequestOutcome {
+  /** pending = queued for the owner's approval; sent = asked of Sonarr/Radarr; rejected = dismissed. */
+  status: "pending" | "sent" | "rejected";
+  /** The send outcome, or why it's queued. */
+  detail: string;
+  /** Sonarr/Radarr titleSlug once sent, for a deep link (null when queued/before this was recorded). */
+  arr_slug: string | null;
+  /** On the arr's import-exclusion list — approving it is a no-op until the owner clears it. */
+  excluded: boolean;
+}
+
 /** The full pipeline trace for one user in one run (GET /api/runs/{id}/users/{uid}/trace). */
 export interface RunUserTrace {
   history?: {
@@ -461,6 +474,9 @@ export interface RunUserTraceResponse {
   trace: RunUserTrace;
   /** The delivered ending: per-(row, library) picks with reasons. [] on legacy runs. */
   breakdown: RunLibraryBreakdown[];
+  /** What the request subsystem did with each wanted-but-missing title, keyed "<tmdb_id>:<media_type>"
+   *  — the trace overlays it onto "not in your libraries" drops. {} when requests are off/legacy. */
+  requests?: Record<string, TraceRequestOutcome>;
 }
 
 /** POST /api/runs body. */

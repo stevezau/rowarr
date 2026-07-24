@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 
 from shortlist.server.auth import require_owner
-from shortlist.server.db.models import PickRow, Run, RunUser, iso_utc
+from shortlist.server.db.models import PickRow, RequestCandidate, Run, RunUser, iso_utc
 
 router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(require_owner)])
 
@@ -109,6 +109,28 @@ def _with_provenance(breakdown: list[dict], picks: list) -> list[dict]:
     return out
 
 
+def _request_outcomes(session) -> dict[str, dict]:
+    """What became of every wanted-but-missing title, keyed ``"<tmdb_id>:<media_type>"``.
+
+    The trace's "not in your libraries" drops are the titles the curator wanted that no delivery
+    library held; some of those become Sonarr/Radarr requests. This joins the request inbox back so
+    the trace can say WHICH — "requested from Radarr" vs "queued for your approval". Run-wide (one row
+    per title, whoever wanted it), so the key is title-only; the trace overlays it only where a drop
+    matches. `hidden` rows are kept: they're still `status="sent"` — the request DID happen, and the
+    trace records what happened, not what's currently in the inbox.
+    """
+    rows = session.query(RequestCandidate).all()
+    return {
+        f"{r.tmdb_id}:{r.media_type}": {
+            "status": r.status,  # pending | sent | rejected
+            "detail": r.detail or "",
+            "arr_slug": r.arr_slug,
+            "excluded": r.excluded,  # on the arr's import-exclusion list — approving is a no-op
+        }
+        for r in rows
+    }
+
+
 @router.get("/{run_id}")
 async def get_run(run_id: int, request: Request) -> dict:
     with request.app.state.sessions() as session:
@@ -184,6 +206,13 @@ async def get_run_user_trace(run_id: int, user_id: int, request: Request) -> dic
             "reason": run_user.reason,
             "trace": run_user.trace or {},
             "breakdown": _with_provenance(run_user.breakdown or [], picks),
+            # What became of the titles the curator wanted but no library held. The trace marks those
+            # "not in your libraries"; this says whether the request subsystem then asked Sonarr/Radarr
+            # for them (or queued them for the owner), keyed by "<tmdb_id>:<media_type>" so the UI can
+            # overlay the outcome onto that fate. Run-WIDE state (a title is requested once for the
+            # whole server, whoever wanted it) — the overlay is scoped by only matching this user's
+            # missing titles. Empty on a deployment with requests off.
+            "requests": _request_outcomes(session),
         }
 
 

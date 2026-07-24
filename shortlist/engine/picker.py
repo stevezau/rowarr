@@ -14,17 +14,31 @@ from __future__ import annotations
 from shortlist.engine import ranking
 from shortlist.engine.models import Candidate, Pick
 
+# Why a seedless pick is here, by the source that produced it. A seedless candidate has no "because
+# you watched X" to point at, but the reason must still be TRUE to its source — the old blanket
+# "Popular in your library" was wrong for all three (web picks aren't from the library at all) and
+# contradicted the "suggested by AI web search" provenance line shown right beneath it.
+_SEEDLESS_REASON = {
+    "llm_web": "Suggested by AI web search",
+    "tmdb_discover": "In genres you watch a lot",
+    "cold_start": "Popular on this server",
+}
+_SEEDLESS_REASON_DEFAULT = "Matched to your taste"
+
 
 def reason_for(candidate: Candidate) -> str:
     """A one-line "why you're seeing this" built from the candidate's own data.
 
     Prefers the genres it shares with the seeding title ("Because you liked sci-fi, action like
-    Dune"), falls back to the bare seed title, and to a generic line for a seedless pick (discover /
-    web / cold-start), which has no "because you watched" to point at.
+    Dune"), falls back to the bare seed title, and — for a seedless pick (discover / web /
+    cold-start) — to a per-source line that matches how it was actually found.
     """
     seed = candidate.top_seed
     if not seed:
-        return "Popular in your library"
+        for source, reason in _SEEDLESS_REASON.items():
+            if source in candidate.sources:
+                return reason
+        return _SEEDLESS_REASON_DEFAULT
     if candidate.genres:
         genres = ", ".join(candidate.genres[:2]).lower()
         return f"Because you liked {genres} like {seed.title}"

@@ -617,6 +617,12 @@ def _run_user(
         return spec.freshness if spec.freshness is not None else cfg.freshness
 
     def effective_recent_count(spec: RowSpec) -> int:
+        # This person's per-row override wins, then the row's own setting, then the global default —
+        # the same user -> row -> global direction the row size resolves in. pool_key already folds
+        # this value in for web rows, so two of this person's rows that differ in it don't share a pool.
+        override = user.row_overrides.get(spec.slug)
+        if override and override.recent_count is not None:
+            return override.recent_count
         return spec.recent_count if spec.recent_count is not None else cfg.recent_count
 
     def effective_sources(spec: RowSpec) -> tuple[str, ...]:

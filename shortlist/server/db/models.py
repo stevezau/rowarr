@@ -182,6 +182,9 @@ class CollectionUserOverride(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     muted: Mapped[bool] = mapped_column(Boolean, default=False)  # this person doesn't get this row
     row_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None -> the row's own size
+    # How many recent watches the AI web-search source searches for THIS person on THIS row (1..25).
+    # None -> fall through to the row's own recent_count, then the global recommendations.recent_count.
+    recent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Dead as of the curate removal (migration 0036 clears it) — see Collection.prompt. Column kept.
     prompt: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

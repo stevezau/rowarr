@@ -166,6 +166,7 @@ class RowOverride:
 
     muted: bool = False  # this person doesn't get this row at all
     size: int | None = None  # override the row's size for this person
+    recent_count: int | None = None  # override how many recent watches the web-search source searches
 
 
 @dataclass

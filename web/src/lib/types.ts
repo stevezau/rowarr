@@ -250,10 +250,13 @@ export interface UserRow {
   name: string;
   media: string;
   size: number;
+  /** The row's effective recent-watches depth (its own, else the global) — what an override falls back to. */
+  recent_count: number;
   is_default: boolean;
   muted: boolean;
   override: {
     row_size: number | null;
+    recent_count: number | null;
   };
   picks: Pick[];
 }
@@ -262,6 +265,7 @@ export interface UserRow {
 export interface RowOverridePatch {
   muted?: boolean;
   row_size?: number | null;
+  recent_count?: number | null;
 }
 
 /** GET /api/users/{id}/runs — one of this user's recent run results. */

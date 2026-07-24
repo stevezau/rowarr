@@ -389,7 +389,9 @@ class ContextBuilder:
             slug = slug_by_id.get(row.collection_id)
             if slug is None:
                 continue
-            out.setdefault(row.user_id, {})[slug] = RowOverride(muted=row.muted, size=row.row_size)
+            out.setdefault(row.user_id, {})[slug] = RowOverride(
+                muted=row.muted, size=row.row_size, recent_count=row.recent_count
+            )
         return out
 
     @staticmethod

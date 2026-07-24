@@ -391,6 +391,33 @@ class TestPerRowOverrides:
 
         assert len(report.users[0].picks) == 1
 
+    def test_per_user_recent_count_override_reaches_the_gather(self, ctx: EngineContext, mock_plextv, monkeypatch):
+        # recent_count caps how many recent watches the llm_web source searches. A per-user override
+        # must reach the gather as its resolved recent_count — beating the row's own value AND the
+        # global default. (That the gather then slices seeds[:recent_count] is test_candidates' job.)
+        from shortlist.engine import candidates as candidates_mod
+
+        seen: list[int] = []
+        real_gather = candidates_mod.gather_candidates
+
+        def spy_gather(*args, **kwargs):
+            seen.append(kwargs["recent_count"])
+            return real_gather(*args, **kwargs)
+
+        monkeypatch.setattr(pipeline_mod.rows.candidates_mod, "gather_candidates", spy_gather)
+        ctx.config.recent_count = 10  # global default
+        # The row sets its own recent_count too, so seen==[3] proves the user override beats BOTH the
+        # row's value (8) and the global default (10) — not just the global.
+        ctx.config.rows = [
+            RowSpec(slug="picked", name_template="", size=5, candidate_sources=["llm_web"], recent_count=8)
+        ]
+        sarah = make_profile("sarah", account_id=100, row_overrides={"picked": RowOverride(recent_count=3)})
+        mock_plextv.users = [plextv_user(100, "sarah")]
+
+        pipeline_mod.run(ctx, [sarah])
+
+        assert seen == [3]  # the person's override, beating the row's 8 and the global 10
+
     def test_per_row_candidate_sources_gate_which_apis_run(self, ctx: EngineContext, mock_plextv):
         # A row pinned to tmdb_discover only must query discover and NOT the tmdb_similar endpoint —
         # per-row sources override the global set for that row.

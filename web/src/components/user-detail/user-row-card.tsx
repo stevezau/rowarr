@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { MutationAlert } from "@/components/mutation-alert";
 import { PickList } from "@/components/pick-list";
 import { QueryBoundary, EmptyState } from "@/components/query-boundary";
+import { RecentCountField } from "@/components/recent-count-field";
 import { RowSizeField } from "@/components/row-size-field";
 import { SaveStatus } from "@/components/save-status";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,9 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
   const [size, setSize] = useState<string>(
     row.override.row_size ? String(row.override.row_size) : "default",
   );
+  const [recent, setRecent] = useState<string>(
+    row.override.recent_count ? String(row.override.recent_count) : "default",
+  );
   const [saved, setSaved] = useState(false);
 
   // Muted is what the SERVER says, with the in-flight value laid over it only while the PUT is
@@ -43,13 +47,17 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
     });
 
   // The drawer auto-saves like every other section of the app, so collapsing it ("Hide
-  // customization" — which sounds harmless) or walking away can't silently discard an edit.
-  const retrySave = useAutosave({ size }, () => {
+  // customization" — which sounds harmless) or walking away can't silently discard an edit. Both
+  // knobs ride the one PUT; "default" clears that field's override back to the row's own setting.
+  const retrySave = useAutosave({ size, recent }, () => {
     setSaved(false);
     save.mutate(
       {
         collectionId: row.collection_id,
-        patch: { row_size: size === "default" ? null : Number(size) },
+        patch: {
+          row_size: size === "default" ? null : Number(size),
+          recent_count: recent === "default" ? null : Number(recent),
+        },
       },
       { onSuccess: () => setSaved(true) },
     );
@@ -151,6 +159,35 @@ function UserRowCard({ userId, row }: { userId: number; row: UserRow }) {
                     value={Number(size)}
                     onChange={(next) => setSize(String(next))}
                     label="Titles for this person"
+                  />
+                )}
+              </div>
+
+              <div className="space-y-2 border-t pt-4">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Switch
+                    checked={recent !== "default"}
+                    onCheckedChange={(on) =>
+                      setRecent(on ? String(row.recent_count) : "default")
+                    }
+                  />
+                  Custom watch-history depth for this person
+                </label>
+                <p className="text-sm text-muted-foreground">
+                  How many of this person&rsquo;s most recent watches the AI
+                  web-search source looks up for this row (one cached search
+                  each). Only affects rows using AI web search.
+                </p>
+                {recent === "default" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Using this row&rsquo;s depth ({row.recent_count} recent
+                    watches).
+                  </p>
+                ) : (
+                  <RecentCountField
+                    value={Number(recent)}
+                    onChange={(next) => setRecent(String(next))}
+                    label="Recent watches for this person"
                   />
                 )}
               </div>

@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { RecentCountField } from "@/components/recent-count-field";
 import { RowSizeField } from "@/components/row-size-field";
 import { apiErrorMessage } from "@/lib/api";
 import { blankInput, toInput } from "@/lib/collections";
@@ -128,8 +129,8 @@ export function RowEditor({
               Use <span className="font-mono">{"{library_name}"}</span> for the
               library’s name, <span className="font-mono">{"{user}"}</span> for
               each person’s name, or{" "}
-              <span className="font-mono">{"{top_seed}"}</span> for their top
-              watched title.
+              <span className="font-mono">{"{top_seed}"}</span> for a title they
+              recently watched.
             </p>
             {isDefault && (
               <p className="text-sm text-muted-foreground">
@@ -278,7 +279,7 @@ export function RowEditor({
           </div>
 
           <div className="space-y-3 border-t pt-4">
-            <Label htmlFor="row-recent-count">Recent watches to search</Label>
+            <p className="text-sm font-medium">Recent watches to search</p>
             <p className="text-sm text-muted-foreground">
               How many of a person&rsquo;s most recent watches the AI web-search
               source looks up for this row (one cached search each). Only
@@ -294,21 +295,9 @@ export function RowEditor({
               />
             </div>
             {input.recent_count !== null && (
-              <Input
-                id="row-recent-count"
-                type="number"
-                min={1}
-                max={25}
+              <RecentCountField
                 value={input.recent_count}
-                onChange={(e) =>
-                  set({
-                    recent_count: Math.max(
-                      1,
-                      Math.min(25, Number(e.target.value) || 1),
-                    ),
-                  })
-                }
-                className="w-28"
+                onChange={(next) => set({ recent_count: next })}
               />
             )}
           </div>

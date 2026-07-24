@@ -28,6 +28,7 @@ router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(requir
 class RowOverridePatch(BaseModel):
     muted: bool | None = None
     row_size: int | None = Field(default=None, ge=5, le=40)
+    recent_count: int | None = Field(default=None, ge=1, le=25)
 
 
 def _applicable_rows(session, user: User) -> list[Collection]:
@@ -62,11 +63,17 @@ async def user_rows(user_id: int, request: Request) -> list[dict]:
         overrides = {o.collection_id: o for o in session.query(CollectionUserOverride).filter_by(user_id=user.id).all()}
         # The default 'picked' row's size follows the global setting, not its own stored column
         # (that's what the engine uses), so report that as its base size.
-        global_size = int(SettingsStore(session, request.app.state.secrets).get("row.size"))
+        store = SettingsStore(session, request.app.state.secrets)
+        global_size = int(store.get("row.size"))
+        # recent_count has no row-vs-global special case for the default row (unlike size): the row's
+        # own column falls through to the global default the same way for every row, so report that
+        # resolved base — it's what "Use the row's default" means for this person's override.
+        global_recent_count = int(store.get("recommendations.recent_count"))
 
         out = []
         for collection in _applicable_rows(session, user):
             override = overrides.get(collection.id)
+            row_recent_count = collection.recent_count if collection.recent_count is not None else global_recent_count
             out.append(
                 {
                     "collection_id": collection.id,
@@ -74,10 +81,12 @@ async def user_rows(user_id: int, request: Request) -> list[dict]:
                     "name": collection.name,
                     "media": collection.media,
                     "size": global_size if collection.slug == DEFAULT_SLUG else collection.size,
+                    "recent_count": row_recent_count,
                     "is_default": collection.slug == DEFAULT_SLUG,
                     "muted": bool(override and override.muted),
                     "override": {
                         "row_size": override.row_size if override else None,
+                        "recent_count": override.recent_count if override else None,
                     },
                     "picks": picks_by_row.get(collection.slug, []),
                 }
@@ -105,9 +114,12 @@ async def set_user_row_override(user_id: int, collection_id: int, patch: RowOver
             override.muted = bool(patch.muted)
         if "row_size" in sent:
             override.row_size = patch.row_size  # None -> clear, inherit the row's own size
+        if "recent_count" in sent:
+            override.recent_count = patch.recent_count  # None -> clear, inherit the row's own recent_count
         session.commit()
         return {
             "collection_id": collection_id,
             "muted": override.muted,
             "row_size": override.row_size,
+            "recent_count": override.recent_count,
         }

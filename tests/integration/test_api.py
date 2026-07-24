@@ -585,6 +585,36 @@ class TestUserRowsApi:
         assert row["muted"] is True
         assert row["override"]["row_size"] == 20
 
+    def test_recent_count_override_round_trips_and_resets(self, client: TestClient):
+        uid = self._sarah_id(client)
+        row0 = client.get(f"/api/users/{uid}/rows").json()[0]
+        cid = row0["collection_id"]
+        # The row reports its own effective depth (the global default) so the UI knows what "default" means.
+        assert row0["recent_count"] == 10
+        assert row0["override"]["recent_count"] is None
+
+        client.put(f"/api/users/{uid}/rows/{cid}", json={"recent_count": 3})
+        assert client.get(f"/api/users/{uid}/rows").json()[0]["override"]["recent_count"] == 3
+        # An explicit null clears it back to the row's own depth, exactly like the size override.
+        client.put(f"/api/users/{uid}/rows/{cid}", json={"recent_count": None})
+        assert client.get(f"/api/users/{uid}/rows").json()[0]["override"]["recent_count"] is None
+
+    def test_recent_count_and_size_overrides_are_independent(self, client: TestClient):
+        uid = self._sarah_id(client)
+        cid = client.get(f"/api/users/{uid}/rows").json()[0]["collection_id"]
+        client.put(f"/api/users/{uid}/rows/{cid}", json={"row_size": 20})
+        # A recent_count-only PUT must not clobber the saved size (server writes only fields it's sent).
+        client.put(f"/api/users/{uid}/rows/{cid}", json={"recent_count": 5})
+        override = client.get(f"/api/users/{uid}/rows").json()[0]["override"]
+        assert override == {"row_size": 20, "recent_count": 5}
+
+    def test_recent_count_override_is_bounded(self, client: TestClient):
+        uid = self._sarah_id(client)
+        cid = client.get(f"/api/users/{uid}/rows").json()[0]["collection_id"]
+        # Same 1..25 bounds the global/row settings validate — out of range is a 422, not a bad save.
+        assert client.put(f"/api/users/{uid}/rows/{cid}", json={"recent_count": 0}).status_code == 422
+        assert client.put(f"/api/users/{uid}/rows/{cid}", json={"recent_count": 26}).status_code == 422
+
     def test_override_on_unknown_user_or_row_404(self, client: TestClient):
         assert client.put("/api/users/9999/rows/1", json={"muted": True}).status_code == 404
         uid = self._sarah_id(client)

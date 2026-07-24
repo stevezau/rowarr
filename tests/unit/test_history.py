@@ -153,31 +153,33 @@ class TestDistinctRecent:
 
 
 class TestDeriveSeeds:
-    def test_frequency_and_recency_weighting(self):
+    def test_weight_is_pure_recency_so_a_recent_watch_outranks_an_old_favorite(self):
+        # Weight is recency-only: a title watched once yesterday must outrank an old favourite
+        # rewatched many times years ago (the SFLIX/MooHouse bug — The Girl on the Train, 18x but
+        # ~8.7 years ago, dominated the seeds over titles watched this week).
         history = [
-            make_watched("Old Favorite", days_ago=80),
-            make_watched("Binged Show", days_ago=2, media_type=MediaType.SHOW),
-            make_watched("Binged Show", days_ago=3, media_type=MediaType.SHOW),
-            make_watched("Binged Show", days_ago=4, media_type=MediaType.SHOW),
+            make_watched("Old Favorite", days_ago=3000, watch_count=18),
+            make_watched("Watched Yesterday", days_ago=1, watch_count=1),
         ]
-        ids = {("Binged Show", MediaType.SHOW): 1, ("Old Favorite", MediaType.MOVIE): 2}
+        ids = {("Old Favorite", MediaType.MOVIE): 1, ("Watched Yesterday", MediaType.MOVIE): 2}
         seeds = derive_seeds(history, lambda w: ids.get((w.title, w.media_type)))
-        assert seeds[0].title == "Binged Show"
+        assert seeds[0].title == "Watched Yesterday"
         assert seeds[0].weight > seeds[1].weight
 
-    def test_a_shows_episode_count_drives_its_weight_not_its_row_count(self):
-        # The share-token source returns ONE row per show carrying watch_count = episodes watched, so
-        # a 50-episode binge must weigh like 50 plays even though it's a single WatchedItem — the seed
-        # weight reads watch_count, not len(rows) (the old per-play sources emitted one row per play).
+    def test_seed_order_matches_recency_regardless_of_watch_count(self):
+        # Because weight is strictly monotonic in recency, the seed ORDER is exactly the recent-watches
+        # order — which is what makes the trace's "seeds" list match its "what they watched" panel. A
+        # heavily-rewatched show does NOT jump ahead of a more-recent single watch.
         history = [
-            make_watched("Binge", days_ago=1, media_type=MediaType.SHOW, watch_count=50),
-            make_watched("One Movie", days_ago=1, media_type=MediaType.MOVIE, watch_count=1),
+            make_watched("Binge", days_ago=10, media_type=MediaType.SHOW, watch_count=50),
+            make_watched("One Movie", days_ago=2, media_type=MediaType.MOVIE, watch_count=1),
         ]
         ids = {("Binge", MediaType.SHOW): 1, ("One Movie", MediaType.MOVIE): 2}
         seeds = derive_seeds(history, lambda w: ids[(w.title, w.media_type)])
+        # watch_count is still carried for display ("watched 50x"), just not scored.
         binge = next(s for s in seeds if s.title == "Binge")
         assert binge.watch_count == 50
-        assert binge.weight > next(s for s in seeds if s.title == "One Movie").weight
+        assert seeds[0].title == "One Movie"  # more recent wins despite the 50-episode binge
 
     def test_an_items_own_tmdb_id_wins_over_the_resolver(self):
         # The share-token source inlines the tmdb_id from the PMS GUID, so derive_seeds must use it

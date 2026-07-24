@@ -330,18 +330,21 @@ def gather_candidates(
     # by fuzzy title match. Bounded to a sample.
     seed_queries: dict[str, list[dict]] = {}
 
-    def _record_seed_query(source: str, seed: Seed, returned: list[tuple[int, str]]) -> None:
+    def _record_query(source: str, label: str, media: str, returned: list[tuple[int, str]]) -> None:
         rows = seed_queries.setdefault(source, [])
         if len(rows) >= _TRACE_SEEDS_SAMPLE:
             return
         rows.append(
             {
-                "seed": seed.title,
-                "media": seed.media_type.value,
+                "seed": label,
+                "media": media,
                 "returned": [{"tmdb_id": tid, "title": title} for tid, title in returned[:_TRACE_RETURNS_SAMPLE]],
                 "total": len(returned),
             }
         )
+
+    def _record_seed_query(source: str, seed: Seed, returned: list[tuple[int, str]]) -> None:
+        _record_query(source, seed.title, seed.media_type.value, returned)
 
     if "tmdb_similar" in enabled:
         attempted.add("tmdb_similar")
@@ -368,9 +371,15 @@ def gather_candidates(
                 # No seed provenance — this is "in genres you like", not "because you watched X".
                 genre_ids = _dominant_genre_ids(tmdb, seeds, media_type)
                 gmap = genres_for(media_type)
-                discover_genres[media_type.value] = [gmap[g] for g in genre_ids if g in gmap]
+                genre_names = [gmap[g] for g in genre_ids if g in gmap]
+                discover_genres[media_type.value] = genre_names
+                returned = []
                 for item in tmdb.discover(media_type, genre_ids):
                     add(item, media_type, "tmdb_discover")
+                    returned.append((int(item.get("id") or 0), item.get("title") or item.get("name") or ""))
+                # Record the returns so the trace can expand this source title-by-title like the others.
+                # The "seed" here is the genre set it widened into, not a watched title.
+                _record_query("tmdb_discover", " · ".join(genre_names) or "your genres", media_type.value, returned)
             stats.trace["discover_genres"] = discover_genres  # the top genres discover widened into, per type
         except Exception as e:
             # Discover is a supplementary "widen" source: a TMDB hiccup here must never discard the

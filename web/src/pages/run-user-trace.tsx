@@ -463,7 +463,7 @@ function LibraryFlow({ lib }: { lib: LibraryView }) {
       count: lib.seeds.length,
       title: "Titles we searched from",
       subtitle:
-        "The watches that best represent their taste — watched most, and most recently. Each one becomes a search seed.",
+        "Their most recent watches — what someone reached for lately is the best signal of what to recommend tonight. Each one becomes a search seed.",
       body:
         lib.seeds.length > 0 ? (
           <SeedList seeds={lib.seeds} />
@@ -671,8 +671,8 @@ function SeedList({ seeds }: { seeds: TraceSeed[] }) {
           className="h-2 w-8 rounded-full bg-gradient-to-r from-primary/40 to-primary"
           aria-hidden="true"
         />
-        Longer bar = a stronger influence on tonight’s picks (watched more often
-        and more recently).
+        Longer bar = watched more recently, so a stronger influence on tonight’s
+        picks.
       </p>
       <ul className="space-y-3">
         {seeds.map((s) => {
@@ -845,7 +845,11 @@ function SourceCard({
           </summary>
           <ul className="space-y-3 border-t px-3 py-3">
             {queries.map((q, i) => (
-              <SeedQueryRow key={`${q.seed}-${i}`} query={q} />
+              <SeedQueryRow
+                key={`${q.seed}-${i}`}
+                query={q}
+                source={src.source}
+              />
             ))}
           </ul>
         </details>
@@ -854,7 +858,16 @@ function SourceCard({
   );
 }
 
-function SeedQueryRow({ query }: { query: TraceSeedQuery }) {
+function SeedQueryRow({
+  query,
+  source,
+}: {
+  query: TraceSeedQuery;
+  source?: string;
+}) {
+  // tmdb_discover queries by GENRE, not by a watched title — so it reads "In your genres · Crime,
+  // Comedy" rather than "Searched from <a title>". Every other source is seeded from a watch.
+  const isGenre = source === "tmdb_discover";
   return (
     <li className="text-sm">
       <div className="flex items-center gap-1.5">
@@ -862,7 +875,9 @@ function SeedQueryRow({ query }: { query: TraceSeedQuery }) {
           className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
           aria-hidden="true"
         />
-        <span className="text-muted-foreground">Searched from</span>
+        <span className="text-muted-foreground">
+          {isGenre ? "In your genres" : "Searched from"}
+        </span>
         <span className="font-medium">{query.seed}</span>
         <Badge variant="outline" className="shrink-0 font-normal">
           {mediaLabel(query.media)}
@@ -944,6 +959,11 @@ function WebSourceCard({
   const failed = source?.status === "failed";
   const kept = source?.disposition?.kept ?? 0;
   const mech = webMechanism(web?.mode ?? "", searches.length > 0);
+  // Exa bills per search, so a title many users watched is searched once and reused from a shared
+  // cache for the rest. Surface how many actually hit Exa vs came back cached — it's the difference
+  // between a costly run and a cheap one.
+  const cachedCount = searches.filter((s) => s.cached).length;
+  const freshCount = searches.length - cachedCount;
 
   return (
     <div className="overflow-hidden rounded-lg border">
@@ -977,7 +997,14 @@ function WebSourceCard({
               <span className="mr-1.5 rounded bg-muted px-1.5 py-0.5 font-semibold tabular-nums">
                 Step 1
               </span>
-              Web searches we ran — one per seed
+              Exa web searches — one per seed
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {freshCount > 0 && cachedCount > 0
+                ? `${searches.length} searches — ${freshCount} new, ${cachedCount} reused from an earlier run’s cache (so only ${freshCount} were billed).`
+                : cachedCount > 0
+                  ? `${searches.length} searches, all reused from an earlier run’s cache — nothing billed.`
+                  : `${searches.length} searches, all new this run.`}
             </p>
             <ul className="space-y-1.5">
               {searches.map((s, i) => (

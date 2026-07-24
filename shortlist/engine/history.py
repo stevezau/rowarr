@@ -19,6 +19,11 @@ from shortlist.engine.clients.plex_pms import PlexClient
 from shortlist.engine.clients.plextv import PlexTvClient
 from shortlist.engine.models import MediaType, Seed, UserProfile, UserType, WatchedItem
 
+# Seed weight halves every ~6 weeks since the watch: a title seen today weighs ~2x one from 6 weeks
+# ago, ~4x one from 3 months ago. Long enough that a season finished last month still seeds strongly,
+# short enough that a years-old rewatch fades to near-zero.
+RECENCY_HALF_LIFE_DAYS = 45.0
+
 
 class HistorySource(Protocol):
     def fetch(
@@ -131,18 +136,22 @@ def derive_seeds(
     *,
     max_seeds: int = 30,
 ) -> list[Seed]:
-    """Collapse history into weighted seeds: distinct titles, frequency x recency weighted.
+    """Collapse history into weighted seeds: distinct titles, weighted purely by RECENCY.
 
-    Frequency is the sum of each watch's ``watch_count`` — Plex's own per-title play/episode count —
-    not the number of history rows. The share-token source returns one row per title carrying that
-    count, so a 50-episode binge weighs like 50 without emitting 50 rows.
+    Weight is ``0.5 ** (recency_days / RECENCY_HALF_LIFE_DAYS)`` — an exponential decay off the
+    person's most-recent watch, with NO frequency term. What someone reached for lately is the honest
+    signal of what to recommend tonight; watch_count is deliberately excluded from the weight because
+    an old favourite rewatched many times years ago (SFLIX/MooHouse: The Girl on the Train, 18x but
+    ~8.7 years ago) would otherwise dominate the seeds over a title watched once yesterday. Because
+    the weight is strictly monotonic in recency, the seed ORDER now matches the "recent watches" panel
+    exactly. ``watch_count`` is still carried on each Seed for display ("watched 4x"), just not scored.
 
     Args:
         history: Watched titles, any order.
         resolve_tmdb_id: Callable (WatchedItem) -> int | None, used only when an item carries no
             ``tmdb_id`` of its own (adapters resolve via the library index or TMDB search). Items that
             resolve to None are skipped.
-        max_seeds: Cap (most-recent/most-watched titles win).
+        max_seeds: Cap (the most recently watched titles win).
     """
     if not history:
         return []
@@ -160,13 +169,12 @@ def derive_seeds(
             continue
         watch_count = sum(i.watch_count for i in items)
         recency_days = (newest - max(i.watched_at for i in items)).days
-        recency_weight = max(0.25, 1.0 - recency_days / 90)  # linear decay over ~3 months
         seeds.append(
             Seed(
                 tmdb_id=tmdb_id,
                 title=title,
                 media_type=media_type,
-                weight=watch_count * recency_weight,
+                weight=0.5 ** (recency_days / RECENCY_HALF_LIFE_DAYS),
                 watch_count=watch_count,
                 recency_days=recency_days,
             )

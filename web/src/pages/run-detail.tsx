@@ -954,21 +954,14 @@ export function RunDetailPage() {
                           </p>
                         </div>
                       )}
-                      <div
-                        className={cn(
-                          run.users.length > 1 &&
-                            "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start",
-                        )}
-                      >
-                        {run.users.length > 1 && (
-                          <div className="lg:sticky lg:top-4">
-                            <UserTabs
-                              results={ordered}
-                              selected={selected.slug}
-                              onSelect={setSelectedSlug}
-                            />
-                          </div>
-                        )}
+                      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
+                        <div className="lg:sticky lg:top-4">
+                          <UserTabs
+                            results={ordered}
+                            selected={selected.slug}
+                            onSelect={setSelectedSlug}
+                          />
+                        </div>
                         <Card
                           className={cn(
                             "min-w-0",

@@ -502,7 +502,12 @@ describe("RunDetail — shows the display name, not the bare username", () => {
 
     renderDetail();
 
-    expect(await screen.findByText("Joe - Richard's Mate")).toBeInTheDocument();
+    // The name now appears in both the user sidebar row and the panel header (the sidebar shows
+    // even for a single user), so assert it's present rather than unique — the point is the bare
+    // Plex login "moohouse" never renders as text (it's kept only for the avatar + search).
+    expect(
+      (await screen.findAllByText("Joe - Richard's Mate")).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText("moohouse")).toBeNull();
   });
 });
